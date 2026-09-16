@@ -1,0 +1,25 @@
+{
+  "expo": {
+    "name": "Strømblik",
+    "slug": "stromblik",
+    "version": "1.0.0",
+    "orientation": "default",
+    "userInterfaceStyle": "light",
+    "splash": {
+      "backgroundColor": "#F4F1E8"
+    },
+    "ios": {
+      "supportsTablet": true,
+      "bundleIdentifier": "dk.dithjem.stromblik"
+    },
+    "android": {
+      "package": "dk.dithjem.stromblik",
+      "adaptiveIcon": {
+        "backgroundColor": "#F4F1E8"
+      }
+    },
+    "web": {
+      "bundler": "metro"
+    }
+  }
+}
