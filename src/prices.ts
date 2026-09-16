@@ -42,10 +42,11 @@ const API_URL = "https://stromligning.dk/api/prices";
 export async function fetchPrices(area: PriceArea, supplierId: string): Promise<PricePoint[]> {
   const query = new URLSearchParams({
     from: new Date(Date.now() - 24 * 60 * 60 * 1000).toISOString(),
-    to: new Date(Date.now() + 3 * 24 * 60 * 60 * 1000).toISOString(),
+    to: new Date(Date.now() + 7 * 24 * 60 * 60 * 1000).toISOString(),
     supplierId,
     customerGroupId: "c",
     priceArea: area,
+    forecast: "true",
   });
   const url = `${API_URL}?${query.toString()}`;
   const response = await fetch(url);
@@ -77,7 +78,7 @@ export function createSamplePrices(area: PriceArea): PricePoint[] {
   now.setMinutes(Math.floor(now.getMinutes() / 15) * 15, 0, 0);
   const offset = area === "DK1" ? 0 : 70;
 
-  return Array.from({ length: 160 }, (_, index) => {
+  return Array.from({ length: 680 }, (_, index) => {
     const startsAt = new Date(now.getTime() + (index - 8) * 15 * 60 * 1000);
     const hour = startsAt.getHours() + startsAt.getMinutes() / 60;
     const morningPeak = 620 * Math.exp(-Math.pow((hour - 8) / 2.2, 2));
