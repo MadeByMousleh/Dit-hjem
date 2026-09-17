@@ -7,6 +7,7 @@ import { StatusBar } from "expo-status-bar";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
   ActivityIndicator,
+  Modal,
   Pressable,
   RefreshControl,
   ScrollView,
@@ -17,7 +18,13 @@ import {
   View,
 } from "react-native";
 import { SafeAreaProvider, SafeAreaView } from "react-native-safe-area-context";
-import { createSamplePrices, fetchPrices, PricePoint } from "./src/prices";
+import { createSamplePrices, fetchGridSuppliers, fetchPrices, GridSupplier, GRID_SUPPLIERS, PricePoint } from "./src/prices";
+import { AddressSuggestion, searchAddresses } from "./src/addresses";
+import { EvModel, fetchOpenEvModels } from "./src/evData";
+import { fetchWasteEvents, fetchWasteHealth, WasteEvent, WasteHealth, WASTE_LABELS } from "./src/waste";
+
+const GRID_SUPPLIERS_FALLBACK = GRID_SUPPLIERS;
+const DEFAULT_GRID_SUPPLIER: GridSupplier = { id: "n1_c", name: "N1", area: "DK1" };
 
 const colors = {
   ink: "#18332F",
@@ -44,6 +51,15 @@ const dkDay = new Intl.DateTimeFormat("da-DK", {
   month: "short",
 });
 
+const EFORSYNING_API_URL = "http://localhost:8787";
+type EforsyningData = {
+  period: { from: string | null; to: string | null };
+  heating: { usedKwh: number | null; expectedKwh: number | null };
+  water: { usedM3: number | null; expectedM3: number | null };
+  temperatures: { forwardC: number | null; returnC: number | null; coolingC: number | null };
+  fetchedAt: string;
+};
+
 const DEVICE_TEMPLATES = [
   { kind: "dishwasher", name: "Opvaskemaskine", icon: "droplet" as const, energyKwh: 1, durationHours: 2 },
   { kind: "laundry", name: "Vaskemaskine", icon: "refresh-cw" as const, energyKwh: 0.8, durationHours: 2 },
@@ -53,7 +69,8 @@ const DEVICE_TEMPLATES = [
 ] as const;
 
 type DeviceKind = typeof DEVICE_TEMPLATES[number]["kind"];
-type EnergyClass = "A+++" | "A++" | "A+" | "A" | "B" | "C" | "D" | "E" | "F" | "G";
+type EnergyClass = "A" | "B" | "C" | "D" | "E" | "F" | "G";
+type WashTemperature = 30 | 40 | 60 | 90;
 type HouseholdDevice = {
   id: number;
   kind: DeviceKind;
@@ -66,17 +83,37 @@ type HouseholdDevice = {
   targetCharge: number;
   chargerKw: number;
   energyClass?: EnergyClass;
+  temperature?: WashTemperature;
+  registration?: string;
+  vehicleModel?: string;
+  showOnDashboard?: boolean;
 };
 
 const DEVICES_STORAGE_KEY = "stromblik.household-devices.v1";
-const ENERGY_CLASSES: EnergyClass[] = ["A+++", "A++", "A+", "A", "B", "C", "D", "E", "F", "G"];
+const PROFILE_STORAGE_KEY = "stromblik.profile.v1";
+const ENERGY_CLASSES: EnergyClass[] = ["A", "B", "C", "D", "E", "F", "G"];
+const WASH_TEMPERATURES: WashTemperature[] = [30, 40, 60, 90];
+const WASH_TEMPERATURE_MULTIPLIERS: Record<WashTemperature, number> = { 30: 0.65, 40: 1, 60: 1.45, 90: 2.1 };
 const DURATIONS = [0.5, 1, 1.5, 2, 2.5, 3, 3.5, 4];
+const ENERGY_CLASS_COLORS: Record<EnergyClass, string> = {
+  A: "#2D8A45",
+  B: "#62A844",
+  C: "#B5C836",
+  D: "#F1D13C",
+  E: "#F4A62A",
+  F: "#E66C2E",
+  G: "#C93C35",
+};
 
 const CLASS_ENERGY_KWH: Record<"dishwasher" | "laundry" | "dryer", Record<EnergyClass, number>> = {
-  dishwasher: { "A+++": 0.65, "A++": 0.75, "A+": 0.9, A: 0.55, B: 0.64, C: 0.72, D: 0.82, E: 0.93, F: 1.04, G: 1.16 },
-  laundry: { "A+++": 0.55, "A++": 0.65, "A+": 0.75, A: 0.49, B: 0.55, C: 0.61, D: 0.69, E: 0.76, F: 0.84, G: 0.95 },
-  dryer: { "A+++": 1, "A++": 1.35, "A+": 2, A: 0.8, B: 0.95, C: 1.1, D: 1.3, E: 1.6, F: 2, G: 2.5 },
+  dishwasher: { A: 0.55, B: 0.64, C: 0.72, D: 0.82, E: 0.93, F: 1.04, G: 1.16 },
+  laundry: { A: 0.49, B: 0.55, C: 0.61, D: 0.69, E: 0.76, F: 0.84, G: 0.95 },
+  dryer: { A: 0.8, B: 0.95, C: 1.1, D: 1.3, E: 1.6, F: 2, G: 2.5 },
 };
+
+function isEnergyClass(value: unknown): value is EnergyClass {
+  return typeof value === "string" && (ENERGY_CLASSES as string[]).includes(value);
+}
 
 function formatPrice(value: number, digits = 0) {
   return value.toLocaleString("da-DK", { maximumFractionDigits: digits, minimumFractionDigits: digits });
@@ -184,28 +221,50 @@ function NumericField({ label, value, suffix, onChange }: { label: string; value
   );
 }
 
-function DevicePlanCard({ device, points, now, expanded, onToggle, onChange, onRemove }: {
+function DevicePlanCard({ device, points, now, evModels, expanded, onToggle, onChange, onRemove, onToggleDashboard }: {
   device: HouseholdDevice;
   points: PricePoint[];
   now: number;
+  evModels: EvModel[];
   expanded: boolean;
   onToggle: () => void;
   onChange: (changes: Partial<HouseholdDevice>) => void;
-  onRemove: () => void;
+  onRemove?: () => void;
+  onToggleDashboard?: () => void;
 }) {
   const isCar = device.kind === "ev";
   const hasCycleEnergyLabel = device.kind === "dishwasher" || device.kind === "laundry" || device.kind === "dryer";
-  const energyClass = device.energyClass ?? (device.kind === "laundry" ? "A" : "B");
+  const energyClass = isEnergyClass(device.energyClass) ? device.energyClass : device.kind === "laundry" ? "A" : "B";
+  const temperature = device.temperature ?? 40;
   const estimatedCycleKwh = hasCycleEnergyLabel
     ? CLASS_ENERGY_KWH[device.kind as keyof typeof CLASS_ENERGY_KWH][energyClass]
     : device.energyKwh;
+  const cycleEnergyKwh = device.kind === "laundry" ? estimatedCycleKwh * WASH_TEMPERATURE_MULTIPLIERS[temperature] : estimatedCycleKwh;
   const energyKwh = isCar
     ? device.batteryKwh * Math.max(0, device.targetCharge - device.currentCharge) / 100 / 0.9
-    : estimatedCycleKwh;
+    : cycleEnergyKwh;
   const durationHours = isCar ? Math.max(0.25, energyKwh / device.chargerKw) : device.durationHours;
   const plan = useMemo(() => findBestEnergyWindow(points, energyKwh, durationHours, now), [durationHours, energyKwh, now, points]);
+  const vehicleQuery = (device.vehicleModel ?? "").trim().toLowerCase();
+  const vehicleMatches = [...new Map(evModels
+    .filter((model) => {
+      const name = (model.name ?? "").toLowerCase();
+      const modelName = (model.modelName ?? model.name ?? "").toLowerCase();
+      return name.includes(vehicleQuery) || modelName.includes(vehicleQuery);
+    })
+    .sort((left, right) => {
+      const leftName = left.modelName ?? left.name ?? "";
+      const rightName = right.modelName ?? right.name ?? "";
+      const leftStarts = leftName.toLowerCase().startsWith(vehicleQuery) ? 0 : 1;
+      const rightStarts = rightName.toLowerCase().startsWith(vehicleQuery) ? 0 : 1;
+      return leftStarts - rightStarts || leftName.localeCompare(rightName, "da");
+    })
+    .map((model) => [(model.modelName ?? model.name), model] as const)).values()].slice(0, 8);
   const endTime = plan ? new Date(plan.cheapest.startsAt.getTime() + durationHours * 3_600_000) : undefined;
   const nowEndTime = new Date(now + durationHours * 3_600_000);
+  const selectVehicleModel = (model: EvModel) => {
+    onChange({ vehicleModel: model.name, batteryKwh: model.batteryKwh, chargerKw: model.chargerKw ?? device.chargerKw, name: model.name });
+  };
 
   return (
     <View style={styles.deviceCard}>
@@ -218,12 +277,13 @@ function DevicePlanCard({ device, points, now, expanded, onToggle, onChange, onR
           </View>
         </View>
         <View style={styles.deviceActions}>
+          {onToggleDashboard ? <Pressable accessibilityLabel={`${device.showOnDashboard ? "Skjul" : "Vis"} ${device.name} på overblik`} onPress={onToggleDashboard} style={[styles.deviceActionButton, device.showOnDashboard && styles.deviceActionButtonActive]}><Feather name="eye" size={16} color={device.showOnDashboard ? colors.green : colors.muted} /></Pressable> : null}
           <Pressable accessibilityLabel={`${expanded ? "Luk" : "Tilpas"} ${device.name}`} onPress={onToggle} style={styles.deviceActionButton}>
             <Feather name={expanded ? "chevron-up" : "sliders"} size={17} color={colors.ink} />
           </Pressable>
-          <Pressable accessibilityLabel={`Fjern ${device.name}`} onPress={onRemove} style={styles.deviceActionButton}>
+          {onRemove ? <Pressable accessibilityLabel={`Fjern ${device.name}`} onPress={onRemove} style={styles.deviceActionButton}>
             <Feather name="trash-2" size={16} color="#A4462E" />
-          </Pressable>
+          </Pressable> : null}
         </View>
       </View>
 
@@ -251,6 +311,30 @@ function DevicePlanCard({ device, points, now, expanded, onToggle, onChange, onR
         <View style={styles.deviceSettings}>
           {isCar ? (
             <>
+              <View style={styles.vehicleLookupGroup}>
+                <Text style={styles.simpleSettingTitle}>Bilmodel</Text>
+                <View style={styles.vehicleLookupRow}>
+                  <TextInput
+                    accessibilityLabel="Bilmodel"
+                    placeholder="Søg bilmodel"
+                    placeholderTextColor={colors.muted}
+                    value={device.vehicleModel ?? ""}
+                    onChangeText={(vehicleModel) => onChange({ vehicleModel })}
+                    style={styles.vehiclePlateInput}
+                  />
+                </View>
+                {device.vehicleModel ? (
+                  <View style={styles.vehicleModelSuggestions}>
+                    {vehicleMatches.map((model) => (
+                      <Pressable key={model.name} onPress={() => selectVehicleModel(model)} style={styles.vehicleModelOption}>
+                        <Text style={styles.vehicleModelOptionName}>{model.name}</Text>
+                        <Text style={styles.vehicleModelOptionBattery}>{model.batteryKwh} kWh</Text>
+                      </Pressable>
+                    ))}
+                  </View>
+                ) : null}
+                <Text style={styles.vehicleLookupHint}>Vælg en model for automatisk batterikapacitet, eller justér den manuelt nedenfor.</Text>
+              </View>
               <View style={styles.controlRow}>
                 <Stepper label="Batteri" value={device.batteryKwh} min={20} max={150} step={5} suffix=" kWh" onChange={(batteryKwh) => onChange({ batteryKwh })} />
                 <Stepper label="Lader" value={device.chargerKw} min={2} max={22} step={1} suffix=" kW" onChange={(chargerKw) => onChange({ chargerKw })} />
@@ -268,12 +352,24 @@ function DevicePlanCard({ device, points, now, expanded, onToggle, onChange, onR
                   <Text style={styles.simpleSettingTitle}>Energimærke</Text>
                   <View style={styles.choiceGrid} accessibilityRole="radiogroup">
                     {ENERGY_CLASSES.map((item) => (
-                      <Pressable key={item} accessibilityRole="radio" accessibilityState={{ checked: energyClass === item }} onPress={() => onChange({ energyClass: item })} style={[styles.classChoice, energyClass === item && styles.classChoiceActive]}>
-                        <Text style={[styles.classChoiceText, energyClass === item && styles.classChoiceTextActive]}>{item}</Text>
+                      <Pressable key={item} accessibilityRole="radio" accessibilityState={{ checked: energyClass === item }} onPress={() => onChange({ energyClass: item })} style={[styles.classChoice, { backgroundColor: ENERGY_CLASS_COLORS[item] }, energyClass === item && styles.classChoiceActive]}>
+                        <Text style={[styles.classChoiceText, (item === "C" || item === "D") && styles.classChoiceTextDark]}>{item}</Text>
                       </Pressable>
                     ))}
                   </View>
                   <Text style={styles.estimateCaption}>Estimeret forbrug: {formatPrice(energyKwh, 2)} kWh pr. program</Text>
+                </View>
+              ) : null}
+              {device.kind === "laundry" ? (
+                <View style={styles.simpleSettingGroup}>
+                  <Text style={styles.simpleSettingTitle}>Vasketemperatur</Text>
+                  <View style={styles.durationGrid} accessibilityRole="radiogroup">
+                    {WASH_TEMPERATURES.map((item) => (
+                      <Pressable key={item} accessibilityRole="radio" accessibilityState={{ checked: temperature === item }} onPress={() => onChange({ temperature: item })} style={[styles.durationChoice, temperature === item && styles.durationChoiceActive]}>
+                        <Text style={[styles.durationChoiceText, temperature === item && styles.durationChoiceTextActive]}>{item} °C</Text>
+                      </Pressable>
+                    ))}
+                  </View>
                 </View>
               ) : null}
               {!isCar ? (
@@ -300,7 +396,7 @@ function DevicePlanCard({ device, points, now, expanded, onToggle, onChange, onR
   );
 }
 
-function FamilyPlanner({ points, now }: { points: PricePoint[]; now: number }) {
+function FamilyPlanner({ points, now, evModels }: { points: PricePoint[]; now: number; evModels: EvModel[] }) {
   const nextId = useRef(1);
   const [devices, setDevices] = useState<HouseholdDevice[]>([]);
   const [showCatalog, setShowCatalog] = useState(false);
@@ -313,7 +409,11 @@ function FamilyPlanner({ points, now }: { points: PricePoint[]; now: number }) {
         if (!stored) return;
         const savedDevices = JSON.parse(stored) as HouseholdDevice[];
         if (!Array.isArray(savedDevices)) return;
-        setDevices(savedDevices);
+        setDevices(savedDevices.map((device) => ({
+          ...device,
+          energyClass: isEnergyClass(device.energyClass) ? device.energyClass : device.kind === "laundry" ? "A" : "B",
+          temperature: device.temperature ?? 40,
+        })));
         nextId.current = Math.max(0, ...savedDevices.map((device) => device.id)) + 1;
       })
       .catch(() => undefined)
@@ -341,7 +441,10 @@ function FamilyPlanner({ points, now }: { points: PricePoint[]; now: number }) {
         currentCharge: 40,
         targetCharge: 80,
         chargerKw: 11,
+        registration: "",
+        vehicleModel: "",
         energyClass: kind === "laundry" ? "A" : "B",
+        temperature: kind === "laundry" ? 40 : undefined,
       }];
     });
     setExpandedId(id);
@@ -391,9 +494,11 @@ function FamilyPlanner({ points, now }: { points: PricePoint[]; now: number }) {
               device={device}
               points={points}
               now={now}
+              evModels={evModels}
               expanded={expandedId === device.id}
               onToggle={() => setExpandedId((current) => current === device.id ? null : device.id)}
               onChange={(changes) => setDevices((current) => current.map((item) => item.id === device.id ? { ...item, ...changes } : item))}
+              onToggleDashboard={() => setDevices((current) => current.map((item) => item.id === device.id ? { ...item, showOnDashboard: !item.showOnDashboard } : item))}
               onRemove={() => {
                 setDevices((current) => current.filter((item) => item.id !== device.id));
                 if (expandedId === device.id) setExpandedId(null);
@@ -544,20 +649,71 @@ function PriceChart({ points, now }: { points: PricePoint[]; now: number }) {
   );
 }
 
+function WasteCollectionCard({ events, error, wasteHealth, showOnDashboard, onToggleDashboard, onOpenProfile }: { events: WasteEvent[]; error: string; wasteHealth: WasteHealth | null; showOnDashboard: boolean; onToggleDashboard: () => void; onOpenProfile?: () => void }) {
+  return (
+    <View style={styles.wastePanel}>
+      <View style={styles.sectionHeadingRow}>
+        <View><Text style={styles.pageEyebrow}>AFFALD</Text><Text style={styles.sectionTitle}>Næste afhentning</Text></View>
+        <Pressable accessibilityLabel={showOnDashboard ? "Skjul næste afhentning fra overblik" : "Vis næste afhentning på overblik"} onPress={onToggleDashboard} style={[styles.deviceActionButton, showOnDashboard && styles.deviceActionButtonActive]}>
+          <Feather name="eye" size={16} color={showOnDashboard ? colors.green : colors.muted} />
+        </Pressable>
+      </View>
+      {events.length ? events.slice(0, 3).map((event) => (
+        <View key={event.id} style={styles.wasteEvent}>
+          <View style={styles.wasteDate}><Text style={styles.wasteDateDay}>{new Date(`${event.date}T12:00:00`).getDate()}</Text><Text style={styles.wasteDateMonth}>{new Date(`${event.date}T12:00:00`).toLocaleDateString("da-DK", { month: "short" })}</Text></View>
+          <View style={styles.wasteEventCopy}><Text style={styles.wasteEventTitle}>{WASTE_LABELS[event.category]}</Text><Text style={styles.wasteEventMeta}>{event.title}</Text></View>
+        </View>
+      )) : <>
+        <Text style={styles.wasteEmpty}>{error || "Tilføj din adresse i Profil for at se affaldsafhentninger."}</Text>
+        {!events.length && onOpenProfile ? <Pressable onPress={onOpenProfile} style={styles.wasteAction}><Text style={styles.wasteActionText}>{wasteHealth?.status === "unsupported" ? "Tilføj officiel kalender" : "Åbn Profil"}</Text><Feather name="arrow-right" size={14} color={colors.white} /></Pressable> : null}
+      </>}
+    </View>
+  );
+}
+
 function Dashboard() {
   const { width } = useWindowDimensions();
+  const isMobile = width < 520;
   const isTablet = width >= 760;
-  const area = "DK1" as const;
+  const [gridSuppliers, setGridSuppliers] = useState<GridSupplier[]>(GRID_SUPPLIERS_FALLBACK);
+  const [selectedSupplierId, setSelectedSupplierId] = useState("n1_c");
+  const [showSupplierPicker, setShowSupplierPicker] = useState(false);
+  const [address, setAddress] = useState("");
+  const [addressSuggestions, setAddressSuggestions] = useState<AddressSuggestion[]>([]);
+  const [addressLookupLoading, setAddressLookupLoading] = useState(false);
+  const [addressError, setAddressError] = useState("");
+  const selectedSupplier = gridSuppliers.find((supplier) => supplier.id === selectedSupplierId) ?? DEFAULT_GRID_SUPPLIER;
+  const area = selectedSupplier.area;
   const [now, setNow] = useState(() => Date.now());
-  const [prices, setPrices] = useState<PricePoint[]>(() => createSamplePrices("DK1"));
+  const [prices, setPrices] = useState<PricePoint[]>(() => createSamplePrices(area));
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
   const [isSample, setIsSample] = useState(false);
+  const [eforsyning, setEforsyning] = useState<EforsyningData | null>(null);
+  const [eforsyningUsername, setEforsyningUsername] = useState("");
+  const [eforsyningPassword, setEforsyningPassword] = useState("");
+  const [eforsyningSupplierId, setEforsyningSupplierId] = useState("");
+  const [eforsyningLoading, setEforsyningLoading] = useState(false);
+  const [eforsyningError, setEforsyningError] = useState("");
+  const [evModels, setEvModels] = useState<EvModel[]>([]);
+  const [profileName, setProfileName] = useState("");
+  const [profileEmail, setProfileEmail] = useState("");
+  const [quickDevices, setQuickDevices] = useState<HouseholdDevice[]>([]);
+  const [expandedQuickId, setExpandedQuickId] = useState<number | null>(null);
+  const [profileSaved, setProfileSaved] = useState(false);
+  const [addressMunicipality, setAddressMunicipality] = useState<string | undefined>();
+  const [addressPostcode, setAddressPostcode] = useState<string | undefined>();
+  const [wasteCalendarUrl, setWasteCalendarUrl] = useState("");
+  const [wasteEvents, setWasteEvents] = useState<WasteEvent[]>([]);
+  const [wasteError, setWasteError] = useState("");
+  const [wasteHealth, setWasteHealth] = useState<WasteHealth | null>(null);
+  const [wasteShowOnDashboard, setWasteShowOnDashboard] = useState(false);
+  const [activeTab, setActiveTab] = useState<"dashboard" | "home" | "profile">("dashboard");
 
   const load = useCallback(async (refresh = false) => {
     refresh ? setRefreshing(true) : setLoading(true);
     try {
-      setPrices(await fetchPrices("DK1", "n1_c"));
+      setPrices(await fetchPrices(selectedSupplier.area, selectedSupplier.id));
       setIsSample(false);
     } catch {
       setPrices(createSamplePrices("DK1"));
@@ -566,7 +722,7 @@ function Dashboard() {
       setLoading(false);
       setRefreshing(false);
     }
-  }, []);
+  }, [selectedSupplier]);
 
   useEffect(() => {
     const interval = setInterval(() => setNow(Date.now()), 60_000);
@@ -577,6 +733,115 @@ function Dashboard() {
   useEffect(() => {
     void load();
   }, [load, quarterKey]);
+
+  useEffect(() => {
+    fetchGridSuppliers().then(setGridSuppliers).catch(() => undefined);
+  }, []);
+
+  useEffect(() => {
+    fetchOpenEvModels().then(setEvModels).catch(() => undefined);
+  }, []);
+
+  useEffect(() => {
+    AsyncStorage.getItem(PROFILE_STORAGE_KEY).then((stored) => {
+      if (!stored) return;
+      const profile = JSON.parse(stored) as { name?: string; email?: string; address?: string; municipalityCode?: string; postcode?: string; wasteCalendarUrl?: string; wasteShowOnDashboard?: boolean };
+      setProfileName(profile.name ?? "");
+      setProfileEmail(profile.email ?? "");
+      setAddress(profile.address ?? "");
+      setAddressMunicipality(profile.municipalityCode);
+      setAddressPostcode(profile.postcode);
+      setWasteCalendarUrl(profile.wasteCalendarUrl ?? "");
+      setWasteShowOnDashboard(profile.wasteShowOnDashboard ?? false);
+    }).catch(() => undefined);
+    AsyncStorage.getItem(DEVICES_STORAGE_KEY).then((stored) => {
+      if (!stored) return;
+      const savedDevices = JSON.parse(stored) as HouseholdDevice[];
+      if (Array.isArray(savedDevices)) setQuickDevices(savedDevices);
+    }).catch(() => undefined);
+  }, [activeTab]);
+
+  useEffect(() => {
+    if (!addressMunicipality) return;
+    fetchWasteHealth(addressMunicipality).then(setWasteHealth).catch(() => setWasteHealth(null));
+    fetchWasteEvents(addressMunicipality, addressPostcode, wasteCalendarUrl, address).then((events) => {
+      setWasteEvents(events.filter((event) => new Date(`${event.date}T23:59:59`).getTime() >= Date.now()).slice(0, 8));
+      setWasteError("");
+    }).catch((error) => { setWasteEvents([]); setWasteError(error instanceof Error ? error.message : "Affaldskalenderen kunne ikke hentes"); });
+  }, [addressMunicipality, addressPostcode, wasteCalendarUrl, address]);
+
+  const saveProfile = async () => {
+    await AsyncStorage.setItem(PROFILE_STORAGE_KEY, JSON.stringify({ name: profileName, email: profileEmail, address, municipalityCode: addressMunicipality, postcode: addressPostcode, wasteCalendarUrl, wasteShowOnDashboard }));
+    setProfileSaved(true);
+    setTimeout(() => setProfileSaved(false), 1800);
+  };
+
+  useEffect(() => {
+    if (address.trim().length < 3) {
+      setAddressSuggestions([]);
+      return;
+    }
+    const timer = setTimeout(() => {
+      searchAddresses(address).then(setAddressSuggestions).catch(() => setAddressSuggestions([]));
+    }, 250);
+    return () => clearTimeout(timer);
+  }, [address]);
+
+  const chooseAddress = async (suggestion: AddressSuggestion) => {
+    setAddress(suggestion.text);
+    setAddressMunicipality(suggestion.municipalityCode);
+    setAddressPostcode(suggestion.postcode);
+    void AsyncStorage.setItem(PROFILE_STORAGE_KEY, JSON.stringify({ name: profileName, email: profileEmail, address: suggestion.text, municipalityCode: suggestion.municipalityCode, postcode: suggestion.postcode }));
+    setAddressSuggestions([]);
+    setAddressError("");
+    setAddressLookupLoading(true);
+    try {
+      const response = await fetch(`${EFORSYNING_API_URL}/api/grid/lookup?x=${suggestion.x}&y=${suggestion.y}`);
+      const result = await response.json() as { name?: string; error?: string };
+      if (!response.ok || !result.name) throw new Error(result.error ?? "Netselskabet kunne ikke findes");
+      const supplierTokens = (value: string) => value.toLowerCase()
+        .replace(/[^a-z0-9æøå]+/g, " ")
+        .split(" ")
+        .filter((token) => (token.length > 2 || /\d/.test(token)) && !["a/s", "as", "net", "elnet", "netselskab"].includes(token));
+      const supplierTokensFound = supplierTokens(result.name);
+      const canonicalSupplierId = supplierTokensFound.includes("n1") ? "n1_c" : undefined;
+      const match = (canonicalSupplierId && gridSuppliers.find((supplier) => supplier.id === canonicalSupplierId)) ?? gridSuppliers.find((supplier) => {
+        return [supplier.name, supplier.companyName ?? ""].some((name) => {
+          const candidateTokens = supplierTokens(name);
+          return supplierTokensFound.some((token) => candidateTokens.includes(token));
+        });
+      });
+      if (match) {
+        setSelectedSupplierId(match.id);
+        setShowSupplierPicker(false);
+      }
+      else setAddressError(`${result.name} blev fundet, men findes ikke i prislisten endnu.`);
+    } catch (error) {
+      setAddressError(error instanceof Error ? error.message : "Netselskabet kunne ikke findes");
+    } finally {
+      setAddressLookupLoading(false);
+    }
+  };
+
+  const loginToEforsyning = async () => {
+    setEforsyningLoading(true);
+    setEforsyningError("");
+    try {
+      const response = await fetch(`${EFORSYNING_API_URL}/api/eforsyning/login`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ username: eforsyningUsername, password: eforsyningPassword, supplierId: eforsyningSupplierId }),
+      });
+      const data = await response.json() as EforsyningData & { error?: string };
+      if (!response.ok) throw new Error(data.error ?? "Login mislykkedes");
+      setEforsyning(data);
+      setEforsyningPassword("");
+    } catch (error) {
+      setEforsyningError(error instanceof Error ? error.message : "Login mislykkedes");
+    } finally {
+      setEforsyningLoading(false);
+    }
+  };
 
   const current = [...prices].reverse().find((point) => point.startsAt.getTime() <= now) ?? prices[0];
   const future = prices.filter((point) => point.startsAt.getTime() >= now).slice(0, 49);
@@ -597,6 +862,66 @@ function Dashboard() {
     return [...grouped.values()].filter((group) => group.some((point) => point.startsAt.getTime() >= now - 900000)).slice(0, 3);
   }, [prices, now]);
 
+  const navigation = (
+    <View style={styles.bottomNavigation}>
+      {(["dashboard", "home", "profile"] as const).map((tab) => (
+        <Pressable key={tab} onPress={() => setActiveTab(tab)} style={[styles.navigationItem, activeTab === tab && styles.navigationItemActive]}>
+          <Feather name={tab === "dashboard" ? "activity" : tab === "home" ? "home" : "user"} size={17} color={activeTab === tab ? colors.green : colors.muted} />
+          <Text style={[styles.navigationText, activeTab === tab && styles.navigationTextActive]}>{tab === "dashboard" ? "Overblik" : tab === "home" ? "Mit hjem" : "Profil"}</Text>
+        </Pressable>
+      ))}
+    </View>
+  );
+
+  if (activeTab !== "dashboard") {
+    return (
+      <SafeAreaView style={styles.safeArea} edges={["top"]}>
+        <StatusBar style="dark" />
+        <ScrollView contentContainerStyle={styles.scrollContent}>
+          <View style={[styles.container, isMobile && styles.containerMobile]}>
+            <View style={styles.header}>
+              <View><Text style={styles.brand}>STRØMBLIK</Text><Text style={styles.date}>{dkDay.format(new Date(now))}</Text></View>
+              <Pressable accessibilityLabel="Opdater priser" onPress={() => void load(true)} style={styles.iconButton}><Feather name="refresh-cw" size={19} color={colors.ink} /></Pressable>
+            </View>
+            {activeTab === "home" ? (
+              <>
+                <Text style={styles.pageEyebrow}>MIT HJEM</Text>
+                <Text style={styles.pageTitle}>Apparater og elbil</Text>
+                <Text style={styles.pageIntro}>Gem dine apparater ét sted. Finjustér program, temperatur, lader og batteriniveau, når du planlægger.</Text>
+                <FamilyPlanner points={prices} now={now} evModels={evModels} />
+              </>
+            ) : (
+              <>
+                <Text style={styles.pageEyebrow}>MIN PROFIL</Text>
+                <Text style={styles.pageTitle}>Dine oplysninger</Text>
+                <View style={styles.profileCard}>
+                  <View style={styles.profileAvatar}><Feather name="user" size={24} color={colors.green} /></View>
+                  <TextInput accessibilityLabel="Navn" placeholder="Dit navn" placeholderTextColor={colors.muted} value={profileName} onChangeText={setProfileName} style={styles.profileInput} />
+                  <TextInput accessibilityLabel="Email" placeholder="din@email.dk" placeholderTextColor={colors.muted} keyboardType="email-address" autoCapitalize="none" value={profileEmail} onChangeText={setProfileEmail} style={styles.profileInput} />
+                  <Pressable onPress={() => void saveProfile()} style={styles.profileSaveButton}><Text style={styles.profileSaveText}>{profileSaved ? "Gemt" : "Gem profil"}</Text></Pressable>
+                </View>
+                <Text style={styles.pageEyebrow}>MIN ADRESSE</Text>
+                <Text style={styles.sectionTitle}>Find mit netselskab</Text>
+                <Text style={styles.pageIntro}>Indtast din adresse, så bruger appen automatisk det rigtige netselskab på dashboardet.</Text>
+                <View style={styles.profileAddressCard}>
+                  <View style={styles.addressSearchWrap}>
+                    <View style={styles.addressIconWrap}><Feather name="map-pin" size={16} color={colors.green} /></View>
+                    <TextInput accessibilityLabel="Profiladresse" value={address} onChangeText={(value) => { setAddress(value); setAddressError(""); }} placeholder="Indtast din adresse" placeholderTextColor={colors.muted} style={styles.addressInput} />
+                    {addressLookupLoading ? <ActivityIndicator size="small" color={colors.green} /> : null}
+                  </View>
+                  {addressSuggestions.map((suggestion) => <Pressable key={suggestion.id} onPress={() => void chooseAddress(suggestion)} style={styles.addressSuggestion}><Text style={styles.addressSuggestionText}>{suggestion.text}</Text></Pressable>)}
+                  {addressError ? <Text style={styles.addressError}>{addressError}</Text> : null}
+                  <View style={styles.currentSupplierRow}><Text style={styles.currentSupplierLabel}>AKTUELT NETSELSKAB</Text><Text style={styles.currentSupplierName}>{selectedSupplier.name} · {selectedSupplier.area}</Text></View>
+                </View>
+              </>
+            )}
+            {navigation}
+          </View>
+        </ScrollView>
+      </SafeAreaView>
+    );
+  }
+
   return (
     <SafeAreaView style={styles.safeArea} edges={["top"]}>
       <StatusBar style="dark" />
@@ -604,7 +929,7 @@ function Dashboard() {
         contentContainerStyle={styles.scrollContent}
         refreshControl={<RefreshControl refreshing={refreshing} onRefresh={() => void load(true)} tintColor={colors.green} />}
       >
-        <View style={styles.container}>
+        <View style={[styles.container, isMobile && styles.containerMobile]}>
           <View style={styles.header}>
             <View>
               <Text style={styles.brand}>STRØMBLIK</Text>
@@ -614,6 +939,9 @@ function Dashboard() {
               <Feather name="refresh-cw" size={19} color={colors.ink} />
             </Pressable>
           </View>
+          {navigation}
+
+          <View style={styles.dashboardContext}><Text style={styles.dashboardContextLabel}>PRISER FRA</Text><Text style={styles.dashboardContextValue}>{selectedSupplier.name} · {area}</Text></View>
 
           {isSample ? (
             <View style={styles.notice}>
@@ -623,9 +951,9 @@ function Dashboard() {
           ) : null}
 
           <View style={[styles.topGrid, isTablet && styles.topGridTablet]}>
-            <LinearGradient colors={["#DCE9DC", "#EEF1DB"]} style={[styles.hero, isTablet && styles.halfPanel]}>
+            <LinearGradient colors={["#DCE9DC", "#EEF1DB"]} style={[styles.hero, isMobile && styles.heroMobile, isTablet && styles.halfPanel]}>
               <View style={styles.heroTopline}>
-                <Text style={styles.eyebrow}>LIGE NU · N1 · {area}</Text>
+                <Text style={styles.eyebrow}>LIGE NU · {selectedSupplier.name} · {area}</Text>
                 {loading ? <ActivityIndicator color={colors.green} size="small" /> : null}
               </View>
               <View style={styles.priceLine}>
@@ -642,7 +970,7 @@ function Dashboard() {
               <Text style={styles.vatNote}>Inkl. moms, elafgift og transport</Text>
             </LinearGradient>
 
-            <View style={[styles.trendPanel, isTablet && styles.halfPanel]}>
+            <View style={[styles.trendPanel, isMobile && styles.trendPanelMobile, isTablet && styles.halfPanel]}>
               <View style={styles.sectionHeadingRow}>
                 <View>
                   <Text style={styles.eyebrow}>TIMEPRISER · OP TIL 7 DAGE</Text>
@@ -654,67 +982,148 @@ function Dashboard() {
             </View>
           </View>
 
-          <FamilyPlanner points={prices} now={now} />
-
-          <View style={styles.sectionHeadingRow}>
-            <View>
-              <Text style={styles.eyebrow}>KVARTER FOR KVARTER</Text>
-              <Text style={styles.sectionTitle}>Kommende priser</Text>
-            </View>
-            <Text style={styles.smallMeta}>inkl. moms</Text>
+          <View style={styles.dashboardDevicesSummary}>
+            <Text style={styles.pageEyebrow}>MIT HJEM</Text>
+            <Text style={styles.dashboardSummaryText}>Dine apparater og elbil ligger samlet i Mit hjem.</Text>
+            {quickDevices.filter((device) => device.showOnDashboard).length ? (
+              <View style={styles.quickDeviceList}>
+                {quickDevices.filter((device) => device.showOnDashboard).map((device) => (
+                  <DevicePlanCard
+                    key={device.id}
+                    device={device}
+                    points={prices}
+                    now={now}
+                    evModels={evModels}
+                    expanded={expandedQuickId === device.id}
+                    onToggle={() => setExpandedQuickId((current) => current === device.id ? null : device.id)}
+                    onChange={(changes) => {
+                      const next = quickDevices.map((item) => item.id === device.id ? { ...item, ...changes } : item);
+                      setQuickDevices(next);
+                      void AsyncStorage.setItem(DEVICES_STORAGE_KEY, JSON.stringify(next));
+                    }}
+                  />
+                ))}
+              </View>
+            ) : <Text style={styles.dashboardSummaryText}>Vælg “Vis på overblik” på en enhed i Mit hjem for hurtig adgang her.</Text>}
+            <Pressable onPress={() => setActiveTab("home")} style={styles.dashboardSummaryButton}><Text style={styles.dashboardSummaryButtonText}>Åbn Mit hjem</Text><Feather name="arrow-right" size={15} color={colors.white} /></Pressable>
           </View>
-          <View style={[styles.hourGrid, isTablet && styles.hourGridTablet]}>
-            {displayPoints.slice(0, isTablet ? 8 : 6).map((point, index) => {
-              const value = pointPrice(point);
-              const itemTone = getPriceTone(value, oreValues);
-              return (
-                <View key={point.startsAt.toISOString()} style={[styles.hourRow, isTablet && styles.hourRowTablet, index === 0 && styles.hourRowCurrent]}>
-                  <View style={styles.hourTimeWrap}>
-                    <Text style={styles.hourTime}>{dkTime.format(point.startsAt)}</Text>
-                    <Text style={styles.hourRelative}>{index === 0 ? "Næste interval" : `+${index * 15} min`}</Text>
-                  </View>
-                  <View style={styles.hourPriceWrap}>
-                    <Text style={styles.hourPrice}>{formatPrice(value / 100, 2)}</Text>
-                    <Text style={styles.hourUnit}>kr</Text>
-                  </View>
-                  <View style={[styles.miniDot, { backgroundColor: itemTone.color }]} />
+
+          {eforsyning ? (
+            <View style={styles.utilityPanel}>
+              <View style={styles.sectionHeadingRow}>
+                <View>
+                  <Text style={styles.eyebrow}>FORSYNING · SENESTE AFLÆSNING</Text>
+                  <Text style={styles.sectionTitle}>Varme og vand</Text>
                 </View>
-              );
-            })}
-          </View>
-
-          <View style={[styles.sectionHeadingRow, styles.daysHeading]}>
-            <View>
-              <Text style={styles.eyebrow}>DAGSPRISER</Text>
-              <Text style={styles.sectionTitle}>I dag og frem</Text>
-            </View>
-            <Feather name="calendar" size={21} color={colors.ink} />
-          </View>
-          <View style={[styles.dayGrid, isTablet && styles.dayGridTablet]}>
-            {days.map((group) => {
-              const values = group.map(pointPrice);
-              const average = values.reduce((sum, value) => sum + value, 0) / values.length;
-              return (
-                <View key={dayKey(group[0]!.startsAt)} style={styles.dayItem}>
-                  <Text style={styles.dayName}>{dkDay.format(group[0]!.startsAt)}</Text>
-                  <Text style={styles.dayPrice}>{formatPrice(average / 100, 2)} <Text style={styles.dayUnit}>kr</Text></Text>
-                  <View style={styles.rangeLine}>
-                    <Text style={styles.rangeText}>Lav {formatPrice(Math.min(...values) / 100, 2)}</Text>
-                    <Text style={styles.rangeText}>Høj {formatPrice(Math.max(...values) / 100, 2)}</Text>
-                  </View>
+                <Feather name="droplet" size={21} color={colors.green} />
+              </View>
+              <View style={styles.utilityGrid}>
+                <View style={styles.utilityValue}>
+                  <Text style={styles.utilityLabel}>VARME</Text>
+                  <Text style={styles.utilityNumber}>{eforsyning.heating.usedKwh == null ? "–" : formatPrice(eforsyning.heating.usedKwh, 1)}</Text>
+                  <Text style={styles.utilityUnit}>kWh</Text>
                 </View>
-              );
-            })}
-          </View>
+                <View style={styles.utilityValue}>
+                  <Text style={styles.utilityLabel}>VAND</Text>
+                  <Text style={styles.utilityNumber}>{eforsyning.water.usedM3 == null ? "–" : formatPrice(eforsyning.water.usedM3, 2)}</Text>
+                  <Text style={styles.utilityUnit}>m³</Text>
+                </View>
+                <View style={styles.utilityValue}>
+                  <Text style={styles.utilityLabel}>AFKØLING</Text>
+                  <Text style={styles.utilityNumber}>{eforsyning.temperatures.coolingC == null ? "–" : formatPrice(eforsyning.temperatures.coolingC, 1)}</Text>
+                  <Text style={styles.utilityUnit}>°C</Text>
+                </View>
+              </View>
+              <Text style={styles.utilityMeta}>{eforsyning.period.from ?? ""} – {eforsyning.period.to ?? ""}</Text>
+            </View>
+          ) : (
+            <View style={styles.loginPanel}>
+              <View style={styles.sectionHeadingRow}>
+                <View style={styles.loginHeadingCopy}>
+                  <Text style={styles.eyebrow}>FORSYNING</Text>
+                  <Text style={styles.sectionTitle}>Se varmeforbrug</Text>
+                </View>
+                <Feather name="lock" size={20} color={colors.green} />
+              </View>
+              <Text style={styles.loginText}>Log ind med oplysningerne fra din eForsyning-regning for at se varme, vand og afkøling.</Text>
+              <TextInput accessibilityLabel="Brugernummer" autoCapitalize="none" placeholder="Brugernummer" placeholderTextColor={colors.muted} value={eforsyningUsername} onChangeText={setEforsyningUsername} style={styles.loginInput} />
+              <TextInput accessibilityLabel="Adgangskode" autoCapitalize="none" placeholder="Adgangskode" placeholderTextColor={colors.muted} secureTextEntry value={eforsyningPassword} onChangeText={setEforsyningPassword} style={styles.loginInput} />
+              <TextInput accessibilityLabel="Forsynings-ID" autoCapitalize="none" placeholder="Forsynings-ID" placeholderTextColor={colors.muted} value={eforsyningSupplierId} onChangeText={setEforsyningSupplierId} style={styles.loginInput} />
+              {eforsyningError ? <Text style={styles.loginError}>{eforsyningError}</Text> : null}
+              <Pressable disabled={eforsyningLoading} onPress={() => void loginToEforsyning()} style={[styles.loginButton, eforsyningLoading && styles.loginButtonDisabled]}>
+                <Feather name={eforsyningLoading ? "loader" : "log-in"} size={16} color={colors.white} />
+                <Text style={styles.loginButtonText}>{eforsyningLoading ? "Logger ind..." : "Log ind og vis forbrug"}</Text>
+              </Pressable>
+              <Text style={styles.loginPrivacy}>Oplysningerne sendes til din lokale proxy og gemmes ikke i appen.</Text>
+            </View>
+          )}
 
-          <View style={styles.disclosure}>
-            <Feather name="info" size={17} color={colors.muted} />
-            <Text style={styles.disclosureText}>
-              Samlet pris inkluderer spotpris, moms, elafgift samt lokale og nationale tariffer. Elselskabets og netselskabets abonnementer er ikke medregnet. Data: Strømligning og Nord Pool.
-            </Text>
-          </View>
         </View>
       </ScrollView>
+      <Modal visible={showSupplierPicker} transparent animationType="slide" onRequestClose={() => setShowSupplierPicker(false)}>
+        <View style={styles.modalBackdrop}>
+          <View style={styles.supplierModal}>
+            <View style={styles.modalHeader}>
+              <View>
+                <Text style={styles.eyebrow}>ELNET</Text>
+                <Text style={styles.sectionTitle}>Vælg netselskab</Text>
+              </View>
+              <Pressable accessibilityLabel="Luk netselskaber" onPress={() => setShowSupplierPicker(false)} style={styles.modalClose}>
+                <Feather name="x" size={19} color={colors.ink} />
+              </Pressable>
+            </View>
+            <Text style={styles.modalHint}>Vælg direkte fra listen, eller find netselskabet via din adresse.</Text>
+            <Text style={styles.addressSectionLabel}>FIND VIA ADRESSE</Text>
+            <View style={styles.addressSearchWrap}>
+              <View style={styles.addressIconWrap}>
+                <Feather name="map-pin" size={16} color={colors.green} />
+              </View>
+              <View style={styles.addressInputCopy}>
+                <TextInput
+                  accessibilityLabel="Søg adresse"
+                  value={address}
+                  onChangeText={(value) => { setAddress(value); setAddressError(""); }}
+                  placeholder="Indtast din adresse"
+                  placeholderTextColor={colors.muted}
+                  style={styles.addressInput}
+                />
+              </View>
+              {addressLookupLoading ? <ActivityIndicator size="small" color={colors.green} /> : null}
+            </View>
+            {addressSuggestions.length ? (
+              <View style={styles.addressSuggestions}>
+                {addressSuggestions.map((suggestion) => (
+                  <Pressable key={suggestion.id} onPress={() => void chooseAddress(suggestion)} style={styles.addressSuggestion}>
+                    <Text style={styles.addressSuggestionText}>{suggestion.text}</Text>
+                  </Pressable>
+                ))}
+              </View>
+            ) : null}
+            {addressError ? <Text style={styles.addressError}>{addressError}</Text> : null}
+            <View style={styles.manualChoiceHeading}>
+              <Text style={styles.addressSectionLabel}>VÆLG MANUELT</Text>
+              <View style={styles.manualChoiceLine} />
+            </View>
+            <ScrollView style={styles.supplierList} showsVerticalScrollIndicator={false}>
+              {gridSuppliers.map((supplier) => (
+                <Pressable
+                  key={supplier.id}
+                  accessibilityRole="radio"
+                  accessibilityState={{ checked: supplier.id === selectedSupplier.id }}
+                  onPress={() => { setSelectedSupplierId(supplier.id); setShowSupplierPicker(false); }}
+                  style={[styles.supplierOption, supplier.id === selectedSupplier.id && styles.supplierOptionActive]}
+                >
+                  <View style={styles.supplierOptionCopy}>
+                    <Text style={styles.supplierOptionName}>{supplier.name}</Text>
+                    <Text style={styles.supplierOptionArea}>{supplier.area}</Text>
+                  </View>
+                  {supplier.id === selectedSupplier.id ? <Feather name="check" size={18} color={colors.green} /> : null}
+                </Pressable>
+              ))}
+            </ScrollView>
+          </View>
+        </View>
+      </Modal>
     </SafeAreaView>
   );
 }
@@ -733,18 +1142,66 @@ export default function App() {
 const styles = StyleSheet.create({
   loadingScreen: { flex: 1, alignItems: "center", justifyContent: "center", backgroundColor: colors.paper },
   safeArea: { flex: 1, backgroundColor: colors.paper },
-  scrollContent: { paddingBottom: 44 },
+  scrollContent: { paddingBottom: 68 },
   container: { width: "100%", maxWidth: 1120, alignSelf: "center", paddingHorizontal: 20 },
+  containerMobile: { paddingHorizontal: 12 },
   header: { minHeight: 96, flexDirection: "row", alignItems: "center", justifyContent: "space-between" },
   brand: { fontFamily: "DMSans_700Bold", fontSize: 18, color: colors.ink, letterSpacing: 0 },
   date: { fontFamily: "DMSans_400Regular", fontSize: 13, color: colors.muted, marginTop: 3, textTransform: "capitalize" },
   iconButton: { width: 44, height: 44, borderRadius: 22, borderWidth: 1, borderColor: colors.line, alignItems: "center", justifyContent: "center", backgroundColor: colors.white },
+  supplierPickerButton: { minHeight: 58, flexDirection: "row", alignItems: "center", gap: 10, paddingHorizontal: 14, borderRadius: 8, backgroundColor: colors.white, borderWidth: 1, borderColor: colors.line, marginBottom: 20 },
+  supplierPickerCopy: { flex: 1 },
+  supplierPickerLabel: { fontFamily: "DMSans_700Bold", fontSize: 9, color: colors.muted },
+  supplierPickerName: { fontFamily: "DMSans_700Bold", fontSize: 14, color: colors.ink, marginTop: 3 },
+  supplierPickerArea: { fontFamily: "DMSans_700Bold", fontSize: 11, color: colors.green, backgroundColor: colors.mint, paddingVertical: 5, paddingHorizontal: 8, borderRadius: 5 },
+  dashboardContext: { flexDirection: "row", alignItems: "center", justifyContent: "space-between", paddingHorizontal: 2, marginBottom: 14 },
+  dashboardContextLabel: { fontFamily: "DMSans_700Bold", fontSize: 9, color: colors.muted },
+  dashboardContextValue: { fontFamily: "DMSans_700Bold", fontSize: 11, color: colors.green },
+  addressSectionLabel: { fontFamily: "DMSans_700Bold", fontSize: 9, letterSpacing: 0.2, color: colors.muted, marginTop: 16, marginBottom: 7 },
+  addressSearchWrap: { minHeight: 58, flexDirection: "row", alignItems: "center", gap: 10, padding: 8, borderRadius: 8, backgroundColor: colors.white, borderWidth: 1, borderColor: "#C9D5C7", marginTop: 0 },
+  addressIconWrap: { width: 38, height: 38, alignItems: "center", justifyContent: "center", borderRadius: 6, backgroundColor: colors.mint },
+  addressInputCopy: { flex: 1, minWidth: 0 },
+  addressInput: { minWidth: 0, paddingVertical: 7, fontFamily: "DMSans_400Regular", fontSize: 13, color: colors.ink },
+  addressSuggestions: { backgroundColor: colors.white, borderRadius: 7, borderWidth: 1, borderColor: colors.line, marginTop: 8, marginBottom: 12, overflow: "hidden" },
+  addressSuggestion: { minHeight: 42, justifyContent: "center", paddingHorizontal: 12, borderBottomWidth: 1, borderBottomColor: colors.line },
+  addressSuggestionText: { fontFamily: "DMSans_500Medium", fontSize: 12, color: colors.ink },
+  addressError: { fontFamily: "DMSans_400Regular", fontSize: 10, lineHeight: 15, color: "#A4462E", marginTop: 6, marginHorizontal: 2 },
   notice: { flexDirection: "row", alignItems: "center", gap: 8, paddingVertical: 10, paddingHorizontal: 12, backgroundColor: "#F8E1D8", borderRadius: 6, marginBottom: 16 },
   noticeText: { fontFamily: "DMSans_500Medium", fontSize: 13, color: "#8A492F" },
+  modalBackdrop: { flex: 1, justifyContent: "flex-end", backgroundColor: "rgba(24,51,47,0.28)" },
+  supplierModal: { maxHeight: "82%", backgroundColor: colors.paper, borderTopLeftRadius: 14, borderTopRightRadius: 14, padding: 20 },
+  modalHeader: { flexDirection: "row", alignItems: "center", justifyContent: "space-between" },
+  modalClose: { width: 36, height: 36, alignItems: "center", justifyContent: "center", borderRadius: 18, backgroundColor: colors.white },
+  modalHint: { fontFamily: "DMSans_400Regular", fontSize: 12, color: colors.muted, marginTop: 8, marginBottom: 12 },
+  manualChoiceHeading: { flexDirection: "row", alignItems: "center", gap: 10, marginTop: 7 },
+  manualChoiceLine: { flex: 1, height: 1, backgroundColor: colors.line },
+  supplierList: { flexGrow: 0, marginTop: 8 },
+  supplierOption: { minHeight: 54, flexDirection: "row", alignItems: "center", paddingHorizontal: 12, borderRadius: 7, backgroundColor: colors.white, marginBottom: 7, borderWidth: 1, borderColor: "#E3E3D9" },
+  supplierOptionActive: { borderColor: colors.green, backgroundColor: "#EDF3E9" },
+  supplierOptionCopy: { flex: 1 },
+  supplierOptionName: { fontFamily: "DMSans_700Bold", fontSize: 12, color: colors.ink },
+  supplierOptionArea: { fontFamily: "DMSans_400Regular", fontSize: 10, color: colors.muted, marginTop: 3 },
+  utilityPanel: { backgroundColor: colors.white, borderRadius: 8, padding: 18, borderWidth: 1, borderColor: "#E8E6DC", marginTop: 8, marginBottom: 28 },
+  utilityGrid: { flexDirection: "row", gap: 8, marginTop: 16 },
+  utilityValue: { flex: 1, backgroundColor: "#F1F3ED", borderRadius: 6, padding: 10 },
+  utilityLabel: { fontFamily: "DMSans_700Bold", fontSize: 9, color: colors.muted },
+  utilityNumber: { fontFamily: "Fraunces_600SemiBold", fontSize: 25, color: colors.ink, marginTop: 5 },
+  utilityUnit: { fontFamily: "DMSans_400Regular", fontSize: 10, color: colors.muted, marginTop: 1 },
+  utilityMeta: { fontFamily: "DMSans_400Regular", fontSize: 10, color: colors.muted, marginTop: 12, textTransform: "capitalize" },
+  loginPanel: { backgroundColor: "#E7EEE4", borderRadius: 8, padding: 18, marginTop: 8, marginBottom: 28 },
+  loginHeadingCopy: { flex: 1 },
+  loginText: { fontFamily: "DMSans_400Regular", fontSize: 12, lineHeight: 18, color: colors.muted, marginTop: 12, marginBottom: 12 },
+  loginInput: { minHeight: 42, borderRadius: 6, borderWidth: 1, borderColor: "#C9D5C7", backgroundColor: colors.white, paddingHorizontal: 12, marginTop: 7, fontFamily: "DMSans_400Regular", fontSize: 13, color: colors.ink },
+  loginError: { fontFamily: "DMSans_500Medium", fontSize: 11, lineHeight: 16, color: "#A4462E", marginTop: 9 },
+  loginButton: { minHeight: 42, flexDirection: "row", alignItems: "center", justifyContent: "center", gap: 7, borderRadius: 6, backgroundColor: colors.green, marginTop: 12, paddingHorizontal: 14 },
+  loginButtonDisabled: { opacity: 0.65 },
+  loginButtonText: { fontFamily: "DMSans_700Bold", fontSize: 12, color: colors.white },
+  loginPrivacy: { fontFamily: "DMSans_400Regular", fontSize: 10, lineHeight: 15, color: colors.muted, textAlign: "center", marginTop: 10 },
   topGrid: { gap: 14 },
   topGridTablet: { flexDirection: "row" },
   halfPanel: { flex: 1 },
   hero: { minHeight: 315, borderRadius: 8, padding: 24, justifyContent: "space-between", overflow: "hidden" },
+  heroMobile: { minHeight: 270, padding: 18 },
   heroTopline: { flexDirection: "row", justifyContent: "space-between", alignItems: "center" },
   eyebrow: { fontFamily: "DMSans_700Bold", fontSize: 11, color: colors.muted, letterSpacing: 0 },
   priceLine: { flexDirection: "row", alignItems: "flex-end", gap: 10, marginVertical: 12 },
@@ -757,6 +1214,7 @@ const styles = StyleSheet.create({
   statusText: { fontFamily: "DMSans_700Bold", fontSize: 12 },
   vatNote: { fontFamily: "DMSans_400Regular", fontSize: 12, color: colors.muted, marginTop: 9 },
   trendPanel: { minHeight: 315, backgroundColor: colors.white, borderRadius: 8, padding: 22, borderWidth: 1, borderColor: "#E8E6DC" },
+  trendPanelMobile: { minHeight: 315, padding: 15 },
   sectionHeadingRow: { flexDirection: "row", justifyContent: "space-between", alignItems: "center" },
   sectionTitle: { fontFamily: "Fraunces_600SemiBold", fontSize: 24, color: colors.ink, marginTop: 4 },
   chartWrap: { flex: 1, justifyContent: "flex-end", marginTop: 8 },
@@ -802,7 +1260,7 @@ const styles = StyleSheet.create({
   deviceCatalog: { backgroundColor: "#E7EEE4", borderRadius: 8, padding: 14, marginBottom: 12 },
   catalogLabel: { fontFamily: "DMSans_700Bold", fontSize: 10, color: colors.muted, marginBottom: 10 },
   catalogGrid: { flexDirection: "row", flexWrap: "wrap", gap: 8 },
-  catalogItem: { width: "48%", minHeight: 62, flexDirection: "row", alignItems: "center", gap: 8, padding: 9, borderRadius: 6, backgroundColor: colors.white, borderWidth: 1, borderColor: "#D7DFD4" },
+  catalogItem: { flexGrow: 1, flexBasis: "45%", minHeight: 62, flexDirection: "row", alignItems: "center", gap: 8, padding: 9, borderRadius: 6, backgroundColor: colors.white, borderWidth: 1, borderColor: "#D7DFD4" },
   catalogIcon: { width: 32, height: 32, borderRadius: 16, alignItems: "center", justifyContent: "center", backgroundColor: colors.mint },
   catalogName: { flex: 1, fontFamily: "DMSans_700Bold", fontSize: 11, color: colors.ink },
   plannerEmpty: { minHeight: 220, alignItems: "center", justifyContent: "center", padding: 28, borderRadius: 8, borderWidth: 1, borderStyle: "dashed", borderColor: "#BFC9BC", backgroundColor: "rgba(255,254,250,0.55)" },
@@ -820,6 +1278,7 @@ const styles = StyleSheet.create({
   deviceMeta: { fontFamily: "DMSans_400Regular", fontSize: 10, color: colors.muted, marginTop: 2 },
   deviceActions: { flexDirection: "row", gap: 5 },
   deviceActionButton: { width: 34, height: 34, alignItems: "center", justifyContent: "center", borderRadius: 17, backgroundColor: "#F1F1EB" },
+  deviceActionButtonActive: { backgroundColor: colors.mint },
   devicePlan: { flexDirection: "row", alignItems: "flex-end", justifyContent: "space-between", gap: 10, borderTopWidth: 1, borderTopColor: colors.line, marginTop: 13, paddingTop: 13 },
   devicePlanLabel: { fontFamily: "DMSans_700Bold", fontSize: 9, color: colors.green },
   devicePlanTime: { fontFamily: "DMSans_700Bold", fontSize: 13, color: colors.ink, marginTop: 4, textTransform: "capitalize" },
@@ -833,10 +1292,10 @@ const styles = StyleSheet.create({
   simpleSettingGroup: { marginBottom: 13 },
   simpleSettingTitle: { fontFamily: "DMSans_700Bold", fontSize: 11, color: colors.ink, marginBottom: 8 },
   choiceGrid: { flexDirection: "row", flexWrap: "wrap", gap: 6 },
-  classChoice: { width: "18%", minHeight: 38, alignItems: "center", justifyContent: "center", borderRadius: 5, borderWidth: 1, borderColor: colors.line, backgroundColor: colors.white },
-  classChoiceActive: { backgroundColor: colors.green, borderColor: colors.green },
-  classChoiceText: { fontFamily: "DMSans_700Bold", fontSize: 11, color: colors.ink },
-  classChoiceTextActive: { color: colors.white },
+  classChoice: { width: "22%", minHeight: 40, alignItems: "center", justifyContent: "center", borderRadius: 5, borderWidth: 1, borderColor: "transparent", opacity: 0.72 },
+  classChoiceActive: { borderWidth: 3, borderColor: colors.ink, opacity: 1 },
+  classChoiceText: { fontFamily: "DMSans_700Bold", fontSize: 12, color: colors.white },
+  classChoiceTextDark: { color: colors.ink },
   estimateCaption: { fontFamily: "DMSans_500Medium", fontSize: 10, color: colors.green, marginTop: 7 },
   durationGrid: { flexDirection: "row", flexWrap: "wrap", gap: 6 },
   durationChoice: { width: "23%", minHeight: 35, alignItems: "center", justifyContent: "center", borderRadius: 5, borderWidth: 1, borderColor: colors.line, backgroundColor: colors.white },
@@ -844,6 +1303,14 @@ const styles = StyleSheet.create({
   durationChoiceText: { fontFamily: "DMSans_500Medium", fontSize: 10, color: colors.muted },
   durationChoiceTextActive: { fontFamily: "DMSans_700Bold", color: colors.white },
   controlRow: { flexDirection: "row", gap: 8, marginBottom: 8 },
+  vehicleLookupGroup: { marginBottom: 14 },
+  vehicleLookupRow: { flexDirection: "row", gap: 8 },
+  vehiclePlateInput: { flex: 1, minWidth: 0, minHeight: 38, borderRadius: 6, borderWidth: 1, borderColor: colors.line, backgroundColor: colors.white, paddingHorizontal: 10, fontFamily: "DMSans_700Bold", fontSize: 13, color: colors.ink },
+  vehicleModelSuggestions: { marginTop: 6, borderRadius: 6, overflow: "hidden", borderWidth: 1, borderColor: colors.line },
+  vehicleModelOption: { minHeight: 36, flexDirection: "row", alignItems: "center", justifyContent: "space-between", paddingHorizontal: 10, backgroundColor: colors.white, borderBottomWidth: 1, borderBottomColor: colors.line },
+  vehicleModelOptionName: { fontFamily: "DMSans_500Medium", fontSize: 11, color: colors.ink },
+  vehicleModelOptionBattery: { fontFamily: "DMSans_700Bold", fontSize: 10, color: colors.green },
+  vehicleLookupHint: { fontFamily: "DMSans_400Regular", fontSize: 10, lineHeight: 15, color: colors.muted, marginTop: 6 },
   labelConversion: { fontFamily: "DMSans_700Bold", fontSize: 10, color: colors.green, marginTop: 3 },
   deviceHelp: { fontFamily: "DMSans_400Regular", fontSize: 10, lineHeight: 15, color: colors.muted, marginTop: 4 },
   stepper: { flex: 1, backgroundColor: "#F1F3ED", borderRadius: 6, padding: 9 },
@@ -879,4 +1346,44 @@ const styles = StyleSheet.create({
   rangeText: { fontFamily: "DMSans_400Regular", fontSize: 11, color: colors.muted },
   disclosure: { flexDirection: "row", alignItems: "flex-start", gap: 10, marginTop: 28, paddingTop: 18, borderTopWidth: 1, borderTopColor: colors.line },
   disclosureText: { flex: 1, fontFamily: "DMSans_400Regular", fontSize: 12, lineHeight: 18, color: colors.muted },
+  bottomNavigation: { flexDirection: "row", gap: 6, padding: 5, marginBottom: 20, borderRadius: 8, backgroundColor: colors.white, borderWidth: 1, borderColor: colors.line },
+  navigationItem: { flex: 1, minHeight: 42, alignItems: "center", justifyContent: "center", gap: 4, borderRadius: 6 },
+  navigationItemActive: { backgroundColor: colors.mint },
+  navigationText: { fontFamily: "DMSans_500Medium", fontSize: 10, color: colors.muted },
+  navigationTextActive: { fontFamily: "DMSans_700Bold", color: colors.green },
+  pageEyebrow: { fontFamily: "DMSans_700Bold", fontSize: 10, color: colors.muted, marginTop: 10 },
+  pageTitle: { fontFamily: "Fraunces_600SemiBold", fontSize: 32, lineHeight: 38, color: colors.ink, marginTop: 5 },
+  pageIntro: { fontFamily: "DMSans_400Regular", fontSize: 13, lineHeight: 19, color: colors.muted, marginTop: 8, marginBottom: 18 },
+  profileCard: { alignItems: "center", padding: 24, marginVertical: 18, borderRadius: 8, backgroundColor: colors.white, borderWidth: 1, borderColor: "#E8E6DC" },
+  profileAvatar: { width: 58, height: 58, alignItems: "center", justifyContent: "center", borderRadius: 29, backgroundColor: colors.mint },
+  profileName: { fontFamily: "Fraunces_600SemiBold", fontSize: 23, color: colors.ink, marginTop: 12 },
+  profileEmail: { fontFamily: "DMSans_400Regular", fontSize: 13, color: colors.muted, marginTop: 3 },
+  profileInput: { width: "100%", minHeight: 44, marginTop: 8, paddingHorizontal: 12, borderRadius: 6, borderWidth: 1, borderColor: colors.line, backgroundColor: colors.paper, fontFamily: "DMSans_400Regular", fontSize: 13, color: colors.ink },
+  profileSaveButton: { minHeight: 38, minWidth: 120, alignItems: "center", justifyContent: "center", marginTop: 12, paddingHorizontal: 18, borderRadius: 6, backgroundColor: colors.green },
+  profileSaveText: { fontFamily: "DMSans_700Bold", fontSize: 11, color: colors.white },
+  profileAddressCard: { padding: 14, marginTop: 10, borderRadius: 8, backgroundColor: "#E7EEE4" },
+  currentSupplierRow: { paddingTop: 14, marginTop: 12, borderTopWidth: 1, borderTopColor: "#C9D5C7" },
+  currentSupplierLabel: { fontFamily: "DMSans_700Bold", fontSize: 9, color: colors.muted },
+  currentSupplierName: { fontFamily: "DMSans_700Bold", fontSize: 14, color: colors.ink, marginTop: 4 },
+  dashboardDevicesSummary: { padding: 18, marginTop: 22, marginBottom: 28, borderRadius: 8, backgroundColor: colors.white, borderWidth: 1, borderColor: "#E8E6DC" },
+  dashboardSummaryText: { fontFamily: "DMSans_400Regular", fontSize: 13, color: colors.muted, marginTop: 5 },
+  quickDeviceList: { gap: 7, marginTop: 14 },
+  quickDeviceItem: { minHeight: 52, flexDirection: "row", alignItems: "center", gap: 9, paddingHorizontal: 9, borderRadius: 6, backgroundColor: "#F1F3ED" },
+  quickDeviceIcon: { width: 30, height: 30, alignItems: "center", justifyContent: "center", borderRadius: 15, backgroundColor: colors.mint },
+  quickDeviceCopy: { flex: 1 },
+  quickDeviceName: { fontFamily: "DMSans_700Bold", fontSize: 12, color: colors.ink },
+  quickDeviceMeta: { fontFamily: "DMSans_400Regular", fontSize: 10, color: colors.muted, marginTop: 2 },
+  dashboardSummaryButton: { minHeight: 38, flexDirection: "row", alignItems: "center", justifyContent: "center", gap: 7, marginTop: 14, borderRadius: 6, backgroundColor: colors.green },
+  dashboardSummaryButtonText: { fontFamily: "DMSans_700Bold", fontSize: 11, color: colors.white },
+  wastePanel: { padding: 18, marginBottom: 28, borderRadius: 8, backgroundColor: "#E7EEE4" },
+  wasteEvent: { minHeight: 58, flexDirection: "row", alignItems: "center", gap: 12, paddingVertical: 9, borderTopWidth: 1, borderTopColor: "#C9D5C7" },
+  wasteDate: { width: 42, alignItems: "center" },
+  wasteDateDay: { fontFamily: "Fraunces_600SemiBold", fontSize: 22, lineHeight: 24, color: colors.ink },
+  wasteDateMonth: { fontFamily: "DMSans_700Bold", fontSize: 9, color: colors.green, textTransform: "uppercase" },
+  wasteEventCopy: { flex: 1 },
+  wasteEventTitle: { fontFamily: "DMSans_700Bold", fontSize: 12, color: colors.ink },
+  wasteEventMeta: { fontFamily: "DMSans_400Regular", fontSize: 10, color: colors.muted, marginTop: 2 },
+  wasteEmpty: { fontFamily: "DMSans_400Regular", fontSize: 12, lineHeight: 18, color: colors.muted, marginTop: 8 },
+  wasteAction: { minHeight: 36, flexDirection: "row", alignItems: "center", justifyContent: "center", gap: 6, marginTop: 12, borderRadius: 6, backgroundColor: colors.green },
+  wasteActionText: { fontFamily: "DMSans_700Bold", fontSize: 11, color: colors.white },
 });

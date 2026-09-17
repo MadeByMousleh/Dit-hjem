@@ -3,6 +3,7 @@ export type PriceArea = "DK1" | "DK2";
 export type GridSupplier = {
   id: string;
   name: string;
+  companyName?: string;
   area: PriceArea;
 };
 
@@ -13,6 +14,14 @@ export const GRID_SUPPLIERS: GridSupplier[] = [
   { id: "cerius_c", name: "Cerius", area: "DK2" },
   { id: "trefor_el-net_oest_c", name: "TREFOR Øst", area: "DK2" },
 ];
+
+type SupplierResponse = {
+  id: string;
+  name: string;
+  companyName?: string;
+  priceArea: PriceArea;
+  customerGroups?: { id: string; default?: boolean }[];
+};
 
 export type PricePoint = {
   startsAt: Date;
@@ -38,6 +47,19 @@ type CompletePriceResponse = {
 };
 
 const API_URL = "https://stromligning.dk/api/prices";
+const SUPPLIERS_API_URL = "https://stromligning.dk/api/suppliers";
+
+export async function fetchGridSuppliers(): Promise<GridSupplier[]> {
+  const response = await fetch(SUPPLIERS_API_URL);
+  if (!response.ok) throw new Error(`Netselskaberne svarede med ${response.status}`);
+  const suppliers = (await response.json()) as SupplierResponse[];
+  const unique = new Map<string, GridSupplier>();
+  suppliers
+    .filter((supplier) => supplier.customerGroups?.some((group) => group.id === "c"))
+    .filter((supplier) => !supplier.name.toLowerCase().includes("udgået"))
+    .forEach((supplier) => unique.set(supplier.id, { id: supplier.id, name: supplier.name, companyName: supplier.companyName, area: supplier.priceArea }));
+  return [...unique.values()].sort((left, right) => left.name.localeCompare(right.name, "da"));
+}
 
 export async function fetchPrices(area: PriceArea, supplierId: string): Promise<PricePoint[]> {
   const query = new URLSearchParams({
