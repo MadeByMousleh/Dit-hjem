@@ -7,7 +7,7 @@ import { formatDuration, formatPrice } from "../utils/formatting";
 
 const colors = { ink: "#18332F", muted: "#65736E", white: "#FFFEFA", green: "#0B694F" };
 
-export function TeslaConnectionCard({ connected, vehicle, points, now, evModels, refreshing, showOnDashboard, onConnect, onRefresh, onToggleDashboard }: {
+export function TeslaConnectionCard({ connected, vehicle, points, now, evModels, refreshing, showOnDashboard, onConnect, onRefresh, onToggleDashboard, onOpenDetails }: {
   connected: boolean;
   vehicle: TeslaVehicle | null;
   points: PricePoint[];
@@ -18,6 +18,7 @@ export function TeslaConnectionCard({ connected, vehicle, points, now, evModels,
   onConnect: () => void;
   onRefresh: () => void;
   onToggleDashboard: () => void;
+  onOpenDetails?: () => void;
 }) {
   const vehicleQuery = (vehicle?.model ?? vehicle?.name ?? "").toLowerCase();
   const matchedModel = evModels.find((model) => `${model.modelName} ${model.name}`.toLowerCase().includes(vehicleQuery) || vehicleQuery.includes(model.modelName.toLowerCase()));
@@ -36,7 +37,7 @@ export function TeslaConnectionCard({ connected, vehicle, points, now, evModels,
         <View style={styles.icon}><Feather name="zap" size={20} color={colors.ink} /></View>
         <View style={styles.copy}>
           <Text style={styles.title}>{connected ? vehicle?.name ?? "Tesla er forbundet" : "Tilføj din Tesla"}</Text>
-          <Text style={styles.description}>{connected ? vehicle?.model ?? "Live bilstatus" : "Forbind din bil for at bruge det aktuelle batteriniveau i ladeplanen."}</Text>
+          <Text style={styles.description}>{connected ? [vehicle?.model, vehicle?.exteriorColor].filter(Boolean).join(" · ") || "Live bilstatus" : "Forbind din bil for at bruge det aktuelle batteriniveau i ladeplanen."}</Text>
         </View>
         <View style={styles.actions}>
           <Pressable accessibilityLabel={showOnDashboard ? "Skjul Tesla fra overblik" : "Vis Tesla på overblik"} onPress={onToggleDashboard} style={[styles.visibilityButton, showOnDashboard && styles.visibilityButtonActive]}>
@@ -58,6 +59,12 @@ export function TeslaConnectionCard({ connected, vehicle, points, now, evModels,
         <Feather name={connected ? "refresh-cw" : "external-link"} size={15} color={colors.white} />
         <Text style={styles.connectButtonText}>{connected ? (refreshing ? "Henter status..." : "Opdater status") : "Forbind Tesla"}</Text>
       </Pressable>
+      {onOpenDetails ? (
+        <Pressable accessibilityLabel="Åbn Tesla-side" onPress={onOpenDetails} style={styles.detailsButton}>
+          <Feather name="arrow-right-circle" size={15} color={colors.ink} />
+          <Text style={styles.detailsButtonText}>Åbn Tesla-side</Text>
+        </Pressable>
+      ) : null}
     </View>
   );
 }
@@ -82,4 +89,6 @@ const styles = StyleSheet.create({
   label: { fontFamily: "DMSans_700Bold", fontSize: 8, color: colors.muted, marginTop: 3 },
   connectButton: { minHeight: 36, marginTop: 13, flexDirection: "row", alignItems: "center", justifyContent: "center", gap: 7, borderRadius: 18, backgroundColor: colors.ink },
   connectButtonText: { fontFamily: "DMSans_700Bold", fontSize: 11, color: colors.white },
+  detailsButton: { minHeight: 34, marginTop: 8, flexDirection: "row", alignItems: "center", justifyContent: "center", gap: 7, borderRadius: 17, borderWidth: 1, borderColor: "#B7C9BD", backgroundColor: "rgba(255,254,250,0.7)" },
+  detailsButtonText: { fontFamily: "DMSans_700Bold", fontSize: 11, color: colors.ink },
 });

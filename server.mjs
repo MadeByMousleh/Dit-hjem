@@ -695,6 +695,18 @@ export async function handler(request, response) {
         response.end(JSON.stringify({ error: "Tesla-login kræves" }));
         return;
       }
+      const milesToKm = 1.609344;
+      const numberOrNull = (value) => Number.isFinite(value) ? Number(value) : null;
+      const kmFromMiles = (value) => Number.isFinite(value) ? Number(value) * milesToKm : null;
+      const modelNameFromCode = (code, fallback) => {
+        const value = String(code ?? "").toLowerCase();
+        if (value === "model3" || value === "model_3") return "Model 3";
+        if (value === "models" || value === "model_s") return "Model S";
+        if (value === "modelx" || value === "model_x") return "Model X";
+        if (value === "modely" || value === "model_y") return "Model Y";
+        if (!value) return fallback;
+        return value.replace("model", "Model ").replace("_", " ").trim();
+      };
       const authHeaders = { Accept: "application/json", Authorization: `Bearer ${session.accessToken}` };
       const vehiclesResponse = await fetch(`${teslaApiUrl}/api/1/vehicles`, { headers: authHeaders });
       const vehiclesPayload = await vehiclesResponse.json();
@@ -710,8 +722,45 @@ export async function handler(request, response) {
       if (!dataResponse.ok) throw new Error(`Tesla-status svarede med ${dataResponse.status}`);
       const data = dataPayload.response ?? dataPayload;
       const charge = data.charge_state ?? {};
+      const vehicleConfig = data.vehicle_config ?? {};
+      const vehicleState = data.vehicle_state ?? {};
+      const climateState = data.climate_state ?? {};
+      const driveState = data.drive_state ?? {};
+      const displayModel = modelNameFromCode(vehicleConfig.car_type, vehicle.display_name ?? "Tesla");
       response.writeHead(200, { "Content-Type": "application/json", "Cache-Control": "no-store" });
-      response.end(JSON.stringify({ vehicles: [{ id: String(vehicle.id ?? vehicle.vin), vin: vehicle.vin, name: vehicle.display_name ?? "Tesla", model: data.vehicle_config?.car_type ?? vehicle.display_name ?? "Tesla", batteryLevel: Number.isFinite(charge.battery_level) ? charge.battery_level : null, chargingState: charge.charging_state ?? null, chargerPowerKw: Number.isFinite(charge.charger_power) ? charge.charger_power : null, timeToFullChargeHours: Number.isFinite(charge.time_to_full_charge) ? charge.time_to_full_charge : null, chargeEnergyAddedKwh: Number.isFinite(charge.charge_energy_added) ? charge.charge_energy_added : null }] }));
+      response.end(JSON.stringify({ vehicles: [{
+        id: String(vehicle.id ?? vehicle.vin),
+        vin: vehicle.vin,
+        name: vehicle.display_name ?? "Tesla",
+        model: displayModel,
+        trim: vehicleConfig.trim_badging ?? null,
+        exteriorColor: vehicleConfig.exterior_color ?? null,
+        wheelType: vehicleConfig.wheel_type ?? null,
+        spoilerType: vehicleConfig.spoiler_type ?? null,
+        carVersion: vehicleState.car_version ?? null,
+        batteryLevel: numberOrNull(charge.battery_level),
+        batteryRangeKm: kmFromMiles(charge.battery_range),
+        estimatedBatteryRangeKm: kmFromMiles(charge.est_battery_range),
+        chargeLimitSoc: numberOrNull(charge.charge_limit_soc),
+        chargingState: charge.charging_state ?? null,
+        chargePortDoorOpen: typeof charge.charge_port_door_open === "boolean" ? charge.charge_port_door_open : null,
+        isPreconditioning: typeof climateState.is_preconditioning === "boolean" ? climateState.is_preconditioning : null,
+        chargerPowerKw: numberOrNull(charge.charger_power),
+        chargerVoltage: numberOrNull(charge.charger_voltage),
+        chargerActualCurrentA: numberOrNull(charge.charger_actual_current),
+        timeToFullChargeHours: numberOrNull(charge.time_to_full_charge),
+        chargeEnergyAddedKwh: numberOrNull(charge.charge_energy_added),
+        odometerKm: kmFromMiles(vehicleState.odometer),
+        locked: typeof vehicleState.locked === "boolean" ? vehicleState.locked : null,
+        sentryMode: typeof vehicleState.sentry_mode === "boolean" ? vehicleState.sentry_mode : null,
+        insideTempC: numberOrNull(climateState.inside_temp),
+        outsideTempC: numberOrNull(climateState.outside_temp),
+        latitude: numberOrNull(driveState.latitude),
+        longitude: numberOrNull(driveState.longitude),
+        speedKmh: kmFromMiles(driveState.speed),
+        shiftState: driveState.shift_state ?? null,
+        fetchedAt: new Date().toISOString(),
+      }] }));
     } catch (error) {
       response.writeHead(502, { "Content-Type": "application/json" });
       response.end(JSON.stringify({ error: error instanceof Error ? error.message : "Tesla-data kunne ikke hentes" }));

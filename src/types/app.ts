@@ -13,11 +13,33 @@ export type TeslaVehicle = {
   vin: string;
   name: string;
   model: string;
+  trim: string | null;
+  exteriorColor: string | null;
+  wheelType: string | null;
+  spoilerType: string | null;
+  carVersion: string | null;
   batteryLevel: number | null;
+  batteryRangeKm: number | null;
+  estimatedBatteryRangeKm: number | null;
+  chargeLimitSoc: number | null;
   chargingState: string | null;
+  chargePortDoorOpen: boolean | null;
+  isPreconditioning: boolean | null;
   chargerPowerKw: number | null;
+  chargerVoltage: number | null;
+  chargerActualCurrentA: number | null;
   timeToFullChargeHours: number | null;
   chargeEnergyAddedKwh: number | null;
+  odometerKm: number | null;
+  locked: boolean | null;
+  sentryMode: boolean | null;
+  insideTempC: number | null;
+  outsideTempC: number | null;
+  latitude: number | null;
+  longitude: number | null;
+  speedKmh: number | null;
+  shiftState: string | null;
+  fetchedAt: string;
 };
 
 export const DEVICE_TEMPLATES = [
