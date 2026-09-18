@@ -169,6 +169,13 @@ function decryptedTeslaSession(value, secret) {
   }
 }
 
+async function getTeslaSession(request) {
+  const { clientSecret } = teslaConfig();
+  const session = decryptedTeslaSession(parseCookies(request).tesla_session, clientSecret);
+  if (!session?.accessToken || Number(session.expiresAt) <= Date.now()) return undefined;
+  return session;
+}
+
 function pointInRing(point, ring) {
   let inside = false;
   for (let index = 0, previous = ring.length - 1; index < ring.length; previous = index++) {
@@ -677,6 +684,37 @@ export async function handler(request, response) {
     } catch {
       response.writeHead(200, { "Content-Type": "application/json", "Cache-Control": "no-store" });
       response.end(JSON.stringify({ connected: false }));
+    }
+    return;
+  }
+  if (request.method === "GET" && request.url === "/api/tesla/vehicles") {
+    try {
+      const session = await getTeslaSession(request);
+      if (!session) {
+        response.writeHead(401, { "Content-Type": "application/json" });
+        response.end(JSON.stringify({ error: "Tesla-login kræves" }));
+        return;
+      }
+      const authHeaders = { Accept: "application/json", Authorization: `Bearer ${session.accessToken}` };
+      const vehiclesResponse = await fetch(`${teslaApiUrl}/api/1/vehicles`, { headers: authHeaders });
+      const vehiclesPayload = await vehiclesResponse.json();
+      if (!vehiclesResponse.ok) throw new Error(`Tesla-køretøjer svarede med ${vehiclesResponse.status}`);
+      const vehicle = vehiclesPayload.response?.[0];
+      if (!vehicle?.vin) {
+        response.writeHead(200, { "Content-Type": "application/json", "Cache-Control": "no-store" });
+        response.end(JSON.stringify({ vehicles: [] }));
+        return;
+      }
+      const dataResponse = await fetch(`${teslaApiUrl}/api/1/vehicles/${encodeURIComponent(vehicle.vin)}/vehicle_data`, { headers: authHeaders });
+      const dataPayload = await dataResponse.json();
+      if (!dataResponse.ok) throw new Error(`Tesla-status svarede med ${dataResponse.status}`);
+      const data = dataPayload.response ?? dataPayload;
+      const charge = data.charge_state ?? {};
+      response.writeHead(200, { "Content-Type": "application/json", "Cache-Control": "no-store" });
+      response.end(JSON.stringify({ vehicles: [{ id: String(vehicle.id ?? vehicle.vin), vin: vehicle.vin, name: vehicle.display_name ?? "Tesla", model: data.vehicle_config?.car_type ?? vehicle.display_name ?? "Tesla", batteryLevel: Number.isFinite(charge.battery_level) ? charge.battery_level : null, chargingState: charge.charging_state ?? null, chargerPowerKw: Number.isFinite(charge.charger_power) ? charge.charger_power : null, timeToFullChargeHours: Number.isFinite(charge.time_to_full_charge) ? charge.time_to_full_charge : null, chargeEnergyAddedKwh: Number.isFinite(charge.charge_energy_added) ? charge.charge_energy_added : null }] }));
+    } catch (error) {
+      response.writeHead(502, { "Content-Type": "application/json" });
+      response.end(JSON.stringify({ error: error instanceof Error ? error.message : "Tesla-data kunne ikke hentes" }));
     }
     return;
   }

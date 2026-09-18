@@ -63,6 +63,17 @@ type EforsyningData = {
   temperatures: { forwardC: number | null; returnC: number | null; coolingC: number | null };
   fetchedAt: string;
 };
+type TeslaVehicle = {
+  id: string;
+  vin: string;
+  name: string;
+  model: string;
+  batteryLevel: number | null;
+  chargingState: string | null;
+  chargerPowerKw: number | null;
+  timeToFullChargeHours: number | null;
+  chargeEnergyAddedKwh: number | null;
+};
 
 const DEVICE_TEMPLATES = [
   { kind: "dishwasher", name: "Opvaskemaskine", icon: "droplet" as const, energyKwh: 1, durationHours: 2 },
@@ -400,17 +411,35 @@ function DevicePlanCard({ device, points, now, evModels, expanded, onToggle, onC
   );
 }
 
-function TeslaConnectionCard({ connected, onConnect }: { connected: boolean; onConnect: () => void }) {
+function TeslaConnectionCard({ connected, vehicle, points, now, evModels, onConnect }: { connected: boolean; vehicle: TeslaVehicle | null; points: PricePoint[]; now: number; evModels: EvModel[]; onConnect: () => void }) {
+  const vehicleQuery = (vehicle?.model ?? vehicle?.name ?? "").toLowerCase();
+  const matchedModel = evModels.find((model) => `${model.modelName} ${model.name}`.toLowerCase().includes(vehicleQuery) || vehicleQuery.includes(model.modelName.toLowerCase()));
+  const batteryKwh = matchedModel?.batteryKwh ?? 60;
+  const batteryLevel = vehicle?.batteryLevel ?? 0;
+  const neededKwh = batteryKwh * Math.max(0, 100 - batteryLevel) / 100 / 0.9;
+  const currentPrice = [...points].reverse().find((point) => point.startsAt.getTime() <= now)?.totalOrePerKwh ?? 0;
+  const chargeCost = neededKwh * currentPrice / 100;
+  const estimatedHours = vehicle?.timeToFullChargeHours ?? (vehicle?.chargerPowerKw && vehicle.chargerPowerKw > 0 ? neededKwh / vehicle.chargerPowerKw : null);
+  const chargingLabels: Record<string, string> = { Charging: "Lader", Complete: "Færdig", Disconnected: "Ikke tilsluttet", NoPower: "Ingen strøm", Stopped: "Stoppet" };
+  const chargingLabel = vehicle?.chargingState ? chargingLabels[vehicle.chargingState] ?? vehicle.chargingState : "Status ikke tilgængelig";
   return (
     <View style={styles.teslaCard}>
       <View style={styles.teslaCardHeader}>
         <View style={styles.teslaIcon}><Feather name="zap" size={20} color={colors.ink} /></View>
         <View style={styles.teslaCardCopy}>
-          <Text style={styles.teslaCardTitle}>{connected ? "Tesla er forbundet" : "Tilføj din Tesla"}</Text>
-          <Text style={styles.teslaCardText}>{connected ? "Batteriniveau og ladeplan kan hentes fra din bil." : "Forbind din bil for at bruge det aktuelle batteriniveau i ladeplanen."}</Text>
+          <Text style={styles.teslaCardTitle}>{connected ? vehicle?.name ?? "Tesla er forbundet" : "Tilføj din Tesla"}</Text>
+          <Text style={styles.teslaCardText}>{connected ? vehicle?.model ?? "Live bilstatus" : "Forbind din bil for at bruge det aktuelle batteriniveau i ladeplanen."}</Text>
         </View>
         <View style={[styles.teslaStatusDot, connected && styles.teslaStatusDotConnected]} />
       </View>
+      {connected && vehicle ? (
+        <View style={styles.teslaStats}>
+          <View style={styles.teslaPrimaryStat}><Text style={styles.teslaBatteryNumber}>{vehicle.batteryLevel == null ? "–" : `${Math.round(vehicle.batteryLevel)}%`}</Text><Text style={styles.teslaStatLabel}>BATTERI</Text></View>
+          <View style={styles.teslaStat}><Text style={styles.teslaStatValue}>{chargingLabel}</Text><Text style={styles.teslaStatLabel}>STATUS</Text></View>
+          <View style={styles.teslaStat}><Text style={styles.teslaStatValue}>{formatPrice(chargeCost, 2)} kr</Text><Text style={styles.teslaStatLabel}>TIL FULD VED NU-PRIS</Text></View>
+          <View style={styles.teslaStat}><Text style={styles.teslaStatValue}>{estimatedHours == null ? "–" : formatDuration(estimatedHours)}</Text><Text style={styles.teslaStatLabel}>EST. LADETID</Text></View>
+        </View>
+      ) : null}
       <Pressable accessibilityLabel={connected ? "Åbn Tesla" : "Forbind Tesla"} onPress={onConnect} style={styles.teslaConnectButton}>
         <Feather name={connected ? "refresh-cw" : "external-link"} size={15} color={colors.white} />
         <Text style={styles.teslaConnectButtonText}>{connected ? "Opdater forbindelse" : "Forbind Tesla"}</Text>
@@ -873,6 +902,7 @@ function Dashboard() {
   const [wasteShowOnDashboard, setWasteShowOnDashboard] = useState(false);
   const [activeTab, setActiveTab] = useState<"dashboard" | "home" | "profile">("dashboard");
   const [teslaConnected, setTeslaConnected] = useState(false);
+  const [teslaVehicle, setTeslaVehicle] = useState<TeslaVehicle | null>(null);
 
   const load = useCallback(async (refresh = false) => {
     refresh ? setRefreshing(true) : setLoading(true);
@@ -907,7 +937,14 @@ function Dashboard() {
   }, []);
 
   useEffect(() => {
-    fetch(`${APP_API_URL}/api/tesla/status`).then((response) => response.json() as Promise<{ connected?: boolean }>).then((data) => setTeslaConnected(Boolean(data.connected))).catch(() => setTeslaConnected(false));
+    fetch(`${APP_API_URL}/api/tesla/status`).then((response) => response.json() as Promise<{ connected?: boolean }>).then(async (data) => {
+      const connected = Boolean(data.connected);
+      setTeslaConnected(connected);
+      if (!connected) { setTeslaVehicle(null); return; }
+      const vehicleResponse = await fetch(`${APP_API_URL}/api/tesla/vehicles`);
+      const vehicleData = await vehicleResponse.json() as { vehicles?: TeslaVehicle[] };
+      setTeslaVehicle(vehicleData.vehicles?.[0] ?? null);
+    }).catch(() => { setTeslaConnected(false); setTeslaVehicle(null); });
   }, [activeTab]);
 
   const connectTesla = () => {
@@ -1064,7 +1101,7 @@ function Dashboard() {
                 <Text style={styles.pageEyebrow}>MIT HJEM</Text>
                 <Text style={styles.pageTitle}>Apparater og elbil</Text>
                 <Text style={styles.pageIntro}>Gem dine apparater ét sted. Finjustér program, temperatur, lader og batteriniveau, når du planlægger.</Text>
-                <TeslaConnectionCard connected={teslaConnected} onConnect={connectTesla} />
+                <TeslaConnectionCard connected={teslaConnected} vehicle={teslaVehicle} points={prices} now={now} evModels={evModels} onConnect={connectTesla} />
                 <FamilyPlanner points={prices} now={now} evModels={evModels} />
               </>
             ) : (
@@ -1431,6 +1468,12 @@ const styles = StyleSheet.create({
   teslaCardText: { fontFamily: "DMSans_400Regular", fontSize: 11, lineHeight: 16, color: colors.muted, marginTop: 3 },
   teslaStatusDot: { width: 9, height: 9, borderRadius: 5, backgroundColor: "#B6C0BA" },
   teslaStatusDotConnected: { backgroundColor: colors.green },
+  teslaStats: { flexDirection: "row", flexWrap: "wrap", gap: 8, marginTop: 15, paddingTop: 13, borderTopWidth: 1, borderTopColor: "#C7D9CD" },
+  teslaPrimaryStat: { minWidth: 92, flex: 1, paddingRight: 8 },
+  teslaStat: { minWidth: 92, flex: 1, paddingRight: 8 },
+  teslaBatteryNumber: { fontFamily: "Fraunces_600SemiBold", fontSize: 28, color: colors.ink },
+  teslaStatValue: { minHeight: 34, fontFamily: "DMSans_700Bold", fontSize: 13, color: colors.ink },
+  teslaStatLabel: { fontFamily: "DMSans_700Bold", fontSize: 8, color: colors.muted, marginTop: 3 },
   teslaConnectButton: { minHeight: 36, marginTop: 13, flexDirection: "row", alignItems: "center", justifyContent: "center", gap: 7, borderRadius: 18, backgroundColor: colors.ink },
   teslaConnectButtonText: { fontFamily: "DMSans_700Bold", fontSize: 11, color: colors.white },
   plannerSection: { marginVertical: 26 },
