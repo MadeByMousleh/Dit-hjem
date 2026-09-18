@@ -455,7 +455,7 @@ function wasteHealth(municipality) {
   return { status: "unsupported", provider: provider ?? null, supported: false, detail: "Ingen offentlig adapter eller iCal-feed er konfigureret" };
 }
 
-const server = createServer(async (request, response) => {
+export async function handler(request, response) {
   response.setHeader("Access-Control-Allow-Origin", "*");
   response.setHeader("Access-Control-Allow-Headers", "Content-Type");
   if (request.method === "OPTIONS") { response.writeHead(204); response.end(); return; }
@@ -638,6 +638,8 @@ const server = createServer(async (request, response) => {
     response.writeHead(502, { "Content-Type": "application/json" });
     response.end(JSON.stringify({ error: error instanceof Error ? error.message : "eForsyning request failed" }));
   }
-});
+}
 
-server.listen(port, () => console.log(`eForsyning server listening on http://localhost:${port}`));
+if (!process.env.VERCEL) {
+  createServer(handler).listen(port, () => console.log(`eForsyning server listening on http://localhost:${port}`));
+}

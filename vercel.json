@@ -1,0 +1,10 @@
+{
+  "buildCommand": "npx expo export --platform web",
+  "outputDirectory": "dist",
+  "framework": null,
+  "functions": {
+    "api/[...path].mjs": {
+      "maxDuration": 30
+    }
+  }
+}
