@@ -26,6 +26,7 @@ import { EvModel, fetchOpenEvModels } from "./src/evData";
 import { fetchWasteEvents, fetchWasteHealth, WasteEvent, WasteHealth, WASTE_LABELS } from "./src/waste";
 import { TeslaConnectionCard } from "./src/components/TeslaConnectionCard";
 import { NumericField, Stepper } from "./src/components/DeviceControls";
+import { FamilyPlanner as ExtractedFamilyPlanner } from "./src/components/FamilyPlanner";
 import { getTeslaAuthorizationUrl, getTeslaStatus, getTeslaVehicles } from "./src/services/tesla";
 import { DEVICE_TEMPLATES, EforsyningData, EnergyClass, HouseholdDevice, TeslaVehicle, WashTemperature } from "./src/types/app";
 import { CLASS_ENERGY_KWH, DURATIONS, ENERGY_CLASSES, WASH_TEMPERATURES, WASH_TEMPERATURE_MULTIPLIERS, findBestEnergyWindow, isEnergyClass } from "./src/utils/energyPlanning";
@@ -259,7 +260,7 @@ function DevicePlanCard({ device, points, now, evModels, expanded, onToggle, onC
   );
 }
 
-function FamilyPlanner({ points, now, evModels }: { points: PricePoint[]; now: number; evModels: EvModel[] }) {
+function LegacyFamilyPlanner({ points, now, evModels }: { points: PricePoint[]; now: number; evModels: EvModel[] }) {
   const nextId = useRef(1);
   const [devices, setDevices] = useState<HouseholdDevice[]>([]);
   const [showCatalog, setShowCatalog] = useState(false);
@@ -934,7 +935,7 @@ function Dashboard() {
                 <Text style={styles.pageTitle}>Apparater og elbil</Text>
                 <Text style={styles.pageIntro}>Gem dine apparater ét sted. Finjustér program, temperatur, lader og batteriniveau, når du planlægger.</Text>
                 <TeslaConnectionCard connected={teslaConnected} vehicle={teslaVehicle} points={prices} now={now} evModels={evModels} refreshing={teslaRefreshing} showOnDashboard={teslaShowOnDashboard} onConnect={connectTesla} onRefresh={() => void refreshTesla()} onToggleDashboard={() => saveTeslaVisibility(!teslaShowOnDashboard)} />
-                <FamilyPlanner points={prices} now={now} evModels={evModels} />
+                <ExtractedFamilyPlanner points={prices} now={now} evModels={evModels} styles={styles} colors={colors} DeviceCard={DevicePlanCard} />
               </>
             ) : (
               <>
