@@ -25,6 +25,7 @@ import { AddressSuggestion, searchAddresses } from "./src/addresses";
 import { EvModel, fetchOpenEvModels } from "./src/evData";
 import { fetchWasteEvents, fetchWasteHealth, WasteEvent, WasteHealth, WASTE_LABELS } from "./src/waste";
 import { TeslaConnectionCard } from "./src/components/TeslaConnectionCard";
+import { NumericField, Stepper } from "./src/components/DeviceControls";
 import { getTeslaAuthorizationUrl, getTeslaStatus, getTeslaVehicles } from "./src/services/tesla";
 import { DEVICE_TEMPLATES, EforsyningData, EnergyClass, HouseholdDevice, TeslaVehicle, WashTemperature } from "./src/types/app";
 import { CLASS_ENERGY_KWH, DURATIONS, ENERGY_CLASSES, WASH_TEMPERATURES, WASH_TEMPERATURE_MULTIPLIERS, findBestEnergyWindow, isEnergyClass } from "./src/utils/energyPlanning";
@@ -81,45 +82,6 @@ function getPriceTone(value: number, values: number[]) {
   if (value <= low) return { label: "Lav pris", color: colors.green, soft: "#E2F0E6" };
   if (value >= high) return { label: "Høj pris", color: "#A4462E", soft: "#F8E1D8" };
   return { label: "Mellempris", color: "#745A13", soft: "#F8EDC8" };
-}
-
-function Stepper({ label, value, onChange, min, max, step = 10, suffix = "%", digits = 0 }: { label: string; value: number; onChange: (value: number) => void; min: number; max: number; step?: number; suffix?: string; digits?: number }) {
-  return (
-    <View style={styles.stepper}>
-      <Text style={styles.stepperLabel}>{label}</Text>
-      <View style={styles.stepperControls}>
-        <Pressable accessibilityLabel={`Sænk ${label}`} disabled={value <= min} onPress={() => onChange(Math.max(min, value - step))} style={styles.stepperButton}>
-          <Feather name="minus" size={15} color={colors.ink} />
-        </Pressable>
-        <Text style={styles.stepperValue}>{formatPrice(value, digits)}{suffix}</Text>
-        <Pressable accessibilityLabel={`Hæv ${label}`} disabled={value >= max} onPress={() => onChange(Math.min(max, value + step))} style={styles.stepperButton}>
-          <Feather name="plus" size={15} color={colors.ink} />
-        </Pressable>
-      </View>
-    </View>
-  );
-}
-
-function NumericField({ label, value, suffix, onChange }: { label: string; value: number; suffix: string; onChange: (value: number) => void }) {
-  return (
-    <View style={styles.numericField}>
-      <Text style={styles.stepperLabel}>{label}</Text>
-      <View style={styles.numericInputWrap}>
-        <TextInput
-          accessibilityLabel={label}
-          inputMode="decimal"
-          selectTextOnFocus
-          value={formatPrice(value, Number.isInteger(value) ? 0 : 1)}
-          onChangeText={(text) => {
-            const parsed = Number(text.replace(",", "."));
-            if (Number.isFinite(parsed) && parsed >= 0) onChange(parsed);
-          }}
-          style={styles.numericInput}
-        />
-        <Text style={styles.numericSuffix}>{suffix}</Text>
-      </View>
-    </View>
-  );
 }
 
 function DevicePlanCard({ device, points, now, evModels, expanded, onToggle, onChange, onRemove, onToggleDashboard }: {
@@ -237,12 +199,12 @@ function DevicePlanCard({ device, points, now, evModels, expanded, onToggle, onC
                 <Text style={styles.vehicleLookupHint}>Vælg en model for automatisk batterikapacitet, eller justér den manuelt nedenfor.</Text>
               </View>
               <View style={styles.controlRow}>
-                <Stepper label="Batteri" value={device.batteryKwh} min={20} max={150} step={5} suffix=" kWh" onChange={(batteryKwh) => onChange({ batteryKwh })} />
-                <Stepper label="Lader" value={device.chargerKw} min={2} max={22} step={1} suffix=" kW" onChange={(chargerKw) => onChange({ chargerKw })} />
+                <Stepper label="Batteri" value={device.batteryKwh} min={20} max={150} step={5} suffix=" kWh" onChange={(batteryKwh) => onChange({ batteryKwh })} styles={styles} colors={colors} />
+                <Stepper label="Lader" value={device.chargerKw} min={2} max={22} step={1} suffix=" kW" onChange={(chargerKw) => onChange({ chargerKw })} styles={styles} colors={colors} />
               </View>
               <View style={styles.controlRow}>
-                <Stepper label="Fra" value={device.currentCharge} min={0} max={Math.max(0, device.targetCharge - 10)} onChange={(currentCharge) => onChange({ currentCharge })} />
-                <Stepper label="Til" value={device.targetCharge} min={Math.min(100, device.currentCharge + 10)} max={100} onChange={(targetCharge) => onChange({ targetCharge })} />
+                <Stepper label="Fra" value={device.currentCharge} min={0} max={Math.max(0, device.targetCharge - 10)} onChange={(currentCharge) => onChange({ currentCharge })} styles={styles} colors={colors} />
+                <Stepper label="Til" value={device.targetCharge} min={Math.min(100, device.currentCharge + 10)} max={100} onChange={(targetCharge) => onChange({ targetCharge })} styles={styles} colors={colors} />
               </View>
               <Text style={styles.deviceHelp}>Virker med alle elbiler. Brug bilens brugbare batterikapacitet og din hjemmeladers effekt.</Text>
             </>
@@ -286,7 +248,7 @@ function DevicePlanCard({ device, points, now, evModels, expanded, onToggle, onC
                 </View>
               ) : null}
               {!hasCycleEnergyLabel && !isCar ? (
-                <NumericField label="Forbrug" value={device.energyKwh} suffix=" kWh" onChange={(energyKwh) => onChange({ energyKwh })} />
+                <NumericField label="Forbrug" value={device.energyKwh} suffix=" kWh" onChange={(energyKwh) => onChange({ energyKwh })} styles={styles} colors={colors} />
               ) : null}
               <Text style={styles.deviceHelp}>Beregningen er et estimat ud fra apparattype, energiklasse og valgt køretid.</Text>
             </>
