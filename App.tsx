@@ -435,6 +435,7 @@ function TeslaConnectionCard({ connected, vehicle, points, now, evModels, onConn
       {connected && vehicle ? (
         <View style={styles.teslaStats}>
           <View style={styles.teslaPrimaryStat}><Text style={styles.teslaBatteryNumber}>{vehicle.batteryLevel == null ? "–" : `${Math.round(vehicle.batteryLevel)}%`}</Text><Text style={styles.teslaStatLabel}>BATTERI</Text></View>
+          <View style={styles.teslaStat}><Text style={styles.teslaStatValue}>{matchedModel ? `${formatPrice(batteryKwh, 1)} kWh` : "Estimat"}</Text><Text style={styles.teslaStatLabel}>BATTERISTØRRELSE</Text></View>
           <View style={styles.teslaStat}><Text style={styles.teslaStatValue}>{chargingLabel}</Text><Text style={styles.teslaStatLabel}>STATUS</Text></View>
           <View style={styles.teslaStat}><Text style={styles.teslaStatValue}>{formatPrice(chargeCost, 2)} kr</Text><Text style={styles.teslaStatLabel}>TIL FULD VED NU-PRIS</Text></View>
           <View style={styles.teslaStat}><Text style={styles.teslaStatValue}>{estimatedHours == null ? "–" : formatDuration(estimatedHours)}</Text><Text style={styles.teslaStatLabel}>EST. LADETID</Text></View>
