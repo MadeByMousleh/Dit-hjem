@@ -411,7 +411,7 @@ function DevicePlanCard({ device, points, now, evModels, expanded, onToggle, onC
   );
 }
 
-function TeslaConnectionCard({ connected, vehicle, points, now, evModels, onConnect }: { connected: boolean; vehicle: TeslaVehicle | null; points: PricePoint[]; now: number; evModels: EvModel[]; onConnect: () => void }) {
+function TeslaConnectionCard({ connected, vehicle, points, now, evModels, refreshing, showOnDashboard, onConnect, onRefresh, onToggleDashboard }: { connected: boolean; vehicle: TeslaVehicle | null; points: PricePoint[]; now: number; evModels: EvModel[]; refreshing: boolean; showOnDashboard: boolean; onConnect: () => void; onRefresh: () => void; onToggleDashboard: () => void }) {
   const vehicleQuery = (vehicle?.model ?? vehicle?.name ?? "").toLowerCase();
   const matchedModel = evModels.find((model) => `${model.modelName} ${model.name}`.toLowerCase().includes(vehicleQuery) || vehicleQuery.includes(model.modelName.toLowerCase()));
   const batteryKwh = matchedModel?.batteryKwh ?? 60;
@@ -430,7 +430,12 @@ function TeslaConnectionCard({ connected, vehicle, points, now, evModels, onConn
           <Text style={styles.teslaCardTitle}>{connected ? vehicle?.name ?? "Tesla er forbundet" : "Tilføj din Tesla"}</Text>
           <Text style={styles.teslaCardText}>{connected ? vehicle?.model ?? "Live bilstatus" : "Forbind din bil for at bruge det aktuelle batteriniveau i ladeplanen."}</Text>
         </View>
-        <View style={[styles.teslaStatusDot, connected && styles.teslaStatusDotConnected]} />
+        <View style={styles.teslaCardActions}>
+          <Pressable accessibilityLabel={showOnDashboard ? "Skjul Tesla fra overblik" : "Vis Tesla på overblik"} onPress={onToggleDashboard} style={[styles.teslaVisibilityButton, showOnDashboard && styles.teslaVisibilityButtonActive]}>
+            <Feather name="eye" size={15} color={showOnDashboard ? colors.green : colors.muted} />
+          </Pressable>
+          <View style={[styles.teslaStatusDot, connected && styles.teslaStatusDotConnected]} />
+        </View>
       </View>
       {connected && vehicle ? (
         <View style={styles.teslaStats}>
@@ -441,9 +446,9 @@ function TeslaConnectionCard({ connected, vehicle, points, now, evModels, onConn
           <View style={styles.teslaStat}><Text style={styles.teslaStatValue}>{estimatedHours == null ? "–" : formatDuration(estimatedHours)}</Text><Text style={styles.teslaStatLabel}>EST. LADETID</Text></View>
         </View>
       ) : null}
-      <Pressable accessibilityLabel={connected ? "Åbn Tesla" : "Forbind Tesla"} onPress={onConnect} style={styles.teslaConnectButton}>
+      <Pressable accessibilityLabel={connected ? "Opdater Tesla-status" : "Forbind Tesla"} onPress={connected ? onRefresh : onConnect} style={styles.teslaConnectButton}>
         <Feather name={connected ? "refresh-cw" : "external-link"} size={15} color={colors.white} />
-        <Text style={styles.teslaConnectButtonText}>{connected ? "Opdater forbindelse" : "Forbind Tesla"}</Text>
+        <Text style={styles.teslaConnectButtonText}>{connected ? (refreshing ? "Henter status..." : "Opdater status") : "Forbind Tesla"}</Text>
       </Pressable>
     </View>
   );
@@ -904,6 +909,8 @@ function Dashboard() {
   const [activeTab, setActiveTab] = useState<"dashboard" | "home" | "profile">("dashboard");
   const [teslaConnected, setTeslaConnected] = useState(false);
   const [teslaVehicle, setTeslaVehicle] = useState<TeslaVehicle | null>(null);
+  const [teslaRefreshing, setTeslaRefreshing] = useState(false);
+  const [teslaShowOnDashboard, setTeslaShowOnDashboard] = useState(false);
 
   const load = useCallback(async (refresh = false) => {
     refresh ? setRefreshing(true) : setLoading(true);
@@ -937,16 +944,31 @@ function Dashboard() {
     fetchOpenEvModels().then(setEvModels).catch(() => undefined);
   }, []);
 
-  useEffect(() => {
-    fetch(`${APP_API_URL}/api/tesla/status`).then((response) => response.json() as Promise<{ connected?: boolean }>).then(async (data) => {
+  const refreshTesla = useCallback(async () => {
+    setTeslaRefreshing(true);
+    try {
+      const response = await fetch(`${APP_API_URL}/api/tesla/status`);
+      const data = await response.json() as { connected?: boolean };
       const connected = Boolean(data.connected);
       setTeslaConnected(connected);
-      if (!connected) { setTeslaVehicle(null); return; }
+      if (!connected) {
+        setTeslaVehicle(null);
+        return;
+      }
       const vehicleResponse = await fetch(`${APP_API_URL}/api/tesla/vehicles`);
       const vehicleData = await vehicleResponse.json() as { vehicles?: TeslaVehicle[] };
       setTeslaVehicle(vehicleData.vehicles?.[0] ?? null);
-    }).catch(() => { setTeslaConnected(false); setTeslaVehicle(null); });
-  }, [activeTab]);
+    } catch {
+      setTeslaConnected(false);
+      setTeslaVehicle(null);
+    } finally {
+      setTeslaRefreshing(false);
+    }
+  }, []);
+
+  useEffect(() => {
+    void refreshTesla();
+  }, [activeTab, refreshTesla]);
 
   const connectTesla = () => {
     const authorizationUrl = `${APP_API_URL}/api/tesla/authorize`;
@@ -957,7 +979,7 @@ function Dashboard() {
   useEffect(() => {
     AsyncStorage.getItem(PROFILE_STORAGE_KEY).then((stored) => {
       if (!stored) return;
-      const profile = JSON.parse(stored) as { name?: string; email?: string; address?: string; municipalityCode?: string; postcode?: string; wasteCalendarUrl?: string; wasteShowOnDashboard?: boolean };
+      const profile = JSON.parse(stored) as { name?: string; email?: string; address?: string; municipalityCode?: string; postcode?: string; wasteCalendarUrl?: string; wasteShowOnDashboard?: boolean; teslaShowOnDashboard?: boolean };
       setProfileName(profile.name ?? "");
       setProfileEmail(profile.email ?? "");
       setAddress(profile.address ?? "");
@@ -965,6 +987,7 @@ function Dashboard() {
       setAddressPostcode(profile.postcode);
       setWasteCalendarUrl(profile.wasteCalendarUrl ?? "");
       setWasteShowOnDashboard(profile.wasteShowOnDashboard ?? false);
+      setTeslaShowOnDashboard(profile.teslaShowOnDashboard ?? false);
     }).catch(() => undefined);
     AsyncStorage.getItem(DEVICES_STORAGE_KEY).then((stored) => {
       if (!stored) return;
@@ -982,8 +1005,13 @@ function Dashboard() {
     }).catch((error) => { setWasteEvents([]); setWasteError(error instanceof Error ? error.message : "Affaldskalenderen kunne ikke hentes"); });
   }, [addressMunicipality, addressPostcode, wasteCalendarUrl, address]);
 
+  const saveTeslaVisibility = (showOnDashboard: boolean) => {
+    setTeslaShowOnDashboard(showOnDashboard);
+    void AsyncStorage.mergeItem(PROFILE_STORAGE_KEY, JSON.stringify({ teslaShowOnDashboard: showOnDashboard }));
+  };
+
   const saveProfile = async () => {
-    await AsyncStorage.setItem(PROFILE_STORAGE_KEY, JSON.stringify({ name: profileName, email: profileEmail, address, municipalityCode: addressMunicipality, postcode: addressPostcode, wasteCalendarUrl, wasteShowOnDashboard }));
+    await AsyncStorage.setItem(PROFILE_STORAGE_KEY, JSON.stringify({ name: profileName, email: profileEmail, address, municipalityCode: addressMunicipality, postcode: addressPostcode, wasteCalendarUrl, wasteShowOnDashboard, teslaShowOnDashboard }));
     setProfileSaved(true);
     setTimeout(() => setProfileSaved(false), 1800);
   };
@@ -1102,7 +1130,7 @@ function Dashboard() {
                 <Text style={styles.pageEyebrow}>MIT HJEM</Text>
                 <Text style={styles.pageTitle}>Apparater og elbil</Text>
                 <Text style={styles.pageIntro}>Gem dine apparater ét sted. Finjustér program, temperatur, lader og batteriniveau, når du planlægger.</Text>
-                <TeslaConnectionCard connected={teslaConnected} vehicle={teslaVehicle} points={prices} now={now} evModels={evModels} onConnect={connectTesla} />
+                <TeslaConnectionCard connected={teslaConnected} vehicle={teslaVehicle} points={prices} now={now} evModels={evModels} refreshing={teslaRefreshing} showOnDashboard={teslaShowOnDashboard} onConnect={connectTesla} onRefresh={() => void refreshTesla()} onToggleDashboard={() => saveTeslaVisibility(!teslaShowOnDashboard)} />
                 <FamilyPlanner points={prices} now={now} evModels={evModels} />
               </>
             ) : (
@@ -1182,6 +1210,7 @@ function Dashboard() {
           <View style={styles.dashboardDevicesSummary}>
             <Text style={styles.pageEyebrow}>MIT HJEM</Text>
             <Text style={styles.dashboardSummaryText}>Dine apparater og elbil ligger samlet i Mit hjem.</Text>
+            {teslaShowOnDashboard ? <TeslaConnectionCard connected={teslaConnected} vehicle={teslaVehicle} points={prices} now={now} evModels={evModels} refreshing={teslaRefreshing} showOnDashboard={teslaShowOnDashboard} onConnect={connectTesla} onRefresh={() => void refreshTesla()} onToggleDashboard={() => saveTeslaVisibility(false)} /> : null}
             {quickDevices.filter((device) => device.showOnDashboard).length ? (
               <View style={styles.quickDeviceList}>
                 {quickDevices.filter((device) => device.showOnDashboard).map((device) => (
@@ -1465,6 +1494,9 @@ const styles = StyleSheet.create({
   teslaCardHeader: { flexDirection: "row", alignItems: "center", gap: 11 },
   teslaIcon: { width: 40, height: 40, borderRadius: 20, alignItems: "center", justifyContent: "center", backgroundColor: colors.white },
   teslaCardCopy: { flex: 1 },
+  teslaCardActions: { alignItems: "center", gap: 8 },
+  teslaVisibilityButton: { width: 30, height: 30, alignItems: "center", justifyContent: "center", borderRadius: 15, backgroundColor: "rgba(255,254,250,0.7)" },
+  teslaVisibilityButtonActive: { backgroundColor: colors.white },
   teslaCardTitle: { fontFamily: "DMSans_700Bold", fontSize: 14, color: colors.ink },
   teslaCardText: { fontFamily: "DMSans_400Regular", fontSize: 11, lineHeight: 16, color: colors.muted, marginTop: 3 },
   teslaStatusDot: { width: 9, height: 9, borderRadius: 5, backgroundColor: "#B6C0BA" },
