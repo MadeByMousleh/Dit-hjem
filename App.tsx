@@ -7,6 +7,7 @@ import { StatusBar } from "expo-status-bar";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
   ActivityIndicator,
+  Linking,
   Modal,
   PanResponder,
   Pressable,
@@ -53,6 +54,8 @@ const dkDay = new Intl.DateTimeFormat("da-DK", {
 });
 
 const EFORSYNING_API_URL = "http://localhost:8787";
+const isLocalWeb = typeof window !== "undefined" && ["localhost", "127.0.0.1", "::1", "[::1]"].includes(window.location.hostname);
+const APP_API_URL = typeof window !== "undefined" && !isLocalWeb ? "" : EFORSYNING_API_URL;
 type EforsyningData = {
   period: { from: string | null; to: string | null };
   heating: { usedKwh: number | null; expectedKwh: number | null };
@@ -393,6 +396,25 @@ function DevicePlanCard({ device, points, now, evModels, expanded, onToggle, onC
           )}
         </View>
       ) : null}
+    </View>
+  );
+}
+
+function TeslaConnectionCard({ connected, onConnect }: { connected: boolean; onConnect: () => void }) {
+  return (
+    <View style={styles.teslaCard}>
+      <View style={styles.teslaCardHeader}>
+        <View style={styles.teslaIcon}><Feather name="zap" size={20} color={colors.ink} /></View>
+        <View style={styles.teslaCardCopy}>
+          <Text style={styles.teslaCardTitle}>{connected ? "Tesla er forbundet" : "Tilføj din Tesla"}</Text>
+          <Text style={styles.teslaCardText}>{connected ? "Batteriniveau og ladeplan kan hentes fra din bil." : "Forbind din bil for at bruge det aktuelle batteriniveau i ladeplanen."}</Text>
+        </View>
+        <View style={[styles.teslaStatusDot, connected && styles.teslaStatusDotConnected]} />
+      </View>
+      <Pressable accessibilityLabel={connected ? "Åbn Tesla" : "Forbind Tesla"} onPress={onConnect} style={styles.teslaConnectButton}>
+        <Feather name={connected ? "refresh-cw" : "external-link"} size={15} color={colors.white} />
+        <Text style={styles.teslaConnectButtonText}>{connected ? "Opdater forbindelse" : "Forbind Tesla"}</Text>
+      </Pressable>
     </View>
   );
 }
@@ -850,6 +872,7 @@ function Dashboard() {
   const [wasteHealth, setWasteHealth] = useState<WasteHealth | null>(null);
   const [wasteShowOnDashboard, setWasteShowOnDashboard] = useState(false);
   const [activeTab, setActiveTab] = useState<"dashboard" | "home" | "profile">("dashboard");
+  const [teslaConnected, setTeslaConnected] = useState(false);
 
   const load = useCallback(async (refresh = false) => {
     refresh ? setRefreshing(true) : setLoading(true);
@@ -882,6 +905,16 @@ function Dashboard() {
   useEffect(() => {
     fetchOpenEvModels().then(setEvModels).catch(() => undefined);
   }, []);
+
+  useEffect(() => {
+    fetch(`${APP_API_URL}/api/tesla/status`).then((response) => response.json() as Promise<{ connected?: boolean }>).then((data) => setTeslaConnected(Boolean(data.connected))).catch(() => setTeslaConnected(false));
+  }, [activeTab]);
+
+  const connectTesla = () => {
+    const authorizationUrl = `${APP_API_URL}/api/tesla/authorize`;
+    if (typeof window !== "undefined") window.location.assign(authorizationUrl);
+    else void Linking.openURL(authorizationUrl);
+  };
 
   useEffect(() => {
     AsyncStorage.getItem(PROFILE_STORAGE_KEY).then((stored) => {
@@ -1031,6 +1064,7 @@ function Dashboard() {
                 <Text style={styles.pageEyebrow}>MIT HJEM</Text>
                 <Text style={styles.pageTitle}>Apparater og elbil</Text>
                 <Text style={styles.pageIntro}>Gem dine apparater ét sted. Finjustér program, temperatur, lader og batteriniveau, når du planlægger.</Text>
+                <TeslaConnectionCard connected={teslaConnected} onConnect={connectTesla} />
                 <FamilyPlanner points={prices} now={now} evModels={evModels} />
               </>
             ) : (
@@ -1389,6 +1423,16 @@ const styles = StyleSheet.create({
   overviewButtonText: { fontFamily: "DMSans_700Bold", fontSize: 10, color: colors.ink },
   chartLabel: { fontFamily: "DMSans_400Regular", color: colors.muted, fontSize: 10 },
   chartLabelActive: { color: colors.green, fontFamily: "DMSans_700Bold" },
+  teslaCard: { marginTop: 18, padding: 15, borderRadius: 8, backgroundColor: "#E8F0EC", borderWidth: 1, borderColor: "#C7D9CD" },
+  teslaCardHeader: { flexDirection: "row", alignItems: "center", gap: 11 },
+  teslaIcon: { width: 40, height: 40, borderRadius: 20, alignItems: "center", justifyContent: "center", backgroundColor: colors.white },
+  teslaCardCopy: { flex: 1 },
+  teslaCardTitle: { fontFamily: "DMSans_700Bold", fontSize: 14, color: colors.ink },
+  teslaCardText: { fontFamily: "DMSans_400Regular", fontSize: 11, lineHeight: 16, color: colors.muted, marginTop: 3 },
+  teslaStatusDot: { width: 9, height: 9, borderRadius: 5, backgroundColor: "#B6C0BA" },
+  teslaStatusDotConnected: { backgroundColor: colors.green },
+  teslaConnectButton: { minHeight: 36, marginTop: 13, flexDirection: "row", alignItems: "center", justifyContent: "center", gap: 7, borderRadius: 18, backgroundColor: colors.ink },
+  teslaConnectButtonText: { fontFamily: "DMSans_700Bold", fontSize: 11, color: colors.white },
   plannerSection: { marginVertical: 26 },
   plannerHeading: { flexDirection: "row", justifyContent: "space-between", alignItems: "center", marginBottom: 14 },
   addDeviceButton: { minHeight: 38, flexDirection: "row", alignItems: "center", gap: 6, paddingHorizontal: 13, borderRadius: 19, borderWidth: 1, borderColor: colors.line, backgroundColor: colors.white },

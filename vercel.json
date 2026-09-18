@@ -13,6 +13,12 @@
       ]
     }
   ],
+  "rewrites": [
+    {
+      "source": "/callback",
+      "destination": "/api/tesla/callback"
+    }
+  ],
   "functions": {
     "api/[...path].mjs": {
       "maxDuration": 30

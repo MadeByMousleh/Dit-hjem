@@ -1,4 +1,4 @@
-import { createHash, randomUUID } from "node:crypto";
+import { createCipheriv, createDecipheriv, createHash, createHmac, randomBytes, randomUUID } from "node:crypto";
 import { createServer } from "node:http";
 import { readFileSync } from "node:fs";
 import { extname, join, normalize } from "node:path";
@@ -7,6 +7,8 @@ const port = Number(process.env.EFORSYNING_PORT ?? 8787);
 const baseUrl = process.env.EFORSYNING_BASE_URL ?? "https://eforsyning.dk/";
 const teslaPublicKeyPath = process.env.TESLA_PUBLIC_KEY_PATH ?? "./public/.well-known/appspecific/com.tesla.3p.public-key.pem";
 const webRoot = process.env.WEB_ROOT ?? "./dist";
+const teslaAuthUrl = "https://fleet-auth.prd.vn.cloud.tesla.com/oauth2/v3";
+const teslaApiUrl = "https://fleet-api.prd.eu.vn.cloud.tesla.com";
 let activeCredentials = null;
 let gridBoundariesPromise;
 let openEvModelsPromise;
@@ -132,6 +134,39 @@ async function readJson(request) {
   let body = "";
   for await (const chunk of request) body += chunk;
   return JSON.parse(body || "{}");
+}
+
+function teslaConfig() {
+  const clientId = process.env.TESLA_CLIENT_ID;
+  const clientSecret = process.env.TESLA_CLIENT_SECRET;
+  const domain = process.env.TESLA_APP_DOMAIN;
+  if (!clientId || !clientSecret || !domain) throw new Error("Tesla er ikke konfigureret");
+  const redirectUri = process.env.TESLA_REDIRECT_URI ?? `https://${domain}/callback`;
+  return { clientId, clientSecret, redirectUri };
+}
+
+function parseCookies(request) {
+  return Object.fromEntries((request.headers.cookie ?? "").split(";").map((part) => part.trim().split("=")).filter(([name, value]) => name && value).map(([name, ...value]) => [name, decodeURIComponent(value.join("="))]));
+}
+
+function encryptedTeslaSession(tokens, secret) {
+  const key = createHash("sha256").update(secret).digest();
+  const iv = randomBytes(12);
+  const cipher = createCipheriv("aes-256-gcm", key, iv);
+  const encrypted = Buffer.concat([cipher.update(JSON.stringify(tokens), "utf8"), cipher.final()]);
+  return [iv, cipher.getAuthTag(), encrypted].map((value) => value.toString("base64url")).join(".");
+}
+
+function decryptedTeslaSession(value, secret) {
+  if (!value) return undefined;
+  try {
+    const [iv, authTag, encrypted] = value.split(".").map((part) => Buffer.from(part, "base64url"));
+    const decipher = createDecipheriv("aes-256-gcm", createHash("sha256").update(secret).digest(), iv);
+    decipher.setAuthTag(authTag);
+    return JSON.parse(Buffer.concat([decipher.update(encrypted), decipher.final()]).toString("utf8"));
+  } catch {
+    return undefined;
+  }
 }
 
 function pointInRing(point, ring) {
@@ -588,6 +623,61 @@ export async function handler(request, response) {
     const url = new URL(request.url, `http://${request.headers.host}`);
     response.writeHead(200, { "Content-Type": "application/json", "Cache-Control": "no-store" });
     response.end(JSON.stringify(wasteHealth(url.searchParams.get("municipality") ?? "")));
+    return;
+  }
+  if (request.method === "GET" && request.url === "/api/tesla/authorize") {
+    try {
+      const { clientId, clientSecret, redirectUri } = teslaConfig();
+      const state = randomBytes(24).toString("base64url");
+      const stateSignature = createHmac("sha256", clientSecret).update(state).digest("base64url");
+      const authorization = new URL(`${teslaAuthUrl}/authorize`);
+      authorization.search = new URLSearchParams({
+        client_id: clientId,
+        redirect_uri: redirectUri,
+        response_type: "code",
+        scope: "openid user_data vehicle_device_data vehicle_cmds vehicle_charging_cmds",
+        state: `${state}.${stateSignature}`,
+      }).toString();
+      response.writeHead(302, { Location: authorization.toString(), "Set-Cookie": `tesla_oauth_state=${encodeURIComponent(state)}; HttpOnly; SameSite=Lax; Max-Age=600${process.env.VERCEL ? "; Secure" : ""}; Path=/` });
+      response.end();
+    } catch (error) {
+      response.writeHead(503, { "Content-Type": "application/json" });
+      response.end(JSON.stringify({ error: error instanceof Error ? error.message : "Tesla-login er ikke konfigureret" }));
+    }
+    return;
+  }
+  if (request.method === "GET" && request.url?.startsWith("/api/tesla/callback")) {
+    try {
+      const url = new URL(request.url, `http://${request.headers.host}`);
+      const code = url.searchParams.get("code");
+      const returnedState = url.searchParams.get("state") ?? "";
+      const [state, signature] = returnedState.split(".");
+      const { clientId, clientSecret, redirectUri } = teslaConfig();
+      const expectedState = parseCookies(request).tesla_oauth_state;
+      const expectedSignature = state ? createHmac("sha256", clientSecret).update(state).digest("base64url") : "";
+      if (!code || !state || signature !== expectedSignature || state !== expectedState) throw new Error("Tesla-login kunne ikke valideres");
+      const tokenResponse = await fetch(`${teslaAuthUrl}/token`, { method: "POST", headers: { "Content-Type": "application/x-www-form-urlencoded", Accept: "application/json" }, body: new URLSearchParams({ grant_type: "authorization_code", client_id: clientId, client_secret: clientSecret, code, redirect_uri: redirectUri, audience: teslaApiUrl }) });
+      const tokenPayload = await tokenResponse.json();
+      if (!tokenResponse.ok || !tokenPayload.access_token) throw new Error("Tesla-token kunne ikke hentes");
+      const session = encryptedTeslaSession({ accessToken: tokenPayload.access_token, refreshToken: tokenPayload.refresh_token, expiresAt: Date.now() + Number(tokenPayload.expires_in ?? 3600) * 1000 }, clientSecret);
+      response.writeHead(200, { "Content-Type": "text/html; charset=utf-8", "Set-Cookie": `tesla_session=${encodeURIComponent(session)}; HttpOnly; SameSite=Lax; Max-Age=2592000${process.env.VERCEL ? "; Secure" : ""}; Path=/` });
+      response.end("<!doctype html><title>Tesla forbundet</title><meta name=\"viewport\" content=\"width=device-width\"><body style=\"font-family: sans-serif; padding: 2rem\"><h1>Tesla er forbundet</h1><p>Du kan lukke dette vindue og gå tilbage til MBM.</p></body>");
+    } catch (error) {
+      response.writeHead(400, { "Content-Type": "text/html; charset=utf-8" });
+      response.end(`<h1>Tesla-login mislykkedes</h1><p>${error instanceof Error ? error.message : "Prøv igen"}</p>`);
+    }
+    return;
+  }
+  if (request.method === "GET" && request.url === "/api/tesla/status") {
+    try {
+      const { clientSecret } = teslaConfig();
+      const session = decryptedTeslaSession(parseCookies(request).tesla_session, clientSecret);
+      response.writeHead(200, { "Content-Type": "application/json", "Cache-Control": "no-store" });
+      response.end(JSON.stringify({ connected: Boolean(session?.accessToken && Number(session.expiresAt) > Date.now()) }));
+    } catch {
+      response.writeHead(200, { "Content-Type": "application/json", "Cache-Control": "no-store" });
+      response.end(JSON.stringify({ connected: false }));
+    }
     return;
   }
   if (request.method === "POST" && request.url === "/api/eforsyning/login") {
