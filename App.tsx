@@ -31,34 +31,10 @@ import { getTeslaAuthorizationUrl, getTeslaStatus, getTeslaVehicles } from "./sr
 import { DEVICE_TEMPLATES, EforsyningData, EnergyClass, HouseholdDevice, TeslaVehicle, WashTemperature } from "./src/types/app";
 import { CLASS_ENERGY_KWH, DURATIONS, ENERGY_CLASSES, WASH_TEMPERATURES, WASH_TEMPERATURE_MULTIPLIERS, findBestEnergyWindow, isEnergyClass } from "./src/utils/energyPlanning";
 import { dayKey, formatDuration, formatPrice } from "./src/utils/formatting";
+import { colors, dkDay, dkTime } from "./src/styles/theme";
 
 const GRID_SUPPLIERS_FALLBACK = GRID_SUPPLIERS;
 const DEFAULT_GRID_SUPPLIER: GridSupplier = { id: "n1_c", name: "N1", area: "DK1" };
-
-const colors = {
-  ink: "#18332F",
-  muted: "#65736E",
-  paper: "#F4F1E8",
-  white: "#FFFEFA",
-  mint: "#DCE9DC",
-  green: "#0B694F",
-  coral: "#E87555",
-  yellow: "#F2CA6B",
-  line: "#D8D9CF",
-  navy: "#163B47",
-};
-
-const dkTime = new Intl.DateTimeFormat("da-DK", {
-  timeZone: "Europe/Copenhagen",
-  hour: "2-digit",
-  minute: "2-digit",
-});
-const dkDay = new Intl.DateTimeFormat("da-DK", {
-  timeZone: "Europe/Copenhagen",
-  weekday: "long",
-  day: "numeric",
-  month: "short",
-});
 
 const EFORSYNING_API_URL = "http://localhost:8787";
 type DeviceKind = HouseholdDevice["kind"];
