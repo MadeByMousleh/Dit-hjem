@@ -2,6 +2,17 @@
   "buildCommand": "npx expo export --platform web",
   "outputDirectory": "dist",
   "framework": null,
+  "headers": [
+    {
+      "source": "/.well-known/appspecific/com.tesla.3p.public-key.pem",
+      "headers": [
+        {
+          "key": "Content-Type",
+          "value": "application/x-pem-file"
+        }
+      ]
+    }
+  ],
   "functions": {
     "api/[...path].mjs": {
       "maxDuration": 30
