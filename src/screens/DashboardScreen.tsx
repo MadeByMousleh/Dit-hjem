@@ -15,7 +15,6 @@ import { SafeAreaView } from "react-native-safe-area-context";
 import { PricePoint } from "../prices";
 import { AddressSuggestion, searchAddresses } from "../addresses";
 import { EvModel, fetchOpenEvModels } from "../evData";
-import { fetchWasteEvents, fetchWasteHealth, WasteEvent, WasteHealth, WASTE_LABELS } from "../waste";
 import { TeslaConnectionCard } from "../components/TeslaConnectionCard";
 import { FamilyPlanner as ExtractedFamilyPlanner } from "../components/FamilyPlanner";
 import { DevicePlanCard } from "../components/DevicePlanCard";
@@ -25,6 +24,7 @@ import { SecondaryTabScreen } from "./SecondaryTabScreen";
 import { useTeslaConnection } from "../hooks/useTeslaConnection";
 import { useEnergyPrices } from "../hooks/useEnergyPrices";
 import { useEforsyning } from "../hooks/useEforsyning";
+import { useWasteCalendar } from "../hooks/useWasteCalendar";
 import { DEVICES_STORAGE_KEY, PROFILE_STORAGE_KEY, loadDevices, loadProfile, saveDevices, saveProfile as saveStoredProfile, updateProfile } from "../services/storage";
 import { HouseholdDevice } from "../types/app";
 import { formatPrice } from "../utils/formatting";
@@ -53,9 +53,6 @@ function Dashboard() {
   const [addressMunicipality, setAddressMunicipality] = useState<string | undefined>();
   const [addressPostcode, setAddressPostcode] = useState<string | undefined>();
   const [wasteCalendarUrl, setWasteCalendarUrl] = useState("");
-  const [wasteEvents, setWasteEvents] = useState<WasteEvent[]>([]);
-  const [wasteError, setWasteError] = useState("");
-  const [wasteHealth, setWasteHealth] = useState<WasteHealth | null>(null);
   const [wasteShowOnDashboard, setWasteShowOnDashboard] = useState(false);
   const [activeTab, setActiveTab] = useState<"dashboard" | "home" | "profile">("dashboard");
   const tesla = useTeslaConnection(activeTab);
@@ -82,14 +79,7 @@ function Dashboard() {
     }).catch(() => undefined);
   }, [activeTab]);
 
-  useEffect(() => {
-    if (!addressMunicipality) return;
-    fetchWasteHealth(addressMunicipality).then(setWasteHealth).catch(() => setWasteHealth(null));
-    fetchWasteEvents(addressMunicipality, addressPostcode, wasteCalendarUrl, address).then((events) => {
-      setWasteEvents(events.filter((event) => new Date(`${event.date}T23:59:59`).getTime() >= Date.now()).slice(0, 8));
-      setWasteError("");
-    }).catch((error) => { setWasteEvents([]); setWasteError(error instanceof Error ? error.message : "Affaldskalenderen kunne ikke hentes"); });
-  }, [addressMunicipality, addressPostcode, wasteCalendarUrl, address]);
+  const { events: wasteEvents, error: wasteError, health: wasteHealth } = useWasteCalendar({ municipality: addressMunicipality, postcode: addressPostcode, calendarUrl: wasteCalendarUrl, address });
 
   const saveProfile = async () => {
     await saveStoredProfile({ name: profileName, email: profileEmail, address, municipalityCode: addressMunicipality, postcode: addressPostcode, wasteCalendarUrl, wasteShowOnDashboard });
