@@ -25,15 +25,13 @@ import { useTeslaConnection } from "../hooks/useTeslaConnection";
 import { useEnergyPrices } from "../hooks/useEnergyPrices";
 import { useEforsyning } from "../hooks/useEforsyning";
 import { useWasteCalendar } from "../hooks/useWasteCalendar";
-import { DEVICES_STORAGE_KEY, PROFILE_STORAGE_KEY, loadDevices, loadProfile, saveDevices, saveProfile as saveStoredProfile, updateProfile } from "../services/storage";
-import { HouseholdDevice } from "../types/app";
+import { useQuickDevices } from "../hooks/useQuickDevices";
+import { PROFILE_STORAGE_KEY, loadProfile, saveProfile as saveStoredProfile } from "../services/storage";
 import { formatPrice } from "../utils/formatting";
 import { colors, dkDay, dkTime } from "../styles/theme";
 import { styles } from "../styles/appStyles";
 
 const EFORSYNING_API_URL = "http://localhost:8787";
-type DeviceKind = HouseholdDevice["kind"];
-
 function Dashboard() {
   const { width } = useWindowDimensions();
   const isMobile = width < 520;
@@ -47,14 +45,13 @@ function Dashboard() {
   const [evModels, setEvModels] = useState<EvModel[]>([]);
   const [profileName, setProfileName] = useState("");
   const [profileEmail, setProfileEmail] = useState("");
-  const [quickDevices, setQuickDevices] = useState<HouseholdDevice[]>([]);
-  const [expandedQuickId, setExpandedQuickId] = useState<number | null>(null);
   const [profileSaved, setProfileSaved] = useState(false);
   const [addressMunicipality, setAddressMunicipality] = useState<string | undefined>();
   const [addressPostcode, setAddressPostcode] = useState<string | undefined>();
   const [wasteCalendarUrl, setWasteCalendarUrl] = useState("");
   const [wasteShowOnDashboard, setWasteShowOnDashboard] = useState(false);
   const [activeTab, setActiveTab] = useState<"dashboard" | "home" | "profile">("dashboard");
+  const { devices: quickDevices, expandedId: expandedQuickId, toggleExpanded: toggleQuickExpanded, updateDevice: updateQuickDevice } = useQuickDevices(activeTab);
   const tesla = useTeslaConnection(activeTab);
 
   useEffect(() => {
@@ -73,9 +70,6 @@ function Dashboard() {
       setAddressPostcode(profile.postcode);
       setWasteCalendarUrl(profile.wasteCalendarUrl ?? "");
       setWasteShowOnDashboard(profile.wasteShowOnDashboard ?? false);
-    }).catch(() => undefined);
-    loadDevices().then((savedDevices) => {
-      if (savedDevices) setQuickDevices(savedDevices);
     }).catch(() => undefined);
   }, [activeTab]);
 
@@ -204,12 +198,8 @@ function Dashboard() {
                     now={now}
                     evModels={evModels}
                     expanded={expandedQuickId === device.id}
-                    onToggle={() => setExpandedQuickId((current) => current === device.id ? null : device.id)}
-                    onChange={(changes) => {
-                      const next = quickDevices.map((item) => item.id === device.id ? { ...item, ...changes } : item);
-                      setQuickDevices(next);
-                      void saveDevices(next);
-                    }}
+                    onToggle={() => toggleQuickExpanded(device.id)}
+                    onChange={(changes) => updateQuickDevice(device.id, changes)}
                   />
                 ))}
               </View>
