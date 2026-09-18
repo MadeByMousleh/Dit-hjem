@@ -3,7 +3,6 @@ import { StatusBar } from "expo-status-bar";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
   ActivityIndicator,
-  Linking,
   Pressable,
   RefreshControl,
   ScrollView,
@@ -23,9 +22,9 @@ import { DevicePlanCard } from "../components/DevicePlanCard";
 import { PriceChart } from "../components/PriceChart";
 import { WasteCollectionCard } from "../components/WasteCollectionCard";
 import { SecondaryTabScreen } from "./SecondaryTabScreen";
-import { getTeslaAuthorizationUrl, getTeslaStatus, getTeslaVehicles } from "../services/tesla";
+import { useTeslaConnection } from "../hooks/useTeslaConnection";
 import { DEVICES_STORAGE_KEY, PROFILE_STORAGE_KEY, loadDevices, loadProfile, saveDevices, saveProfile as saveStoredProfile, updateProfile } from "../services/storage";
-import { EforsyningData, HouseholdDevice, TeslaVehicle } from "../types/app";
+import { EforsyningData, HouseholdDevice } from "../types/app";
 import { formatPrice } from "../utils/formatting";
 import { colors, dkDay, dkTime } from "../styles/theme";
 import { styles } from "../styles/appStyles";
@@ -72,10 +71,7 @@ function Dashboard() {
   const [wasteHealth, setWasteHealth] = useState<WasteHealth | null>(null);
   const [wasteShowOnDashboard, setWasteShowOnDashboard] = useState(false);
   const [activeTab, setActiveTab] = useState<"dashboard" | "home" | "profile">("dashboard");
-  const [teslaConnected, setTeslaConnected] = useState(false);
-  const [teslaVehicle, setTeslaVehicle] = useState<TeslaVehicle | null>(null);
-  const [teslaRefreshing, setTeslaRefreshing] = useState(false);
-  const [teslaShowOnDashboard, setTeslaShowOnDashboard] = useState(false);
+  const tesla = useTeslaConnection(activeTab);
 
   const load = useCallback(async (refresh = false) => {
     refresh ? setRefreshing(true) : setLoading(true);
@@ -109,36 +105,6 @@ function Dashboard() {
     fetchOpenEvModels().then(setEvModels).catch(() => undefined);
   }, []);
 
-  const refreshTesla = useCallback(async () => {
-    setTeslaRefreshing(true);
-    try {
-      const data = await getTeslaStatus();
-      const connected = Boolean(data.connected);
-      setTeslaConnected(connected);
-      if (!connected) {
-        setTeslaVehicle(null);
-        return;
-      }
-      const vehicles = await getTeslaVehicles();
-      setTeslaVehicle(vehicles[0] ?? null);
-    } catch {
-      setTeslaConnected(false);
-      setTeslaVehicle(null);
-    } finally {
-      setTeslaRefreshing(false);
-    }
-  }, []);
-
-  useEffect(() => {
-    void refreshTesla();
-  }, [activeTab, refreshTesla]);
-
-  const connectTesla = () => {
-    const authorizationUrl = getTeslaAuthorizationUrl();
-    if (typeof window !== "undefined") window.location.assign(authorizationUrl);
-    else void Linking.openURL(authorizationUrl);
-  };
-
   const renderDeviceCard = (props: any) => <DevicePlanCard {...props} styles={styles} colors={colors} dkTime={dkTime} dkDay={dkDay} />;
 
   useEffect(() => {
@@ -151,7 +117,6 @@ function Dashboard() {
       setAddressPostcode(profile.postcode);
       setWasteCalendarUrl(profile.wasteCalendarUrl ?? "");
       setWasteShowOnDashboard(profile.wasteShowOnDashboard ?? false);
-      setTeslaShowOnDashboard(profile.teslaShowOnDashboard ?? false);
     }).catch(() => undefined);
     loadDevices().then((savedDevices) => {
       if (savedDevices) setQuickDevices(savedDevices);
@@ -167,13 +132,8 @@ function Dashboard() {
     }).catch((error) => { setWasteEvents([]); setWasteError(error instanceof Error ? error.message : "Affaldskalenderen kunne ikke hentes"); });
   }, [addressMunicipality, addressPostcode, wasteCalendarUrl, address]);
 
-  const saveTeslaVisibility = (showOnDashboard: boolean) => {
-    setTeslaShowOnDashboard(showOnDashboard);
-    void updateProfile({ teslaShowOnDashboard: showOnDashboard });
-  };
-
   const saveProfile = async () => {
-    await saveStoredProfile({ name: profileName, email: profileEmail, address, municipalityCode: addressMunicipality, postcode: addressPostcode, wasteCalendarUrl, wasteShowOnDashboard, teslaShowOnDashboard });
+    await saveStoredProfile({ name: profileName, email: profileEmail, address, municipalityCode: addressMunicipality, postcode: addressPostcode, wasteCalendarUrl, wasteShowOnDashboard });
     setProfileSaved(true);
     setTimeout(() => setProfileSaved(false), 1800);
   };
@@ -257,7 +217,7 @@ function Dashboard() {
     </View>
   );
 
-  if (activeTab !== "dashboard") return <SecondaryTabScreen activeTab={activeTab} now={now} load={load} isMobile={isMobile} styles={styles} colors={colors} profileName={profileName} setProfileName={setProfileName} profileEmail={profileEmail} setProfileEmail={setProfileEmail} saveProfile={saveProfile} profileSaved={profileSaved} address={address} setAddress={setAddress} addressSuggestions={addressSuggestions} chooseAddress={chooseAddress} addressLookupLoading={addressLookupLoading} addressError={addressError} selectedSupplier={selectedSupplier} prices={prices} evModels={evModels} teslaConnected={teslaConnected} teslaVehicle={teslaVehicle} teslaRefreshing={teslaRefreshing} teslaShowOnDashboard={teslaShowOnDashboard} connectTesla={connectTesla} refreshTesla={refreshTesla} saveTeslaVisibility={saveTeslaVisibility} renderDeviceCard={renderDeviceCard} navigation={navigation} />;
+  if (activeTab !== "dashboard") return <SecondaryTabScreen activeTab={activeTab} now={now} load={load} isMobile={isMobile} styles={styles} colors={colors} profileName={profileName} setProfileName={setProfileName} profileEmail={profileEmail} setProfileEmail={setProfileEmail} saveProfile={saveProfile} profileSaved={profileSaved} address={address} setAddress={setAddress} addressSuggestions={addressSuggestions} chooseAddress={chooseAddress} addressLookupLoading={addressLookupLoading} addressError={addressError} selectedSupplier={selectedSupplier} prices={prices} evModels={evModels} teslaConnected={tesla.connected} teslaVehicle={tesla.vehicle} teslaRefreshing={tesla.refreshing} teslaShowOnDashboard={tesla.showOnDashboard} connectTesla={tesla.connect} refreshTesla={tesla.refresh} saveTeslaVisibility={tesla.setDashboardVisibility} renderDeviceCard={renderDeviceCard} navigation={navigation} />;
 
   return (
     <SafeAreaView style={styles.safeArea} edges={["top"]}>
@@ -304,7 +264,7 @@ function Dashboard() {
           <View style={styles.dashboardDevicesSummary}>
             <Text style={styles.pageEyebrow}>MIT HJEM</Text>
             <Text style={styles.dashboardSummaryText}>Dine apparater og elbil ligger samlet i Mit hjem.</Text>
-            {teslaShowOnDashboard ? <TeslaConnectionCard connected={teslaConnected} vehicle={teslaVehicle} points={prices} now={now} evModels={evModels} refreshing={teslaRefreshing} showOnDashboard={teslaShowOnDashboard} onConnect={connectTesla} onRefresh={() => void refreshTesla()} onToggleDashboard={() => saveTeslaVisibility(false)} /> : null}
+            {tesla.showOnDashboard ? <TeslaConnectionCard connected={tesla.connected} vehicle={tesla.vehicle} points={prices} now={now} evModels={evModels} refreshing={tesla.refreshing} showOnDashboard={tesla.showOnDashboard} onConnect={tesla.connect} onRefresh={() => void tesla.refresh()} onToggleDashboard={() => tesla.setDashboardVisibility(false)} /> : null}
             {quickDevices.filter((device) => device.showOnDashboard).length ? (
               <View style={styles.quickDeviceList}>
                 {quickDevices.filter((device) => device.showOnDashboard).map((device) => (
