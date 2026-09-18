@@ -1,0 +1,22 @@
+import { Feather } from "@expo/vector-icons";
+import { ActivityIndicator, Pressable, ScrollView, Text, TextInput, View } from "react-native";
+import { StatusBar } from "expo-status-bar";
+import { SafeAreaView } from "react-native-safe-area-context";
+import { TeslaConnectionCard } from "../components/TeslaConnectionCard";
+import { FamilyPlanner } from "../components/FamilyPlanner";
+
+export function SecondaryTabScreen(props: any) {
+  const { activeTab, now, load, isMobile, styles, colors, profileName, setProfileName, profileEmail, setProfileEmail, saveProfile, profileSaved, address, setAddress, addressSuggestions, chooseAddress, addressLookupLoading, addressError, selectedSupplier, prices, evModels, teslaConnected, teslaVehicle, teslaRefreshing, teslaShowOnDashboard, connectTesla, refreshTesla, saveTeslaVisibility, renderDeviceCard, navigation } = props;
+  return (
+    <SafeAreaView style={styles.safeArea} edges={["top"]}>
+      <StatusBar style="dark" />
+      <ScrollView contentContainerStyle={styles.scrollContent}>
+        <View style={[styles.container, isMobile && styles.containerMobile]}>
+          <View style={styles.header}><View><Text style={styles.brand}>STRØMBLIK</Text><Text style={styles.date}>{new Intl.DateTimeFormat("da-DK", { timeZone: "Europe/Copenhagen", weekday: "long", day: "numeric", month: "short" }).format(new Date(now))}</Text></View><Pressable accessibilityLabel="Opdater priser" onPress={() => void load(true)} style={styles.iconButton}><Feather name="refresh-cw" size={19} color={colors.ink} /></Pressable></View>
+          {activeTab === "home" ? <><Text style={styles.pageEyebrow}>MIT HJEM</Text><Text style={styles.pageTitle}>Apparater og elbil</Text><Text style={styles.pageIntro}>Gem dine apparater ét sted. Finjustér program, temperatur, lader og batteriniveau, når du planlægger.</Text><TeslaConnectionCard connected={teslaConnected} vehicle={teslaVehicle} points={prices} now={now} evModels={evModels} refreshing={teslaRefreshing} showOnDashboard={teslaShowOnDashboard} onConnect={connectTesla} onRefresh={() => void refreshTesla()} onToggleDashboard={() => saveTeslaVisibility(!teslaShowOnDashboard)} /><FamilyPlanner points={prices} now={now} evModels={evModels} styles={styles} colors={colors} DeviceCard={renderDeviceCard} /></> : <><Text style={styles.pageEyebrow}>MIN PROFIL</Text><Text style={styles.pageTitle}>Dine oplysninger</Text><View style={styles.profileCard}><View style={styles.profileAvatar}><Feather name="user" size={24} color={colors.green} /></View><TextInput accessibilityLabel="Navn" placeholder="Dit navn" placeholderTextColor={colors.muted} value={profileName} onChangeText={setProfileName} style={styles.profileInput} /><TextInput accessibilityLabel="Email" placeholder="din@email.dk" placeholderTextColor={colors.muted} keyboardType="email-address" autoCapitalize="none" value={profileEmail} onChangeText={setProfileEmail} style={styles.profileInput} /><Pressable onPress={() => void saveProfile()} style={styles.profileSaveButton}><Text style={styles.profileSaveText}>{profileSaved ? "Gemt" : "Gem profil"}</Text></Pressable></View><Text style={styles.pageEyebrow}>MIN ADRESSE</Text><Text style={styles.sectionTitle}>Find mit netselskab</Text><Text style={styles.pageIntro}>Indtast din adresse, så bruger appen automatisk det rigtige netselskab på dashboardet.</Text><View style={styles.profileAddressCard}><View style={styles.addressSearchWrap}><View style={styles.addressIconWrap}><Feather name="map-pin" size={16} color={colors.green} /></View><TextInput accessibilityLabel="Profiladresse" value={address} onChangeText={(value) => { setAddress(value); }} placeholder="Indtast din adresse" placeholderTextColor={colors.muted} style={styles.addressInput} />{addressLookupLoading ? <ActivityIndicator size="small" color={colors.green} /> : null}</View>{addressSuggestions.map((suggestion: any) => <Pressable key={suggestion.id} onPress={() => void chooseAddress(suggestion)} style={styles.addressSuggestion}><Text style={styles.addressSuggestionText}>{suggestion.text}</Text></Pressable>)}{addressError ? <Text style={styles.addressError}>{addressError}</Text> : null}<View style={styles.currentSupplierRow}><Text style={styles.currentSupplierLabel}>AKTUELT NETSELSKAB</Text><Text style={styles.currentSupplierName}>{selectedSupplier.name} · {selectedSupplier.area}</Text></View></View></>}
+          {navigation}
+        </View>
+      </ScrollView>
+    </SafeAreaView>
+  );
+}
