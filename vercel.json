@@ -20,7 +20,7 @@
     }
   ],
   "functions": {
-    "api/[...path].mjs": {
+    "api/**/*.mjs": {
       "maxDuration": 30
     }
   }

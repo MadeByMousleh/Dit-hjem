@@ -1,6 +1,6 @@
 import { Feather } from "@expo/vector-icons";
 import { StatusBar } from "expo-status-bar";
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { useEffect, useState } from "react";
 import {
   ActivityIndicator,
   Pressable,
@@ -12,8 +12,6 @@ import {
   View,
 } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
-import { PricePoint } from "../prices";
-import { AddressSuggestion, searchAddresses } from "../addresses";
 import { EvModel, fetchOpenEvModels } from "../evData";
 import { TeslaConnectionCard } from "../components/TeslaConnectionCard";
 import { FamilyPlanner as ExtractedFamilyPlanner } from "../components/FamilyPlanner";
@@ -26,31 +24,37 @@ import { useEnergyPrices } from "../hooks/useEnergyPrices";
 import { useEforsyning } from "../hooks/useEforsyning";
 import { useWasteCalendar } from "../hooks/useWasteCalendar";
 import { useQuickDevices } from "../hooks/useQuickDevices";
-import { PROFILE_STORAGE_KEY, loadProfile, saveProfile as saveStoredProfile } from "../services/storage";
+import { useProfileAddress } from "../hooks/useProfileAddress";
 import { formatPrice } from "../utils/formatting";
 import { colors, dkDay, dkTime } from "../styles/theme";
 import { styles } from "../styles/appStyles";
 
-const EFORSYNING_API_URL = "http://localhost:8787";
 function Dashboard() {
   const { width } = useWindowDimensions();
   const isMobile = width < 520;
   const { gridSuppliers, selectedSupplier, setSelectedSupplierId, now, prices, loading, refreshing, isSample, load } = useEnergyPrices();
-  const [address, setAddress] = useState("");
-  const [addressSuggestions, setAddressSuggestions] = useState<AddressSuggestion[]>([]);
-  const [addressLookupLoading, setAddressLookupLoading] = useState(false);
-  const [addressError, setAddressError] = useState("");
   const area = selectedSupplier.area;
   const { data: eforsyning, username: eforsyningUsername, setUsername: setEforsyningUsername, password: eforsyningPassword, setPassword: setEforsyningPassword, supplierId: eforsyningSupplierId, setSupplierId: setEforsyningSupplierId, loading: eforsyningLoading, error: eforsyningError, login: loginToEforsyning } = useEforsyning();
   const [evModels, setEvModels] = useState<EvModel[]>([]);
-  const [profileName, setProfileName] = useState("");
-  const [profileEmail, setProfileEmail] = useState("");
-  const [profileSaved, setProfileSaved] = useState(false);
-  const [addressMunicipality, setAddressMunicipality] = useState<string | undefined>();
-  const [addressPostcode, setAddressPostcode] = useState<string | undefined>();
-  const [wasteCalendarUrl, setWasteCalendarUrl] = useState("");
-  const [wasteShowOnDashboard, setWasteShowOnDashboard] = useState(false);
   const [activeTab, setActiveTab] = useState<"dashboard" | "home" | "profile">("dashboard");
+  const {
+    profileName,
+    setProfileName,
+    profileEmail,
+    setProfileEmail,
+    profileSaved,
+    saveProfile,
+    address,
+    setAddress,
+    addressSuggestions,
+    chooseAddress,
+    addressLookupLoading,
+    addressError,
+    addressMunicipality,
+    addressPostcode,
+    wasteCalendarUrl,
+    wasteShowOnDashboard,
+  } = useProfileAddress({ refreshKey: activeTab, gridSuppliers, setSelectedSupplierId });
   const { devices: quickDevices, expandedId: expandedQuickId, toggleExpanded: toggleQuickExpanded, updateDevice: updateQuickDevice } = useQuickDevices(activeTab);
   const tesla = useTeslaConnection(activeTab);
 
@@ -60,72 +64,7 @@ function Dashboard() {
 
   const renderDeviceCard = (props: any) => <DevicePlanCard {...props} styles={styles} colors={colors} dkTime={dkTime} dkDay={dkDay} />;
 
-  useEffect(() => {
-    loadProfile().then((profile) => {
-      if (!profile) return;
-      setProfileName(profile.name ?? "");
-      setProfileEmail(profile.email ?? "");
-      setAddress(profile.address ?? "");
-      setAddressMunicipality(profile.municipalityCode);
-      setAddressPostcode(profile.postcode);
-      setWasteCalendarUrl(profile.wasteCalendarUrl ?? "");
-      setWasteShowOnDashboard(profile.wasteShowOnDashboard ?? false);
-    }).catch(() => undefined);
-  }, [activeTab]);
-
   const { events: wasteEvents, error: wasteError, health: wasteHealth } = useWasteCalendar({ municipality: addressMunicipality, postcode: addressPostcode, calendarUrl: wasteCalendarUrl, address });
-
-  const saveProfile = async () => {
-    await saveStoredProfile({ name: profileName, email: profileEmail, address, municipalityCode: addressMunicipality, postcode: addressPostcode, wasteCalendarUrl, wasteShowOnDashboard });
-    setProfileSaved(true);
-    setTimeout(() => setProfileSaved(false), 1800);
-  };
-
-  useEffect(() => {
-    if (address.trim().length < 3) {
-      setAddressSuggestions([]);
-      return;
-    }
-    const timer = setTimeout(() => {
-      searchAddresses(address).then(setAddressSuggestions).catch(() => setAddressSuggestions([]));
-    }, 250);
-    return () => clearTimeout(timer);
-  }, [address]);
-
-  const chooseAddress = async (suggestion: AddressSuggestion) => {
-    setAddress(suggestion.text);
-    setAddressMunicipality(suggestion.municipalityCode);
-    setAddressPostcode(suggestion.postcode);
-    void saveStoredProfile({ name: profileName, email: profileEmail, address: suggestion.text, municipalityCode: suggestion.municipalityCode, postcode: suggestion.postcode });
-    setAddressSuggestions([]);
-    setAddressError("");
-    setAddressLookupLoading(true);
-    try {
-      const response = await fetch(`${EFORSYNING_API_URL}/api/grid/lookup?x=${suggestion.x}&y=${suggestion.y}`);
-      const result = await response.json() as { name?: string; error?: string };
-      if (!response.ok || !result.name) throw new Error(result.error ?? "Netselskabet kunne ikke findes");
-      const supplierTokens = (value: string) => value.toLowerCase()
-        .replace(/[^a-z0-9æøå]+/g, " ")
-        .split(" ")
-        .filter((token) => (token.length > 2 || /\d/.test(token)) && !["a/s", "as", "net", "elnet", "netselskab"].includes(token));
-      const supplierTokensFound = supplierTokens(result.name);
-      const canonicalSupplierId = supplierTokensFound.includes("n1") ? "n1_c" : undefined;
-      const match = (canonicalSupplierId && gridSuppliers.find((supplier) => supplier.id === canonicalSupplierId)) ?? gridSuppliers.find((supplier) => {
-        return [supplier.name, supplier.companyName ?? ""].some((name) => {
-          const candidateTokens = supplierTokens(name);
-          return supplierTokensFound.some((token) => candidateTokens.includes(token));
-        });
-      });
-      if (match) {
-        setSelectedSupplierId(match.id);
-      }
-      else setAddressError(`${result.name} blev fundet, men findes ikke i prislisten endnu.`);
-    } catch (error) {
-      setAddressError(error instanceof Error ? error.message : "Netselskabet kunne ikke findes");
-    } finally {
-      setAddressLookupLoading(false);
-    }
-  };
 
   const [chartScrubbing, setChartScrubbing] = useState(false);
 
