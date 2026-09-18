@@ -28,6 +28,7 @@ import { TeslaConnectionCard } from "./src/components/TeslaConnectionCard";
 import { NumericField, Stepper } from "./src/components/DeviceControls";
 import { FamilyPlanner as ExtractedFamilyPlanner } from "./src/components/FamilyPlanner";
 import { getTeslaAuthorizationUrl, getTeslaStatus, getTeslaVehicles } from "./src/services/tesla";
+import { DEVICES_STORAGE_KEY, PROFILE_STORAGE_KEY, loadDevices, loadProfile, saveDevices, saveProfile as saveStoredProfile, updateProfile } from "./src/services/storage";
 import { DEVICE_TEMPLATES, EforsyningData, EnergyClass, HouseholdDevice, TeslaVehicle, WashTemperature } from "./src/types/app";
 import { CLASS_ENERGY_KWH, DURATIONS, ENERGY_CLASSES, WASH_TEMPERATURES, WASH_TEMPERATURE_MULTIPLIERS, findBestEnergyWindow, isEnergyClass } from "./src/utils/energyPlanning";
 import { dayKey, formatDuration, formatPrice } from "./src/utils/formatting";
@@ -39,8 +40,6 @@ const DEFAULT_GRID_SUPPLIER: GridSupplier = { id: "n1_c", name: "N1", area: "DK1
 const EFORSYNING_API_URL = "http://localhost:8787";
 type DeviceKind = HouseholdDevice["kind"];
 
-const DEVICES_STORAGE_KEY = "stromblik.household-devices.v1";
-const PROFILE_STORAGE_KEY = "stromblik.profile.v1";
 const ENERGY_CLASS_COLORS: Record<EnergyClass, string> = {
   A: "#2D8A45",
   B: "#62A844",
@@ -757,9 +756,8 @@ function Dashboard() {
   };
 
   useEffect(() => {
-    AsyncStorage.getItem(PROFILE_STORAGE_KEY).then((stored) => {
-      if (!stored) return;
-      const profile = JSON.parse(stored) as { name?: string; email?: string; address?: string; municipalityCode?: string; postcode?: string; wasteCalendarUrl?: string; wasteShowOnDashboard?: boolean; teslaShowOnDashboard?: boolean };
+    loadProfile().then((profile) => {
+      if (!profile) return;
       setProfileName(profile.name ?? "");
       setProfileEmail(profile.email ?? "");
       setAddress(profile.address ?? "");
@@ -769,10 +767,8 @@ function Dashboard() {
       setWasteShowOnDashboard(profile.wasteShowOnDashboard ?? false);
       setTeslaShowOnDashboard(profile.teslaShowOnDashboard ?? false);
     }).catch(() => undefined);
-    AsyncStorage.getItem(DEVICES_STORAGE_KEY).then((stored) => {
-      if (!stored) return;
-      const savedDevices = JSON.parse(stored) as HouseholdDevice[];
-      if (Array.isArray(savedDevices)) setQuickDevices(savedDevices);
+    loadDevices().then((savedDevices) => {
+      if (savedDevices) setQuickDevices(savedDevices);
     }).catch(() => undefined);
   }, [activeTab]);
 
@@ -787,11 +783,11 @@ function Dashboard() {
 
   const saveTeslaVisibility = (showOnDashboard: boolean) => {
     setTeslaShowOnDashboard(showOnDashboard);
-    void AsyncStorage.mergeItem(PROFILE_STORAGE_KEY, JSON.stringify({ teslaShowOnDashboard: showOnDashboard }));
+    void updateProfile({ teslaShowOnDashboard: showOnDashboard });
   };
 
   const saveProfile = async () => {
-    await AsyncStorage.setItem(PROFILE_STORAGE_KEY, JSON.stringify({ name: profileName, email: profileEmail, address, municipalityCode: addressMunicipality, postcode: addressPostcode, wasteCalendarUrl, wasteShowOnDashboard, teslaShowOnDashboard }));
+    await saveStoredProfile({ name: profileName, email: profileEmail, address, municipalityCode: addressMunicipality, postcode: addressPostcode, wasteCalendarUrl, wasteShowOnDashboard, teslaShowOnDashboard });
     setProfileSaved(true);
     setTimeout(() => setProfileSaved(false), 1800);
   };
@@ -811,7 +807,7 @@ function Dashboard() {
     setAddress(suggestion.text);
     setAddressMunicipality(suggestion.municipalityCode);
     setAddressPostcode(suggestion.postcode);
-    void AsyncStorage.setItem(PROFILE_STORAGE_KEY, JSON.stringify({ name: profileName, email: profileEmail, address: suggestion.text, municipalityCode: suggestion.municipalityCode, postcode: suggestion.postcode }));
+    void saveStoredProfile({ name: profileName, email: profileEmail, address: suggestion.text, municipalityCode: suggestion.municipalityCode, postcode: suggestion.postcode });
     setAddressSuggestions([]);
     setAddressError("");
     setAddressLookupLoading(true);
@@ -1005,7 +1001,7 @@ function Dashboard() {
                     onChange={(changes) => {
                       const next = quickDevices.map((item) => item.id === device.id ? { ...item, ...changes } : item);
                       setQuickDevices(next);
-                      void AsyncStorage.setItem(DEVICES_STORAGE_KEY, JSON.stringify(next));
+                      void saveDevices(next);
                     }}
                   />
                 ))}
