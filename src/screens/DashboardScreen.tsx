@@ -24,8 +24,9 @@ import { WasteCollectionCard } from "../components/WasteCollectionCard";
 import { SecondaryTabScreen } from "./SecondaryTabScreen";
 import { useTeslaConnection } from "../hooks/useTeslaConnection";
 import { useEnergyPrices } from "../hooks/useEnergyPrices";
+import { useEforsyning } from "../hooks/useEforsyning";
 import { DEVICES_STORAGE_KEY, PROFILE_STORAGE_KEY, loadDevices, loadProfile, saveDevices, saveProfile as saveStoredProfile, updateProfile } from "../services/storage";
-import { EforsyningData, HouseholdDevice } from "../types/app";
+import { HouseholdDevice } from "../types/app";
 import { formatPrice } from "../utils/formatting";
 import { colors, dkDay, dkTime } from "../styles/theme";
 import { styles } from "../styles/appStyles";
@@ -42,12 +43,7 @@ function Dashboard() {
   const [addressLookupLoading, setAddressLookupLoading] = useState(false);
   const [addressError, setAddressError] = useState("");
   const area = selectedSupplier.area;
-  const [eforsyning, setEforsyning] = useState<EforsyningData | null>(null);
-  const [eforsyningUsername, setEforsyningUsername] = useState("");
-  const [eforsyningPassword, setEforsyningPassword] = useState("");
-  const [eforsyningSupplierId, setEforsyningSupplierId] = useState("");
-  const [eforsyningLoading, setEforsyningLoading] = useState(false);
-  const [eforsyningError, setEforsyningError] = useState("");
+  const { data: eforsyning, username: eforsyningUsername, setUsername: setEforsyningUsername, password: eforsyningPassword, setPassword: setEforsyningPassword, supplierId: eforsyningSupplierId, setSupplierId: setEforsyningSupplierId, loading: eforsyningLoading, error: eforsyningError, login: loginToEforsyning } = useEforsyning();
   const [evModels, setEvModels] = useState<EvModel[]>([]);
   const [profileName, setProfileName] = useState("");
   const [profileEmail, setProfileEmail] = useState("");
@@ -144,26 +140,6 @@ function Dashboard() {
       setAddressError(error instanceof Error ? error.message : "Netselskabet kunne ikke findes");
     } finally {
       setAddressLookupLoading(false);
-    }
-  };
-
-  const loginToEforsyning = async () => {
-    setEforsyningLoading(true);
-    setEforsyningError("");
-    try {
-      const response = await fetch(`${EFORSYNING_API_URL}/api/eforsyning/login`, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ username: eforsyningUsername, password: eforsyningPassword, supplierId: eforsyningSupplierId }),
-      });
-      const data = await response.json() as EforsyningData & { error?: string };
-      if (!response.ok) throw new Error(data.error ?? "Login mislykkedes");
-      setEforsyning(data);
-      setEforsyningPassword("");
-    } catch (error) {
-      setEforsyningError(error instanceof Error ? error.message : "Login mislykkedes");
-    } finally {
-      setEforsyningLoading(false);
     }
   };
 
