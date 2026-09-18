@@ -24,6 +24,11 @@ import { createSamplePrices, fetchGridSuppliers, fetchPrices, GridSupplier, GRID
 import { AddressSuggestion, searchAddresses } from "./src/addresses";
 import { EvModel, fetchOpenEvModels } from "./src/evData";
 import { fetchWasteEvents, fetchWasteHealth, WasteEvent, WasteHealth, WASTE_LABELS } from "./src/waste";
+import { TeslaConnectionCard } from "./src/components/TeslaConnectionCard";
+import { getTeslaAuthorizationUrl, getTeslaStatus, getTeslaVehicles } from "./src/services/tesla";
+import { DEVICE_TEMPLATES, EforsyningData, EnergyClass, HouseholdDevice, TeslaVehicle, WashTemperature } from "./src/types/app";
+import { CLASS_ENERGY_KWH, DURATIONS, ENERGY_CLASSES, WASH_TEMPERATURES, WASH_TEMPERATURE_MULTIPLIERS, findBestEnergyWindow, isEnergyClass } from "./src/utils/energyPlanning";
+import { dayKey, formatDuration, formatPrice } from "./src/utils/formatting";
 
 const GRID_SUPPLIERS_FALLBACK = GRID_SUPPLIERS;
 const DEFAULT_GRID_SUPPLIER: GridSupplier = { id: "n1_c", name: "N1", area: "DK1" };
@@ -54,62 +59,10 @@ const dkDay = new Intl.DateTimeFormat("da-DK", {
 });
 
 const EFORSYNING_API_URL = "http://localhost:8787";
-const isLocalWeb = typeof window !== "undefined" && ["localhost", "127.0.0.1", "::1", "[::1]"].includes(window.location.hostname);
-const APP_API_URL = typeof window !== "undefined" && !isLocalWeb ? "" : EFORSYNING_API_URL;
-type EforsyningData = {
-  period: { from: string | null; to: string | null };
-  heating: { usedKwh: number | null; expectedKwh: number | null };
-  water: { usedM3: number | null; expectedM3: number | null };
-  temperatures: { forwardC: number | null; returnC: number | null; coolingC: number | null };
-  fetchedAt: string;
-};
-type TeslaVehicle = {
-  id: string;
-  vin: string;
-  name: string;
-  model: string;
-  batteryLevel: number | null;
-  chargingState: string | null;
-  chargerPowerKw: number | null;
-  timeToFullChargeHours: number | null;
-  chargeEnergyAddedKwh: number | null;
-};
-
-const DEVICE_TEMPLATES = [
-  { kind: "dishwasher", name: "Opvaskemaskine", icon: "droplet" as const, energyKwh: 1, durationHours: 2 },
-  { kind: "laundry", name: "Vaskemaskine", icon: "refresh-cw" as const, energyKwh: 0.8, durationHours: 2 },
-  { kind: "dryer", name: "Tørretumbler", icon: "wind" as const, energyKwh: 2.5, durationHours: 2 },
-  { kind: "ev", name: "Elbil", icon: "battery-charging" as const, energyKwh: 0, durationHours: 0 },
-  { kind: "other", name: "Andet apparat", icon: "power" as const, energyKwh: 1, durationHours: 1 },
-] as const;
-
-type DeviceKind = typeof DEVICE_TEMPLATES[number]["kind"];
-type EnergyClass = "A" | "B" | "C" | "D" | "E" | "F" | "G";
-type WashTemperature = 30 | 40 | 60 | 90;
-type HouseholdDevice = {
-  id: number;
-  kind: DeviceKind;
-  name: string;
-  icon: typeof DEVICE_TEMPLATES[number]["icon"];
-  energyKwh: number;
-  durationHours: number;
-  batteryKwh: number;
-  currentCharge: number;
-  targetCharge: number;
-  chargerKw: number;
-  energyClass?: EnergyClass;
-  temperature?: WashTemperature;
-  registration?: string;
-  vehicleModel?: string;
-  showOnDashboard?: boolean;
-};
+type DeviceKind = HouseholdDevice["kind"];
 
 const DEVICES_STORAGE_KEY = "stromblik.household-devices.v1";
 const PROFILE_STORAGE_KEY = "stromblik.profile.v1";
-const ENERGY_CLASSES: EnergyClass[] = ["A", "B", "C", "D", "E", "F", "G"];
-const WASH_TEMPERATURES: WashTemperature[] = [30, 40, 60, 90];
-const WASH_TEMPERATURE_MULTIPLIERS: Record<WashTemperature, number> = { 30: 0.65, 40: 1, 60: 1.45, 90: 2.1 };
-const DURATIONS = [0.5, 1, 1.5, 2, 2.5, 3, 3.5, 4];
 const ENERGY_CLASS_COLORS: Record<EnergyClass, string> = {
   A: "#2D8A45",
   B: "#62A844",
@@ -120,36 +73,6 @@ const ENERGY_CLASS_COLORS: Record<EnergyClass, string> = {
   G: "#C93C35",
 };
 
-const CLASS_ENERGY_KWH: Record<"dishwasher" | "laundry" | "dryer", Record<EnergyClass, number>> = {
-  dishwasher: { A: 0.55, B: 0.64, C: 0.72, D: 0.82, E: 0.93, F: 1.04, G: 1.16 },
-  laundry: { A: 0.49, B: 0.55, C: 0.61, D: 0.69, E: 0.76, F: 0.84, G: 0.95 },
-  dryer: { A: 0.8, B: 0.95, C: 1.1, D: 1.3, E: 1.6, F: 2, G: 2.5 },
-};
-
-function isEnergyClass(value: unknown): value is EnergyClass {
-  return typeof value === "string" && (ENERGY_CLASSES as string[]).includes(value);
-}
-
-function formatPrice(value: number, digits = 0) {
-  return value.toLocaleString("da-DK", { maximumFractionDigits: digits, minimumFractionDigits: digits });
-}
-
-function formatDuration(hours: number) {
-  const totalMinutes = Math.round(hours * 60);
-  const wholeHours = Math.floor(totalMinutes / 60);
-  const minutes = totalMinutes % 60;
-  if (!wholeHours) return `${minutes} min`;
-  return minutes ? `${wholeHours} t ${minutes} min` : `${wholeHours} t`;
-}
-
-function dayKey(date: Date) {
-  return new Intl.DateTimeFormat("sv-SE", {
-    timeZone: "Europe/Copenhagen",
-    year: "numeric",
-    month: "2-digit",
-    day: "2-digit",
-  }).format(date);
-}
 
 function getPriceTone(value: number, values: number[]) {
   const sorted = [...values].sort((left, right) => left - right);
@@ -158,43 +81,6 @@ function getPriceTone(value: number, values: number[]) {
   if (value <= low) return { label: "Lav pris", color: colors.green, soft: "#E2F0E6" };
   if (value >= high) return { label: "Høj pris", color: "#A4462E", soft: "#F8E1D8" };
   return { label: "Mellempris", color: "#745A13", soft: "#F8EDC8" };
-}
-
-function findBestEnergyWindow(points: PricePoint[], energyKwh: number, durationHours: number, now: number) {
-  const horizon = now + 48 * 60 * 60 * 1000;
-  const averagePowerKw = energyKwh / durationHours;
-  const calculateCost = (startsAt: number) => {
-    const endsAt = startsAt + durationHours * 3_600_000;
-    let coveredHours = 0;
-    let cost = 0;
-
-    points.forEach((point, index) => {
-      const intervalStart = point.startsAt.getTime();
-      const intervalEnd = points[index + 1]?.startsAt.getTime() ?? intervalStart + 3_600_000;
-      const overlapStart = Math.max(startsAt, intervalStart);
-      const overlapEnd = Math.min(endsAt, intervalEnd);
-      if (overlapEnd <= overlapStart) return;
-      const overlapHours = (overlapEnd - overlapStart) / 3_600_000;
-      cost += (point.totalOrePerKwh / 100) * averagePowerKw * overlapHours;
-      coveredHours += overlapHours;
-    });
-
-    return coveredHours >= durationHours - 0.001 ? cost : undefined;
-  };
-  const candidates = points
-    .map((startPoint) => {
-      if (startPoint.startsAt.getTime() < now || startPoint.startsAt.getTime() >= horizon) return undefined;
-      const cost = calculateCost(startPoint.startsAt.getTime());
-      if (cost === undefined) return undefined;
-      return { startsAt: startPoint.startsAt, cost };
-    })
-    .filter((item): item is { startsAt: Date; cost: number } => Boolean(item));
-
-  if (!candidates.length) return undefined;
-  const cheapest = candidates.reduce((best, item) => item.cost < best.cost ? item : best);
-  const nowCost = calculateCost(now);
-  if (nowCost === undefined) return undefined;
-  return { cheapest, nowCost, savings: Math.max(0, nowCost - cheapest.cost) };
 }
 
 function Stepper({ label, value, onChange, min, max, step = 10, suffix = "%", digits = 0 }: { label: string; value: number; onChange: (value: number) => void; min: number; max: number; step?: number; suffix?: string; digits?: number }) {
@@ -407,49 +293,6 @@ function DevicePlanCard({ device, points, now, evModels, expanded, onToggle, onC
           )}
         </View>
       ) : null}
-    </View>
-  );
-}
-
-function TeslaConnectionCard({ connected, vehicle, points, now, evModels, refreshing, showOnDashboard, onConnect, onRefresh, onToggleDashboard }: { connected: boolean; vehicle: TeslaVehicle | null; points: PricePoint[]; now: number; evModels: EvModel[]; refreshing: boolean; showOnDashboard: boolean; onConnect: () => void; onRefresh: () => void; onToggleDashboard: () => void }) {
-  const vehicleQuery = (vehicle?.model ?? vehicle?.name ?? "").toLowerCase();
-  const matchedModel = evModels.find((model) => `${model.modelName} ${model.name}`.toLowerCase().includes(vehicleQuery) || vehicleQuery.includes(model.modelName.toLowerCase()));
-  const batteryKwh = matchedModel?.batteryKwh ?? 60;
-  const batteryLevel = vehicle?.batteryLevel ?? 0;
-  const neededKwh = batteryKwh * Math.max(0, 100 - batteryLevel) / 100 / 0.9;
-  const currentPrice = [...points].reverse().find((point) => point.startsAt.getTime() <= now)?.totalOrePerKwh ?? 0;
-  const chargeCost = neededKwh * currentPrice / 100;
-  const estimatedHours = vehicle?.timeToFullChargeHours ?? (vehicle?.chargerPowerKw && vehicle.chargerPowerKw > 0 ? neededKwh / vehicle.chargerPowerKw : null);
-  const chargingLabels: Record<string, string> = { Charging: "Lader", Complete: "Færdig", Disconnected: "Ikke tilsluttet", NoPower: "Ingen strøm", Stopped: "Stoppet" };
-  const chargingLabel = vehicle?.chargingState ? chargingLabels[vehicle.chargingState] ?? vehicle.chargingState : "Status ikke tilgængelig";
-  return (
-    <View style={styles.teslaCard}>
-      <View style={styles.teslaCardHeader}>
-        <View style={styles.teslaIcon}><Feather name="zap" size={20} color={colors.ink} /></View>
-        <View style={styles.teslaCardCopy}>
-          <Text style={styles.teslaCardTitle}>{connected ? vehicle?.name ?? "Tesla er forbundet" : "Tilføj din Tesla"}</Text>
-          <Text style={styles.teslaCardText}>{connected ? vehicle?.model ?? "Live bilstatus" : "Forbind din bil for at bruge det aktuelle batteriniveau i ladeplanen."}</Text>
-        </View>
-        <View style={styles.teslaCardActions}>
-          <Pressable accessibilityLabel={showOnDashboard ? "Skjul Tesla fra overblik" : "Vis Tesla på overblik"} onPress={onToggleDashboard} style={[styles.teslaVisibilityButton, showOnDashboard && styles.teslaVisibilityButtonActive]}>
-            <Feather name="eye" size={15} color={showOnDashboard ? colors.green : colors.muted} />
-          </Pressable>
-          <View style={[styles.teslaStatusDot, connected && styles.teslaStatusDotConnected]} />
-        </View>
-      </View>
-      {connected && vehicle ? (
-        <View style={styles.teslaStats}>
-          <View style={styles.teslaPrimaryStat}><Text style={styles.teslaBatteryNumber}>{vehicle.batteryLevel == null ? "–" : `${Math.round(vehicle.batteryLevel)}%`}</Text><Text style={styles.teslaStatLabel}>BATTERI</Text></View>
-          <View style={styles.teslaStat}><Text style={styles.teslaStatValue}>{matchedModel ? `${formatPrice(batteryKwh, 1)} kWh` : "Estimat"}</Text><Text style={styles.teslaStatLabel}>BATTERISTØRRELSE</Text></View>
-          <View style={styles.teslaStat}><Text style={styles.teslaStatValue}>{chargingLabel}</Text><Text style={styles.teslaStatLabel}>STATUS</Text></View>
-          <View style={styles.teslaStat}><Text style={styles.teslaStatValue}>{formatPrice(chargeCost, 2)} kr</Text><Text style={styles.teslaStatLabel}>TIL FULD VED NU-PRIS</Text></View>
-          <View style={styles.teslaStat}><Text style={styles.teslaStatValue}>{estimatedHours == null ? "–" : formatDuration(estimatedHours)}</Text><Text style={styles.teslaStatLabel}>EST. LADETID</Text></View>
-        </View>
-      ) : null}
-      <Pressable accessibilityLabel={connected ? "Opdater Tesla-status" : "Forbind Tesla"} onPress={connected ? onRefresh : onConnect} style={styles.teslaConnectButton}>
-        <Feather name={connected ? "refresh-cw" : "external-link"} size={15} color={colors.white} />
-        <Text style={styles.teslaConnectButtonText}>{connected ? (refreshing ? "Henter status..." : "Opdater status") : "Forbind Tesla"}</Text>
-      </Pressable>
     </View>
   );
 }
@@ -947,17 +790,15 @@ function Dashboard() {
   const refreshTesla = useCallback(async () => {
     setTeslaRefreshing(true);
     try {
-      const response = await fetch(`${APP_API_URL}/api/tesla/status`);
-      const data = await response.json() as { connected?: boolean };
+      const data = await getTeslaStatus();
       const connected = Boolean(data.connected);
       setTeslaConnected(connected);
       if (!connected) {
         setTeslaVehicle(null);
         return;
       }
-      const vehicleResponse = await fetch(`${APP_API_URL}/api/tesla/vehicles`);
-      const vehicleData = await vehicleResponse.json() as { vehicles?: TeslaVehicle[] };
-      setTeslaVehicle(vehicleData.vehicles?.[0] ?? null);
+      const vehicles = await getTeslaVehicles();
+      setTeslaVehicle(vehicles[0] ?? null);
     } catch {
       setTeslaConnected(false);
       setTeslaVehicle(null);
@@ -971,7 +812,7 @@ function Dashboard() {
   }, [activeTab, refreshTesla]);
 
   const connectTesla = () => {
-    const authorizationUrl = `${APP_API_URL}/api/tesla/authorize`;
+    const authorizationUrl = getTeslaAuthorizationUrl();
     if (typeof window !== "undefined") window.location.assign(authorizationUrl);
     else void Linking.openURL(authorizationUrl);
   };
