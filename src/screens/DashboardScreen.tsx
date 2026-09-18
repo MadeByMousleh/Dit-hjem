@@ -1,6 +1,5 @@
 import { Feather } from "@expo/vector-icons";
 import { StatusBar } from "expo-status-bar";
-import { useEffect, useState } from "react";
 import {
   ActivityIndicator,
   Pressable,
@@ -12,7 +11,6 @@ import {
   View,
 } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
-import { EvModel, fetchOpenEvModels } from "../evData";
 import { TeslaConnectionCard } from "../components/TeslaConnectionCard";
 import { FamilyPlanner as ExtractedFamilyPlanner } from "../components/FamilyPlanner";
 import { DevicePlanCard } from "../components/DevicePlanCard";
@@ -25,6 +23,8 @@ import { useEforsyning } from "../hooks/useEforsyning";
 import { useWasteCalendar } from "../hooks/useWasteCalendar";
 import { useQuickDevices } from "../hooks/useQuickDevices";
 import { useProfileAddress } from "../hooks/useProfileAddress";
+import { useEvModels } from "../hooks/useEvModels";
+import { useDashboardViewState } from "../hooks/useDashboardViewState";
 import { formatPrice } from "../utils/formatting";
 import { colors, dkDay, dkTime } from "../styles/theme";
 import { styles } from "../styles/appStyles";
@@ -35,8 +35,8 @@ function Dashboard() {
   const { gridSuppliers, selectedSupplier, setSelectedSupplierId, now, prices, loading, refreshing, isSample, load } = useEnergyPrices();
   const area = selectedSupplier.area;
   const { data: eforsyning, username: eforsyningUsername, setUsername: setEforsyningUsername, password: eforsyningPassword, setPassword: setEforsyningPassword, supplierId: eforsyningSupplierId, setSupplierId: setEforsyningSupplierId, loading: eforsyningLoading, error: eforsyningError, login: loginToEforsyning } = useEforsyning();
-  const [evModels, setEvModels] = useState<EvModel[]>([]);
-  const [activeTab, setActiveTab] = useState<"dashboard" | "home" | "profile">("dashboard");
+  const { activeTab, setActiveTab, chartScrubbing, setChartScrubbing } = useDashboardViewState();
+  const evModels = useEvModels();
   const {
     profileName,
     setProfileName,
@@ -58,15 +58,10 @@ function Dashboard() {
   const { devices: quickDevices, expandedId: expandedQuickId, toggleExpanded: toggleQuickExpanded, updateDevice: updateQuickDevice } = useQuickDevices(activeTab);
   const tesla = useTeslaConnection(activeTab);
 
-  useEffect(() => {
-    fetchOpenEvModels().then(setEvModels).catch(() => undefined);
-  }, []);
 
   const renderDeviceCard = (props: any) => <DevicePlanCard {...props} styles={styles} colors={colors} dkTime={dkTime} dkDay={dkDay} />;
 
   const { events: wasteEvents, error: wasteError, health: wasteHealth } = useWasteCalendar({ municipality: addressMunicipality, postcode: addressPostcode, calendarUrl: wasteCalendarUrl, address });
-
-  const [chartScrubbing, setChartScrubbing] = useState(false);
 
   const navigation = (
     <View style={styles.bottomNavigation}>
