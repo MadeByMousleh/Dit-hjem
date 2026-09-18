@@ -139,7 +139,7 @@ async function readJson(request) {
 function teslaConfig() {
   const clientId = process.env.TESLA_CLIENT_ID;
   const clientSecret = process.env.TESLA_CLIENT_SECRET;
-  const domain = process.env.TESLA_APP_DOMAIN;
+  const domain = String(process.env.TESLA_APP_DOMAIN ?? "").trim().replace(/^https?:\/\//, "").replace(/\/$/, "");
   if (!clientId || !clientSecret || !domain) throw new Error("Tesla er ikke konfigureret");
   const redirectUri = process.env.TESLA_REDIRECT_URI ?? `https://${domain}/callback`;
   return { clientId, clientSecret, redirectUri };
