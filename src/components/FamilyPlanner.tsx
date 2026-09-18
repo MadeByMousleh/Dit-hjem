@@ -9,7 +9,7 @@ import { isEnergyClass } from "../utils/energyPlanning";
 
 export const DEVICES_STORAGE_KEY = "stromblik.household-devices.v1";
 
-type DeviceCardProps = { device: HouseholdDevice; points: PricePoint[]; now: number; evModels: EvModel[]; expanded: boolean; onToggle: () => void; onChange: (changes: Partial<HouseholdDevice>) => void; onRemove?: () => void; onToggleDashboard?: () => void };
+export type DeviceCardProps = { device: HouseholdDevice; points: PricePoint[]; now: number; evModels: EvModel[]; expanded: boolean; onToggle: () => void; onChange: (changes: Partial<HouseholdDevice>) => void; onRemove?: () => void; onToggleDashboard?: () => void };
 
 export function FamilyPlanner({ points, now, evModels, styles, colors, DeviceCard }: { points: PricePoint[]; now: number; evModels: EvModel[]; styles: Record<string, any>; colors: { ink: string; muted: string; white: string; green: string }; DeviceCard: (props: DeviceCardProps) => React.ReactNode }) {
   const nextId = useRef(1);
