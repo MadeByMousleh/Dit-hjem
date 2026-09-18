@@ -12,7 +12,7 @@ import {
   View,
 } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
-import { createSamplePrices, fetchGridSuppliers, fetchPrices, GridSupplier, GRID_SUPPLIERS, PricePoint } from "../prices";
+import { PricePoint } from "../prices";
 import { AddressSuggestion, searchAddresses } from "../addresses";
 import { EvModel, fetchOpenEvModels } from "../evData";
 import { fetchWasteEvents, fetchWasteHealth, WasteEvent, WasteHealth, WASTE_LABELS } from "../waste";
@@ -23,14 +23,12 @@ import { PriceChart } from "../components/PriceChart";
 import { WasteCollectionCard } from "../components/WasteCollectionCard";
 import { SecondaryTabScreen } from "./SecondaryTabScreen";
 import { useTeslaConnection } from "../hooks/useTeslaConnection";
+import { useEnergyPrices } from "../hooks/useEnergyPrices";
 import { DEVICES_STORAGE_KEY, PROFILE_STORAGE_KEY, loadDevices, loadProfile, saveDevices, saveProfile as saveStoredProfile, updateProfile } from "../services/storage";
 import { EforsyningData, HouseholdDevice } from "../types/app";
 import { formatPrice } from "../utils/formatting";
 import { colors, dkDay, dkTime } from "../styles/theme";
 import { styles } from "../styles/appStyles";
-
-const GRID_SUPPLIERS_FALLBACK = GRID_SUPPLIERS;
-const DEFAULT_GRID_SUPPLIER: GridSupplier = { id: "n1_c", name: "N1", area: "DK1" };
 
 const EFORSYNING_API_URL = "http://localhost:8787";
 type DeviceKind = HouseholdDevice["kind"];
@@ -38,19 +36,12 @@ type DeviceKind = HouseholdDevice["kind"];
 function Dashboard() {
   const { width } = useWindowDimensions();
   const isMobile = width < 520;
-  const [gridSuppliers, setGridSuppliers] = useState<GridSupplier[]>(GRID_SUPPLIERS_FALLBACK);
-  const [selectedSupplierId, setSelectedSupplierId] = useState("n1_c");
+  const { gridSuppliers, selectedSupplier, setSelectedSupplierId, now, prices, loading, refreshing, isSample, load } = useEnergyPrices();
   const [address, setAddress] = useState("");
   const [addressSuggestions, setAddressSuggestions] = useState<AddressSuggestion[]>([]);
   const [addressLookupLoading, setAddressLookupLoading] = useState(false);
   const [addressError, setAddressError] = useState("");
-  const selectedSupplier = gridSuppliers.find((supplier) => supplier.id === selectedSupplierId) ?? DEFAULT_GRID_SUPPLIER;
   const area = selectedSupplier.area;
-  const [now, setNow] = useState(() => Date.now());
-  const [prices, setPrices] = useState<PricePoint[]>(() => createSamplePrices(area));
-  const [loading, setLoading] = useState(true);
-  const [refreshing, setRefreshing] = useState(false);
-  const [isSample, setIsSample] = useState(false);
   const [eforsyning, setEforsyning] = useState<EforsyningData | null>(null);
   const [eforsyningUsername, setEforsyningUsername] = useState("");
   const [eforsyningPassword, setEforsyningPassword] = useState("");
@@ -72,34 +63,6 @@ function Dashboard() {
   const [wasteShowOnDashboard, setWasteShowOnDashboard] = useState(false);
   const [activeTab, setActiveTab] = useState<"dashboard" | "home" | "profile">("dashboard");
   const tesla = useTeslaConnection(activeTab);
-
-  const load = useCallback(async (refresh = false) => {
-    refresh ? setRefreshing(true) : setLoading(true);
-    try {
-      setPrices(await fetchPrices(selectedSupplier.area, selectedSupplier.id));
-      setIsSample(false);
-    } catch {
-      setPrices(createSamplePrices("DK1"));
-      setIsSample(true);
-    } finally {
-      setLoading(false);
-      setRefreshing(false);
-    }
-  }, [selectedSupplier]);
-
-  useEffect(() => {
-    const interval = setInterval(() => setNow(Date.now()), 60_000);
-    return () => clearInterval(interval);
-  }, []);
-
-  const quarterKey = Math.floor(now / (15 * 60 * 1000));
-  useEffect(() => {
-    void load();
-  }, [load, quarterKey]);
-
-  useEffect(() => {
-    fetchGridSuppliers().then(setGridSuppliers).catch(() => undefined);
-  }, []);
 
   useEffect(() => {
     fetchOpenEvModels().then(setEvModels).catch(() => undefined);
