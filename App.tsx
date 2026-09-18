@@ -8,6 +8,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
   ActivityIndicator,
   Modal,
+  PanResponder,
   Pressable,
   RefreshControl,
   ScrollView,
@@ -511,7 +512,7 @@ function FamilyPlanner({ points, now, evModels }: { points: PricePoint[]; now: n
   );
 }
 
-function PriceChart({ points, now }: { points: PricePoint[]; now: number }) {
+function PriceChart({ points, now, onScrubChange }: { points: PricePoint[]; now: number; onScrubChange?: (isScrubbing: boolean) => void }) {
   const groups = new Map<string, PricePoint[]>();
   points.forEach((point) => {
     const key = `${dayKey(point.startsAt)}-${point.startsAt.getHours()}`;
@@ -533,13 +534,24 @@ function PriceChart({ points, now }: { points: PricePoint[]; now: number }) {
   const cheapestBarIndex = hourly.reduce((cheapestIndex, item, index) =>
     item.price < (hourly[cheapestIndex]?.price ?? Number.POSITIVE_INFINITY) ? index : cheapestIndex, 0);
   const [selectedIndex, setSelectedIndex] = useState(Math.max(0, currentBarIndex));
+  const selectedIndexRef = useRef(selectedIndex);
+  selectedIndexRef.current = selectedIndex;
+
   const [showFullDay, setShowFullDay] = useState(false);
   const [chartViewportWidth, setChartViewportWidth] = useState(0);
+  const [sliderWidth, setSliderWidth] = useState(0);
+  const [isSliding, setIsSliding] = useState(false);
+
   const chartScrollRef = useRef<ScrollView>(null);
+  const sliderTrackRef = useRef<View>(null);
+  const sliderTrackPageX = useRef(0);
+  const scrollXRef = useRef(0);
+
   const selected = hourly[Math.min(selectedIndex, hourly.length - 1)];
   const maxPrice = Math.max(...hourly.map((item) => item.price), 2.25);
   const selectedDayDate = selected?.startsAt ?? new Date(`${selectedDay}T12:00:00`);
   const isForecastDay = selectedDayIndex > 1;
+
   const changeDay = (nextIndex: number) => {
     const safeIndex = Math.max(0, Math.min(nextIndex, availableDays.length - 1));
     const nextDay = availableDays[safeIndex];
@@ -550,23 +562,91 @@ function PriceChart({ points, now }: { points: PricePoint[]; now: number }) {
     setSelectedDayIndex(safeIndex);
     setSelectedIndex(nextCurrentIndex >= 0 ? nextCurrentIndex : nextCheapestIndex);
   };
+
+  const scrollToBar = useCallback((index: number, animated = true) => {
+    if (showFullDay || !chartViewportWidth || !hourly.length) return;
+    const barStride = 31;
+    const barCenter = 16 + index * barStride + 13.5;
+    const maxScroll = Math.max(0, hourly.length * 31 + 32 - chartViewportWidth);
+    const targetScrollX = Math.max(0, Math.min(maxScroll, barCenter - chartViewportWidth / 2));
+    scrollXRef.current = targetScrollX;
+    chartScrollRef.current?.scrollTo({ x: targetScrollX, animated });
+  }, [showFullDay, chartViewportWidth, hourly.length]);
+
   useEffect(() => {
     if (!chartViewportWidth) return;
     if (showFullDay) {
+      scrollXRef.current = 0;
       chartScrollRef.current?.scrollTo({ x: 0, animated: true });
       return;
     }
-    const barStride = 31;
-    const scrollPosition = currentBarIndex >= 0
-      ? currentBarIndex * barStride
-      : cheapestBarIndex * barStride - chartViewportWidth / 2 + barStride / 2;
-    chartScrollRef.current?.scrollTo({ x: Math.max(0, scrollPosition), animated: true });
-  }, [chartViewportWidth, cheapestBarIndex, currentBarIndex, selectedDayIndex, showFullDay]);
+    const initialIndex = currentBarIndex >= 0 ? currentBarIndex : cheapestBarIndex;
+    scrollToBar(initialIndex, true);
+  }, [chartViewportWidth, cheapestBarIndex, currentBarIndex, selectedDayIndex, showFullDay, scrollToBar]);
+
+  const selectHour = useCallback((index: number, scroll = true) => {
+    const next = Math.max(0, Math.min(hourly.length - 1, index));
+    setSelectedIndex(next);
+    if (scroll) {
+      scrollToBar(next, false);
+    }
+  }, [hourly.length, scrollToBar]);
+
+  const updateFromPageX = useCallback((pageX: number) => {
+    if (!hourly.length || sliderWidth <= 0) return;
+    const xInTrack = Math.max(0, Math.min(sliderWidth, pageX - sliderTrackPageX.current));
+    const fraction = xInTrack / sliderWidth;
+    const nextIndex = Math.round(fraction * (hourly.length - 1));
+    selectHour(nextIndex, true);
+  }, [hourly.length, sliderWidth, selectHour]);
+
+  const sliderPanResponder = useMemo(() => {
+    return PanResponder.create({
+      onStartShouldSetPanResponder: () => true,
+      onStartShouldSetPanResponderCapture: () => true,
+      onMoveShouldSetPanResponder: () => true,
+      onMoveShouldSetPanResponderCapture: () => true,
+
+      onPanResponderGrant: (evt) => {
+        setIsSliding(true);
+        onScrubChange?.(true);
+        if (typeof evt.nativeEvent.pageX === "number" && typeof evt.nativeEvent.locationX === "number") {
+          sliderTrackPageX.current = evt.nativeEvent.pageX - evt.nativeEvent.locationX;
+        }
+        sliderTrackRef.current?.measureInWindow((x) => {
+          if (typeof x === "number") sliderTrackPageX.current = x;
+        });
+        updateFromPageX(evt.nativeEvent.pageX);
+      },
+
+      onPanResponderMove: (evt) => {
+        updateFromPageX(evt.nativeEvent.pageX);
+      },
+
+      onPanResponderRelease: () => {
+        setIsSliding(false);
+        onScrubChange?.(false);
+      },
+
+      onPanResponderTerminate: () => {
+        setIsSliding(false);
+        onScrubChange?.(false);
+      },
+
+      onPanResponderTerminationRequest: () => false,
+    });
+  }, [updateFromPageX, onScrubChange]);
+
   const barColor = (price: number, selectedBar: boolean) => {
     if (price >= 2) return selectedBar ? "#B94F46" : "#E2B8B4";
     if (price >= 1.5) return selectedBar ? "#D9A62E" : "#F0DDA4";
     return selectedBar ? "#4E9B59" : "#B9D9BE";
   };
+
+  const dotSize = 10;
+  const dotLeft = sliderWidth > 0 && hourly.length > 1
+    ? Math.max(0, Math.min(sliderWidth - dotSize, (selectedIndex / (hourly.length - 1)) * (sliderWidth - dotSize)))
+    : 0;
 
   return (
     <View style={styles.chartWrap}>
@@ -593,19 +673,35 @@ function PriceChart({ points, now }: { points: PricePoint[]; now: number }) {
         </Pressable>
       </View>
       <View style={styles.chartSelection}>
-        <Text style={styles.chartSelectionTime}>{selected ? `kl. ${dkTime.format(selected.startsAt)}` : ""}</Text>
+        <View style={styles.chartSelectionHeader}>
+          <Text style={styles.chartSelectionTime}>{selected ? `kl. ${dkTime.format(selected.startsAt)}` : ""}</Text>
+          {isSliding ? (
+            <View style={styles.scrubBadge}>
+              <Text style={styles.scrubBadgeText}>Vælger time</Text>
+            </View>
+          ) : null}
+        </View>
         <View style={styles.chartSelectionValue}>
           <Text style={styles.chartSelectionPrice}>{selected ? formatPrice(selected.price, 2) : ""}</Text>
           <Text style={styles.chartSelectionUnit}>kr/kWh</Text>
         </View>
       </View>
-      <View style={styles.barViewport} onLayout={(event) => setChartViewportWidth(event.nativeEvent.layout.width)}>
+      <View
+        style={styles.barViewport}
+        onLayout={(event) => {
+          setChartViewportWidth(event.nativeEvent.layout.width);
+        }}
+      >
         <ScrollView
           ref={chartScrollRef}
           horizontal
-          scrollEnabled={!showFullDay}
+          scrollEnabled={!showFullDay && !isSliding}
           showsHorizontalScrollIndicator={false}
           decelerationRate="fast"
+          onScroll={(event) => {
+            scrollXRef.current = event.nativeEvent.contentOffset.x;
+          }}
+          scrollEventThrottle={16}
           contentContainerStyle={[styles.barChart, showFullDay && styles.barChartOverview]}
         >
           {hourly.map((item, index) => {
@@ -617,18 +713,33 @@ function PriceChart({ points, now }: { points: PricePoint[]; now: number }) {
               <Pressable
                 key={item.startsAt.toISOString()}
                 accessibilityLabel={`${dkTime.format(item.startsAt)}, ${formatPrice(item.price, 2)} kroner per kilowatttime`}
-                onPress={() => setSelectedIndex(index)}
-                onPressIn={() => setSelectedIndex(index)}
-                onHoverIn={() => setSelectedIndex(index)}
-                style={[styles.barSlot, showFullDay && styles.barSlotOverview]}
+                onPress={() => selectHour(index)}
+                style={[
+                  styles.barSlot,
+                  showFullDay && styles.barSlotOverview,
+                  selectedBar && styles.barSlotSelected,
+                ]}
               >
                 {currentBar || cheapestBar ? (
                   <View style={[styles.currentMarker, cheapestBar && styles.cheapestMarker, { bottom: height + 24 }]}>
                     <Text style={styles.currentMarkerText}>{currentBar ? "NU" : "BILLIGST"}</Text>
                   </View>
+                ) : selectedBar ? (
+                  <View style={[styles.currentMarker, styles.scrubMarker, { bottom: height + 24 }]}>
+                    <Text style={styles.currentMarkerText}>{dkTime.format(item.startsAt).slice(0, 2)}</Text>
+                  </View>
                 ) : null}
-                <View style={[styles.bar, showFullDay && styles.barOverview, { height, backgroundColor: barColor(item.price, selectedBar || currentBar || cheapestBar) }, currentBar && styles.currentBar, cheapestBar && styles.cheapestBar]} />
-                <Text style={[styles.barHour, showFullDay && styles.barHourOverview, currentBar && styles.barHourCurrent]}>
+                <View
+                  style={[
+                    styles.bar,
+                    showFullDay && styles.barOverview,
+                    { height, backgroundColor: barColor(item.price, selectedBar || currentBar || cheapestBar) },
+                    currentBar && styles.currentBar,
+                    cheapestBar && styles.cheapestBar,
+                    selectedBar && styles.selectedBar,
+                  ]}
+                />
+                <Text style={[styles.barHour, showFullDay && styles.barHourOverview, (currentBar || selectedBar) && styles.barHourCurrent]}>
                   {showFullDay && index % 3 !== 0 ? "" : dkTime.format(item.startsAt).slice(0, 2)}
                 </Text>
               </Pressable>
@@ -638,8 +749,38 @@ function PriceChart({ points, now }: { points: PricePoint[]; now: number }) {
         <LinearGradient colors={[colors.white, "rgba(255,254,250,0)"]} start={{ x: 0, y: 0 }} end={{ x: 1, y: 0 }} style={styles.railFadeLeft} />
         <LinearGradient colors={["rgba(255,254,250,0)", colors.white]} start={{ x: 0, y: 0 }} end={{ x: 1, y: 0 }} style={styles.railFadeRight} />
       </View>
+
+      {/* Draggable dot beneath the graph */}
+      <View style={styles.sliderWrapper}>
+        <View
+          ref={sliderTrackRef}
+          style={styles.sliderTouchArea}
+          onLayout={(e) => {
+            const width = e.nativeEvent.layout.width;
+            setSliderWidth(width);
+            sliderTrackRef.current?.measureInWindow((x) => {
+              if (typeof x === "number") sliderTrackPageX.current = x;
+            });
+          }}
+          {...sliderPanResponder.panHandlers}
+        >
+          <View
+            style={[
+              styles.sliderDot,
+              isSliding && styles.sliderDotActive,
+              { left: dotLeft },
+            ]}
+          />
+        </View>
+      </View>
+
       <View style={styles.chartToolbar}>
-        {!showFullDay ? <View style={styles.swipeHint}><Feather name="move" size={12} color={colors.muted} /><Text style={styles.chartLabel}>Stryg for hele døgnet</Text></View> : <View />}
+        <View style={styles.swipeHint}>
+          <Feather name="sliders" size={12} color={isSliding ? colors.green : colors.muted} />
+          <Text style={[styles.chartLabel, isSliding && styles.chartLabelActive]}>
+            {isSliding ? "Skubber time" : "Skub prikken for at se timepriser"}
+          </Text>
+        </View>
         <Pressable accessibilityLabel={showFullDay ? "Vis større søjler" : "Vis hele dagen"} onPress={() => setShowFullDay((value) => !value)} style={styles.overviewButton}>
           <Feather name={showFullDay ? "minimize-2" : "maximize-2"} size={13} color={colors.ink} />
           <Text style={styles.overviewButtonText}>{showFullDay ? "Større søjler" : "Vis hele dagen"}</Text>
@@ -862,6 +1003,8 @@ function Dashboard() {
     return [...grouped.values()].filter((group) => group.some((point) => point.startsAt.getTime() >= now - 900000)).slice(0, 3);
   }, [prices, now]);
 
+  const [chartScrubbing, setChartScrubbing] = useState(false);
+
   const navigation = (
     <View style={styles.bottomNavigation}>
       {(["dashboard", "home", "profile"] as const).map((tab) => (
@@ -926,7 +1069,10 @@ function Dashboard() {
     <SafeAreaView style={styles.safeArea} edges={["top"]}>
       <StatusBar style="dark" />
       <ScrollView
-        contentContainerStyle={styles.scrollContent}
+        style={styles.dashboardScroll}
+        contentContainerStyle={[styles.scrollContent, styles.scrollContentGrow]}
+        nestedScrollEnabled
+        scrollEnabled={!chartScrubbing}
         refreshControl={<RefreshControl refreshing={refreshing} onRefresh={() => void load(true)} tintColor={colors.green} />}
       >
         <View style={[styles.container, isMobile && styles.containerMobile]}>
@@ -950,36 +1096,15 @@ function Dashboard() {
             </View>
           ) : null}
 
-          <View style={[styles.topGrid, isTablet && styles.topGridTablet]}>
-            <LinearGradient colors={["#DCE9DC", "#EEF1DB"]} style={[styles.hero, isMobile && styles.heroMobile, isTablet && styles.halfPanel]}>
-              <View style={styles.heroTopline}>
-                <Text style={styles.eyebrow}>LIGE NU · {selectedSupplier.name} · {area}</Text>
-                {loading ? <ActivityIndicator color={colors.green} size="small" /> : null}
+          <View style={[styles.trendPanel, isMobile && styles.trendPanelMobile]}>
+            <View style={styles.sectionHeadingRow}>
+              <View>
+                <Text style={styles.eyebrow}>TIMEPRISER · OP TIL 7 DAGE</Text>
+                <Text style={styles.sectionTitle}>Prisens bevægelse</Text>
               </View>
-              <View style={styles.priceLine}>
-                <Text adjustsFontSizeToFit numberOfLines={1} style={styles.price}>{formatPrice(currentOre / 100, 2)}</Text>
-                <View style={styles.unitWrap}>
-                  <Text style={styles.unit}>kr</Text>
-                  <Text style={styles.unitSmall}>pr. kWh</Text>
-                </View>
-              </View>
-              <View style={[styles.statusPill, { backgroundColor: tone.soft }]}>
-                <View style={[styles.statusDot, { backgroundColor: tone.color }]} />
-                <Text style={[styles.statusText, { color: tone.color }]}>{tone.label}</Text>
-              </View>
-              <Text style={styles.vatNote}>Inkl. moms, elafgift og transport</Text>
-            </LinearGradient>
-
-            <View style={[styles.trendPanel, isMobile && styles.trendPanelMobile, isTablet && styles.halfPanel]}>
-              <View style={styles.sectionHeadingRow}>
-                <View>
-                  <Text style={styles.eyebrow}>TIMEPRISER · OP TIL 7 DAGE</Text>
-                  <Text style={styles.sectionTitle}>Prisens bevægelse</Text>
-                </View>
-                <Feather name="trending-up" size={22} color={colors.coral} />
-              </View>
-              <PriceChart points={prices} now={now} />
+              {loading ? <ActivityIndicator color={colors.green} size="small" /> : <Feather name="trending-up" size={22} color={colors.coral} />}
             </View>
+            <PriceChart points={prices} now={now} onScrubChange={setChartScrubbing} />
           </View>
 
           <View style={styles.dashboardDevicesSummary}>
@@ -1142,7 +1267,9 @@ export default function App() {
 const styles = StyleSheet.create({
   loadingScreen: { flex: 1, alignItems: "center", justifyContent: "center", backgroundColor: colors.paper },
   safeArea: { flex: 1, backgroundColor: colors.paper },
+  dashboardScroll: { flex: 1 },
   scrollContent: { paddingBottom: 68 },
+  scrollContentGrow: { flexGrow: 1 },
   container: { width: "100%", maxWidth: 1120, alignSelf: "center", paddingHorizontal: 20 },
   containerMobile: { paddingHorizontal: 12 },
   header: { minHeight: 96, flexDirection: "row", alignItems: "center", justifyContent: "space-between" },
@@ -1225,15 +1352,19 @@ const styles = StyleSheet.create({
   dayArrow: { width: 36, height: 36, alignItems: "center", justifyContent: "center" },
   dayArrowDisabled: { opacity: 0.25 },
   chartSelection: { minHeight: 58, justifyContent: "flex-end" },
+  chartSelectionHeader: { flexDirection: "row", alignItems: "center", gap: 8 },
   chartSelectionTime: { fontFamily: "DMSans_700Bold", color: colors.ink, fontSize: 13 },
+  scrubBadge: { backgroundColor: colors.mint, paddingHorizontal: 7, paddingVertical: 2, borderRadius: 4 },
+  scrubBadgeText: { fontFamily: "DMSans_700Bold", fontSize: 9, color: colors.green, textTransform: "uppercase" },
   chartSelectionValue: { flexDirection: "row", alignItems: "baseline", gap: 6 },
   chartSelectionPrice: { fontFamily: "Fraunces_600SemiBold", color: colors.ink, fontSize: 38, lineHeight: 43 },
   chartSelectionUnit: { fontFamily: "DMSans_500Medium", color: colors.muted, fontSize: 13 },
-  barViewport: { height: 166, overflow: "hidden", position: "relative" },
-  barChart: { height: 160, flexDirection: "row", alignItems: "flex-end", gap: 4, paddingTop: 15, paddingBottom: 25, paddingHorizontal: 16 },
+  barViewport: { height: 156, overflow: "hidden", position: "relative" },
+  barChart: { height: 156, flexDirection: "row", alignItems: "flex-end", gap: 4, paddingTop: 14, paddingBottom: 6, paddingHorizontal: 16 },
   barChartOverview: { minWidth: "100%", gap: 1, paddingHorizontal: 4 },
   barSlot: { width: 27, height: "100%", justifyContent: "flex-end", alignItems: "center", position: "relative" },
   barSlotOverview: { width: "auto", flex: 1 },
+  barSlotSelected: { backgroundColor: "rgba(22, 59, 71, 0.08)", borderRadius: 4 },
   bar: { width: 27, minHeight: 30, borderTopLeftRadius: 4, borderTopRightRadius: 4 },
   barOverview: { width: "100%", borderTopLeftRadius: 2, borderTopRightRadius: 2 },
   barHour: { height: 18, paddingTop: 4, fontFamily: "DMSans_400Regular", fontSize: 9, color: colors.muted },
@@ -1241,16 +1372,23 @@ const styles = StyleSheet.create({
   barHourCurrent: { fontFamily: "DMSans_700Bold", color: colors.ink },
   currentBar: { borderWidth: 2, borderColor: colors.ink },
   cheapestBar: { borderWidth: 2, borderColor: colors.green },
+  selectedBar: { borderWidth: 2, borderColor: colors.navy },
   currentMarker: { position: "absolute", backgroundColor: colors.ink, borderRadius: 8, paddingHorizontal: 5, paddingVertical: 2, zIndex: 2 },
   cheapestMarker: { backgroundColor: colors.green },
+  scrubMarker: { backgroundColor: colors.navy },
   currentMarkerText: { fontFamily: "DMSans_700Bold", fontSize: 8, color: colors.white },
   railFadeLeft: { position: "absolute", left: 0, top: 0, bottom: 0, width: 16, pointerEvents: "none" },
   railFadeRight: { position: "absolute", right: 0, top: 0, bottom: 0, width: 16, pointerEvents: "none" },
+  sliderWrapper: { marginHorizontal: 10, marginTop: 2, marginBottom: 4 },
+  sliderTouchArea: { height: 22, justifyContent: "center", position: "relative" },
+  sliderDot: { position: "absolute", top: 6, width: 10, height: 10, borderRadius: 5, backgroundColor: colors.green },
+  sliderDotActive: { backgroundColor: colors.ink, transform: [{ scale: 1.3 }] },
   swipeHint: { flexDirection: "row", alignItems: "center", justifyContent: "center", gap: 5, borderTopWidth: 1, borderTopColor: colors.line, paddingTop: 7 },
   chartToolbar: { minHeight: 38, flexDirection: "row", alignItems: "center", justifyContent: "space-between", borderTopWidth: 1, borderTopColor: colors.line, paddingTop: 7 },
   overviewButton: { minHeight: 30, flexDirection: "row", alignItems: "center", gap: 5, paddingHorizontal: 10, borderRadius: 5, backgroundColor: "#ECEFE5" },
   overviewButtonText: { fontFamily: "DMSans_700Bold", fontSize: 10, color: colors.ink },
   chartLabel: { fontFamily: "DMSans_400Regular", color: colors.muted, fontSize: 10 },
+  chartLabelActive: { color: colors.green, fontFamily: "DMSans_700Bold" },
   plannerSection: { marginVertical: 26 },
   plannerHeading: { flexDirection: "row", justifyContent: "space-between", alignItems: "center", marginBottom: 14 },
   addDeviceButton: { minHeight: 38, flexDirection: "row", alignItems: "center", gap: 6, paddingHorizontal: 13, borderRadius: 19, borderWidth: 1, borderColor: colors.line, backgroundColor: colors.white },

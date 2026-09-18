@@ -1,8 +1,12 @@
 import { createHash, randomUUID } from "node:crypto";
 import { createServer } from "node:http";
+import { readFileSync } from "node:fs";
+import { extname, join, normalize } from "node:path";
 
 const port = Number(process.env.EFORSYNING_PORT ?? 8787);
 const baseUrl = process.env.EFORSYNING_BASE_URL ?? "https://eforsyning.dk/";
+const teslaPublicKeyPath = process.env.TESLA_PUBLIC_KEY_PATH ?? "./public/.well-known/appspecific/com.tesla.3p.public-key.pem";
+const webRoot = process.env.WEB_ROOT ?? "./dist";
 let activeCredentials = null;
 let gridBoundariesPromise;
 let openEvModelsPromise;
@@ -455,6 +459,17 @@ const server = createServer(async (request, response) => {
   response.setHeader("Access-Control-Allow-Origin", "*");
   response.setHeader("Access-Control-Allow-Headers", "Content-Type");
   if (request.method === "OPTIONS") { response.writeHead(204); response.end(); return; }
+  if (request.method === "GET" && new URL(request.url ?? "/", `http://${request.headers.host}`).pathname === "/.well-known/appspecific/com.tesla.3p.public-key.pem") {
+    try {
+      const publicKey = readFileSync(teslaPublicKeyPath, "utf8");
+      response.writeHead(200, { "Content-Type": "application/x-pem-file", "Cache-Control": "public, max-age=3600" });
+      response.end(publicKey);
+    } catch {
+      response.writeHead(404, { "Content-Type": "text/plain" });
+      response.end("Tesla public key is not configured");
+    }
+    return;
+  }
   if (request.method === "GET" && request.url?.startsWith("/api/grid/lookup")) {
     try {
       const url = new URL(request.url, `http://${request.headers.host}`);
@@ -539,12 +554,6 @@ const server = createServer(async (request, response) => {
       if (!feedResponse.ok) throw new Error(`Affaldsfeed svarede med ${feedResponse.status}`);
       response.writeHead(200, { "Content-Type": "application/json", "Cache-Control": "public, max-age=3600" });
       response.end(JSON.stringify(parseWasteIcal(await feedResponse.text())));
-    } catch (error) {
-      response.writeHead(404, { "Content-Type": "application/json" });
-      response.end(JSON.stringify({ error: error instanceof Error ? error.message : "Affaldskalenderen kunne ikke hentes" }));
-    }
-    return;
-  }
       if (providerMunicipalities.ikastbrande.has(municipality) && address) {
         const events = await getIkastEvents(address, url.searchParams.get("postcode") ?? "");
         response.writeHead(200, { "Content-Type": "application/json", "Cache-Control": "public, max-age=3600" }); response.end(JSON.stringify(events)); return;
@@ -569,6 +578,12 @@ const server = createServer(async (request, response) => {
         const events = await getAffaldOnlineWebEvents(municipality, address, url.searchParams.get("postcode") ?? "");
         response.writeHead(200, { "Content-Type": "application/json", "Cache-Control": "public, max-age=3600" }); response.end(JSON.stringify(events)); return;
       }
+    } catch (error) {
+      response.writeHead(404, { "Content-Type": "application/json" });
+      response.end(JSON.stringify({ error: error instanceof Error ? error.message : "Affaldskalenderen kunne ikke hentes" }));
+    }
+    return;
+  }
   if (request.method === "GET" && request.url?.startsWith("/api/waste/health")) {
     const url = new URL(request.url, `http://${request.headers.host}`);
     response.writeHead(200, { "Content-Type": "application/json", "Cache-Control": "no-store" });
@@ -589,6 +604,23 @@ const server = createServer(async (request, response) => {
     } catch (error) {
       response.writeHead(401, { "Content-Type": "application/json" });
       response.end(JSON.stringify({ error: error instanceof Error ? error.message : "Login failed" }));
+    }
+    return;
+  }
+  if (request.method === "GET" && !request.url?.startsWith("/api/")) {
+    const requestedPath = new URL(request.url ?? "/", `http://${request.headers.host}`).pathname;
+    const relativePath = requestedPath === "/" ? "index.html" : requestedPath.slice(1);
+    const filePath = normalize(join(webRoot, relativePath));
+    const safeRoot = normalize(webRoot);
+    const candidate = filePath.startsWith(`${safeRoot}\\`) ? filePath : join(webRoot, "index.html");
+    try {
+      const body = readFileSync(candidate);
+      const contentTypes = { ".css": "text/css", ".html": "text/html", ".js": "text/javascript", ".json": "application/json", ".map": "application/json", ".png": "image/png", ".svg": "image/svg+xml", ".woff": "font/woff", ".woff2": "font/woff2" };
+      response.writeHead(200, { "Content-Type": contentTypes[extname(candidate)] ?? "application/octet-stream" });
+      response.end(body);
+    } catch {
+      response.writeHead(404, { "Content-Type": "text/plain" });
+      response.end("Not found");
     }
     return;
   }
