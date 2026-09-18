@@ -37,10 +37,10 @@ export default async function callback(request, response) {
 		const tokenPayload = await tokenResponse.json();
 		if (!tokenResponse.ok || !tokenPayload.access_token) throw new Error("Tesla-token kunne ikke hentes");
 		const session = sessionCookie({ accessToken: tokenPayload.access_token, refreshToken: tokenPayload.refresh_token, expiresAt: Date.now() + Number(tokenPayload.expires_in ?? 3600) * 1000 }, clientSecret);
-		response.statusCode = 200;
-		response.setHeader("Content-Type", "text/html; charset=utf-8");
+		response.statusCode = 302;
+		response.setHeader("Location", "/?tesla=connected");
 		response.setHeader("Set-Cookie", `tesla_session=${encodeURIComponent(session)}; HttpOnly; SameSite=Lax; Max-Age=2592000; Secure; Path=/`);
-		response.end("<!doctype html><title>Tesla forbundet</title><meta name=\"viewport\" content=\"width=device-width\"><body style=\"font-family:sans-serif;padding:2rem\"><h1>Tesla er forbundet</h1><p>Du kan lukke dette vindue og gå tilbage til MBM.</p></body>");
+		response.end();
 	} catch (error) {
 		response.statusCode = 400;
 		response.setHeader("Content-Type", "text/html; charset=utf-8");
