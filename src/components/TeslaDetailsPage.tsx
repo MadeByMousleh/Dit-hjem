@@ -5,6 +5,7 @@ import { EvModel } from "../evData";
 import { PricePoint } from "../prices";
 import { TeslaVehicle } from "../types/app";
 import { formatDuration, formatPrice } from "../utils/formatting";
+import { Tesla3DViewer } from "./Tesla3DViewer";
 
 const theme = {
   bg: "#0B1A17",
@@ -734,6 +735,16 @@ export function TeslaDetailsPage({
             </Pressable>
           </View>
         </View>
+
+        {/* Interactive 3D Tesla Model Viewer */}
+        <Tesla3DViewer
+          colorHex={exteriorColor.hex}
+          colorName={exteriorColor.label}
+          modelName={vehicle.model || vehicle.name || "Tesla"}
+          isPreconditioning={Boolean(vehicle.isPreconditioning)}
+          chargingState={vehicle.chargingState}
+          locked={vehicle.locked}
+        />
 
         {/* Battery Gauge Hero Display */}
         <View style={styles.batteryHeroWrap}>
