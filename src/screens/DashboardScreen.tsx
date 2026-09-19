@@ -1,5 +1,6 @@
 import { Feather } from "@expo/vector-icons";
 import { StatusBar } from "expo-status-bar";
+import { useState } from "react";
 import {
   ActivityIndicator,
   Pressable,
@@ -57,7 +58,7 @@ function Dashboard() {
   } = useProfileAddress({ refreshKey: activeTab, gridSuppliers, setSelectedSupplierId });
   const { devices: quickDevices, expandedId: expandedQuickId, toggleExpanded: toggleQuickExpanded, updateDevice: updateQuickDevice } = useQuickDevices(activeTab);
   const tesla = useTeslaConnection(activeTab);
-
+  const [showTeslaPage, setShowTeslaPage] = useState(false);
 
   const renderDeviceCard = (props: any) => <DevicePlanCard {...props} styles={styles} colors={colors} dkTime={dkTime} dkDay={dkDay} />;
 
@@ -74,7 +75,7 @@ function Dashboard() {
     </View>
   );
 
-  if (activeTab !== "dashboard") return <SecondaryTabScreen activeTab={activeTab} now={now} load={load} isMobile={isMobile} styles={styles} colors={colors} profileName={profileName} setProfileName={setProfileName} profileEmail={profileEmail} setProfileEmail={setProfileEmail} saveProfile={saveProfile} profileSaved={profileSaved} address={address} setAddress={setAddress} addressSuggestions={addressSuggestions} chooseAddress={chooseAddress} addressLookupLoading={addressLookupLoading} addressError={addressError} selectedSupplier={selectedSupplier} prices={prices} evModels={evModels} teslaConnected={tesla.connected} teslaVehicle={tesla.vehicle} teslaRefreshing={tesla.refreshing} teslaShowOnDashboard={tesla.showOnDashboard} connectTesla={tesla.connect} refreshTesla={tesla.refresh} saveTeslaVisibility={tesla.setDashboardVisibility} renderDeviceCard={renderDeviceCard} navigation={navigation} />;
+  if (activeTab !== "dashboard") return <SecondaryTabScreen activeTab={activeTab} now={now} load={load} isMobile={isMobile} styles={styles} colors={colors} profileName={profileName} setProfileName={setProfileName} profileEmail={profileEmail} setProfileEmail={setProfileEmail} saveProfile={saveProfile} profileSaved={profileSaved} address={address} setAddress={setAddress} addressSuggestions={addressSuggestions} chooseAddress={chooseAddress} addressLookupLoading={addressLookupLoading} addressError={addressError} selectedSupplier={selectedSupplier} prices={prices} evModels={evModels} teslaConnected={tesla.connected} teslaVehicle={tesla.vehicle} teslaRefreshing={tesla.refreshing} teslaShowOnDashboard={tesla.showOnDashboard} connectTesla={tesla.connect} refreshTesla={tesla.refresh} saveTeslaVisibility={tesla.setDashboardVisibility} renderDeviceCard={renderDeviceCard} navigation={navigation} showTeslaPage={showTeslaPage} setShowTeslaPage={setShowTeslaPage} />;
 
   return (
     <SafeAreaView style={styles.safeArea} edges={["top"]}>
@@ -121,7 +122,24 @@ function Dashboard() {
           <View style={styles.dashboardDevicesSummary}>
             <Text style={styles.pageEyebrow}>MIT HJEM</Text>
             <Text style={styles.dashboardSummaryText}>Dine apparater og elbil ligger samlet i Mit hjem.</Text>
-            {tesla.showOnDashboard ? <TeslaConnectionCard connected={tesla.connected} vehicle={tesla.vehicle} points={prices} now={now} evModels={evModels} refreshing={tesla.refreshing} showOnDashboard={tesla.showOnDashboard} onConnect={tesla.connect} onRefresh={() => void tesla.refresh()} onToggleDashboard={() => tesla.setDashboardVisibility(false)} /> : null}
+            {tesla.showOnDashboard ? (
+              <TeslaConnectionCard
+                connected={tesla.connected}
+                vehicle={tesla.vehicle}
+                points={prices}
+                now={now}
+                evModels={evModels}
+                refreshing={tesla.refreshing}
+                showOnDashboard={tesla.showOnDashboard}
+                onConnect={tesla.connect}
+                onRefresh={() => void tesla.refresh()}
+                onToggleDashboard={() => tesla.setDashboardVisibility(false)}
+                onOpenDetails={() => {
+                  setActiveTab("home");
+                  setShowTeslaPage(true);
+                }}
+              />
+            ) : null}
             {quickDevices.filter((device) => device.showOnDashboard).length ? (
               <View style={styles.quickDeviceList}>
                 {quickDevices.filter((device) => device.showOnDashboard).map((device) => (

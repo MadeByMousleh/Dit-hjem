@@ -42,6 +42,8 @@ type SecondaryTabScreenProps = {
   saveTeslaVisibility: (value: boolean) => void;
   renderDeviceCard: (props: any) => ReactNode;
   navigation: ReactNode;
+  showTeslaPage?: boolean;
+  setShowTeslaPage?: (show: boolean) => void;
 };
 
 export function SecondaryTabScreen(props: SecondaryTabScreenProps) {
@@ -78,11 +80,13 @@ export function SecondaryTabScreen(props: SecondaryTabScreenProps) {
     navigation,
   } = props;
 
-  const [showTeslaPage, setShowTeslaPage] = useState(false);
+  const [internalShowTeslaPage, setInternalShowTeslaPage] = useState(false);
+  const showTeslaPage = props.showTeslaPage ?? internalShowTeslaPage;
+  const setShowTeslaPage = props.setShowTeslaPage ?? setInternalShowTeslaPage;
 
   useEffect(() => {
     if (activeTab !== "home") setShowTeslaPage(false);
-  }, [activeTab]);
+  }, [activeTab, setShowTeslaPage]);
 
   return (
     <SafeAreaView style={styles.safeArea} edges={["top"]}>
@@ -133,18 +137,17 @@ export function SecondaryTabScreen(props: SecondaryTabScreenProps) {
                     </Pressable>
                   </View>
                   <Text style={styles.pageIntro}>Overblik over model, farve, batteri, ladeforhold og bilens essentielle status.</Text>
-                  <TeslaDetailsPage vehicle={teslaVehicle} refreshing={teslaRefreshing} onRefresh={() => void refreshTesla()} />
-                  <TeslaConnectionCard
-                    connected={teslaConnected}
+                  <TeslaDetailsPage
                     vehicle={teslaVehicle}
+                    refreshing={teslaRefreshing}
+                    onRefresh={() => void refreshTesla()}
+                    connected={teslaConnected}
+                    onConnect={connectTesla}
+                    showOnDashboard={teslaShowOnDashboard}
+                    onToggleDashboard={() => saveTeslaVisibility(!teslaShowOnDashboard)}
                     points={prices}
                     now={now}
                     evModels={evModels}
-                    refreshing={teslaRefreshing}
-                    showOnDashboard={teslaShowOnDashboard}
-                    onConnect={connectTesla}
-                    onRefresh={() => void refreshTesla()}
-                    onToggleDashboard={() => saveTeslaVisibility(!teslaShowOnDashboard)}
                   />
                 </>
               )}

@@ -28,8 +28,16 @@ export function TeslaConnectionCard({ connected, vehicle, points, now, evModels,
   const currentPrice = [...points].reverse().find((point) => point.startsAt.getTime() <= now)?.totalOrePerKwh ?? 0;
   const chargeCost = neededKwh * currentPrice / 100;
   const estimatedHours = vehicle?.timeToFullChargeHours ?? (vehicle?.chargerPowerKw && vehicle.chargerPowerKw > 0 ? neededKwh / vehicle.chargerPowerKw : null);
-  const chargingLabels: Record<string, string> = { Charging: "Lader", Complete: "Færdig", Disconnected: "Ikke tilsluttet", NoPower: "Ingen strøm", Stopped: "Stoppet" };
-  const chargingLabel = vehicle?.chargingState ? chargingLabels[vehicle.chargingState] ?? vehicle.chargingState : "Status ikke tilgængelig";
+  const chargingLabels: Record<string, string> = {
+    Charging: "Oplader",
+    Complete: "Fuldt opladet",
+    Disconnected: "Ikke tilsluttet",
+    NoPower: "Ingen strøm",
+    Stopped: "Opladning stoppet",
+    Starting: "Starter opladning",
+    Calibrating: "Kalibrerer lader",
+  };
+  const chargingLabel = vehicle?.chargingState ? chargingLabels[vehicle.chargingState] ?? vehicle.chargingState : "Ikke tilsluttet";
 
   return (
     <View style={styles.card}>
@@ -37,7 +45,7 @@ export function TeslaConnectionCard({ connected, vehicle, points, now, evModels,
         <View style={styles.icon}><Feather name="zap" size={20} color={colors.ink} /></View>
         <View style={styles.copy}>
           <Text style={styles.title}>{connected ? vehicle?.name ?? "Tesla er forbundet" : "Tilføj din Tesla"}</Text>
-          <Text style={styles.description}>{connected ? [vehicle?.model, vehicle?.exteriorColor].filter(Boolean).join(" · ") || "Live bilstatus" : "Forbind din bil for at bruge det aktuelle batteriniveau i ladeplanen."}</Text>
+          <Text style={styles.description}>{connected ? [vehicle?.model, vehicle?.exteriorColor ? vehicle.exteriorColor.replace(/([a-z])([A-Z])/g, "$1 $2") : null].filter(Boolean).join(" · ") || "Live bilstatus" : "Forbind din bil for at bruge det aktuelle batteriniveau i ladeplanen."}</Text>
         </View>
         <View style={styles.actions}>
           <Pressable accessibilityLabel={showOnDashboard ? "Skjul Tesla fra overblik" : "Vis Tesla på overblik"} onPress={onToggleDashboard} style={[styles.visibilityButton, showOnDashboard && styles.visibilityButtonActive]}>
@@ -49,9 +57,9 @@ export function TeslaConnectionCard({ connected, vehicle, points, now, evModels,
       {connected && vehicle ? (
         <View style={styles.stats}>
           <View style={styles.primaryStat}><Text style={styles.batteryNumber}>{vehicle.batteryLevel == null ? "–" : `${Math.round(vehicle.batteryLevel)}%`}</Text><Text style={styles.label}>BATTERI</Text></View>
-          <View style={styles.stat}><Text style={styles.value}>{matchedModel ? `${formatPrice(batteryKwh, 1)} kWh` : "Estimat"}</Text><Text style={styles.label}>BATTERISTØRRELSE</Text></View>
+          <View style={styles.stat}><Text style={styles.value}>{matchedModel ? `${formatPrice(batteryKwh, 1)} kWh` : "Estimat"}</Text><Text style={styles.label}>BATTERIKAPACITET</Text></View>
           <View style={styles.stat}><Text style={styles.value}>{chargingLabel}</Text><Text style={styles.label}>STATUS</Text></View>
-          <View style={styles.stat}><Text style={styles.value}>{formatPrice(chargeCost, 2)} kr</Text><Text style={styles.label}>TIL FULD VED NU-PRIS</Text></View>
+          <View style={styles.stat}><Text style={styles.value}>{formatPrice(chargeCost, 2)} kr</Text><Text style={styles.label}>PRIS TIL FULD</Text></View>
           <View style={styles.stat}><Text style={styles.value}>{estimatedHours == null ? "–" : formatDuration(estimatedHours)}</Text><Text style={styles.label}>EST. LADETID</Text></View>
         </View>
       ) : null}
