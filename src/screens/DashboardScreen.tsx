@@ -16,7 +16,7 @@ import { FamilyPlanner as ExtractedFamilyPlanner } from "../components/FamilyPla
 import { DevicePlanCard } from "../components/DevicePlanCard";
 import { PriceChart } from "../components/PriceChart";
 import { WasteCollectionCard } from "../components/WasteCollectionCard";
-import { SecondaryTabScreen } from "./SecondaryTabScreen";
+import { SecondaryTabScreen } from "./SecondaryTabsScreen";
 import { useTeslaConnection } from "../hooks/useTeslaConnection";
 import { useEnergyPrices } from "../hooks/useEnergyPrices";
 import { useEforsyning } from "../hooks/useEforsyning";
