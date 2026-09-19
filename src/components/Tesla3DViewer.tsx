@@ -3,7 +3,6 @@ import React, { useEffect, useRef, useState } from "react";
 import { ActivityIndicator, Platform, Pressable, StyleSheet, Text, View } from "react-native";
 import * as THREE from "three";
 import { OrbitControls } from "three/examples/jsm/controls/OrbitControls.js";
-import { DRACOLoader } from "three/examples/jsm/loaders/DRACOLoader.js";
 import { GLTFLoader } from "three/examples/jsm/loaders/GLTFLoader.js";
 
 export type TeslaModelKey = "model_3" | "model_y" | "model_x" | "cybertruck" | "semi";
@@ -176,10 +175,7 @@ export function Tesla3DViewer({
       roughness: 0.1,
     });
 
-    const dracoLoader = new DRACOLoader();
-    dracoLoader.setDecoderPath("/draco/");
     const gltfLoader = new GLTFLoader();
-    gltfLoader.setDRACOLoader(dracoLoader);
 
     const modelConfig = TESLA_MODELS.find((m) => m.key === modelKey) ?? TESLA_MODELS[0];
     const candidateFiles = modelConfig?.files ?? ["/models/tesla_model_3.glb"];
@@ -223,20 +219,13 @@ export function Tesla3DViewer({
               const matName = (mat?.name || "").toLowerCase();
 
               const isCarPaint =
-                matName.includes("paint") ||
+                matName.toLowerCase() === "paint" ||
                 matName.includes("carpaint") ||
                 matName.includes("car_paint") ||
-                matName.includes("body") ||
-                matName.includes("exterior") ||
-                matName === "white.002" ||
-                matName === "material.001" ||
-                matName === "tt_bake_node" ||
-                meshName.includes("body") ||
-                meshName.includes("paint") ||
-                meshName.includes("hood") ||
-                meshName.includes("door") ||
-                meshName.includes("bumper") ||
-                meshName.includes("trunk");
+                (modelKey === "cybertruck" && (matName.includes("body") || matName.includes("white.002"))) ||
+                (modelKey === "model_x" && matName.includes("paint")) ||
+                (modelKey === "semi" && matName === "tt_bake_node") ||
+                (modelKey === "model_y" && matName === "material.001");
 
               const isExcluded =
                 matName.includes("glass") ||
@@ -252,16 +241,8 @@ export function Tesla3DViewer({
                 meshName.includes("tire");
 
               if (isCarPaint && !isExcluded) {
-                // If existing material has metallic/roughness properties, update its color
-                if (mat && mat.color) {
-                  mat.color.set(new THREE.Color(colorHex));
-                  if ("metalness" in mat) mat.metalness = 0.85;
-                  if ("roughness" in mat) mat.roughness = 0.2;
-                  bodyMaterialsRef.current.push(mat);
-                } else {
-                  mesh.material = bodyPaint;
-                  bodyMaterialsRef.current.push(bodyPaint);
-                }
+                mesh.material = bodyPaint;
+                bodyMaterialsRef.current.push(bodyPaint);
               }
             }
           });
@@ -352,29 +333,29 @@ export function Tesla3DViewer({
     controls.target.set(0, 0.72, 0);
     controlsRef.current = controls;
 
-    // 5. Lighting Setup (Automotive Studio setup)
-    const ambientLight = new THREE.AmbientLight(0xffffff, 0.85);
+    // 5. Lighting Setup (Photorealistic Automotive Studio setup)
+    const ambientLight = new THREE.AmbientLight(0xffffff, 0.9);
     scene.add(ambientLight);
 
-    const mainKeyLight = new THREE.DirectionalLight(0xffffff, 1.8);
-    mainKeyLight.position.set(6, 9, 7);
+    const mainKeyLight = new THREE.DirectionalLight(0xffffff, 2.2);
+    mainKeyLight.position.set(6, 8, 6);
     mainKeyLight.castShadow = true;
     mainKeyLight.shadow.mapSize.width = 1024;
     mainKeyLight.shadow.mapSize.height = 1024;
     mainKeyLight.shadow.bias = -0.0005;
     scene.add(mainKeyLight);
 
-    const softFillLight = new THREE.DirectionalLight(0xdce9dc, 1.2);
-    softFillLight.position.set(-6, 6, -5);
+    const softFillLight = new THREE.DirectionalLight(0xdce9dc, 1.4);
+    softFillLight.position.set(-6, 5, -5);
     scene.add(softFillLight);
 
-    const rimLight = new THREE.DirectionalLight(0x38bdf8, 1.0);
-    rimLight.position.set(-5, 4, 6);
+    const rimLight = new THREE.DirectionalLight(0x38bdf8, 1.2);
+    rimLight.position.set(-4, 3, 5);
     scene.add(rimLight);
 
-    const underGlow = new THREE.PointLight(0x10b981, 0.8, 4);
-    underGlow.position.set(0, 0.2, 0);
-    scene.add(underGlow);
+    const floorGlow = new THREE.PointLight(0x10b981, 0.9, 6);
+    floorGlow.position.set(0, 0.1, 0);
+    scene.add(floorGlow);
 
     // 6. Ground Shadow / Floor plane
     const shadowGeo = new THREE.PlaneGeometry(8, 8);
