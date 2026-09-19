@@ -205,6 +205,20 @@ export function TeslaDetailsPage({
   if (!vehicle) {
     return (
       <View style={styles.wrapper}>
+        {onBack ? (
+          <Pressable onPress={onBack} style={styles.backButton}>
+            <Feather name="arrow-left" size={16} color={theme.inkLight} />
+            <Text style={styles.backButtonText}>Tilbage til overblik</Text>
+          </Pressable>
+        ) : null}
+
+        {/* 3D Preview of Tesla Models */}
+        <Tesla3DViewer
+          colorHex="#18181B"
+          colorName="Massiv sort (Solid Black)"
+          modelName="Tesla Model Y"
+        />
+
         <View style={styles.emptyContainer}>
           <View style={styles.emptyIconCircle}>
             <Feather name="zap" size={32} color={theme.emerald} />

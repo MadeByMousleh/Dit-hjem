@@ -5,7 +5,7 @@ import * as THREE from "three";
 import { OrbitControls } from "three/examples/jsm/controls/OrbitControls.js";
 import { GLTFLoader } from "three/examples/jsm/loaders/GLTFLoader.js";
 
-export type TeslaModelKey = "model_3" | "model_y" | "model_x" | "cybertruck" | "semi";
+export type TeslaModelKey = "model_y" | "model_3" | "model_x" | "cybertruck" | "semi";
 
 export interface ModelOption {
   key: TeslaModelKey;
@@ -14,21 +14,23 @@ export interface ModelOption {
 }
 
 export const TESLA_MODELS: ModelOption[] = [
-  { key: "model_3", label: "Model 3", files: ["/models/tesla_model_3.glb", "/models/tesla_model_3_fast.glb"] },
-  { key: "model_y", label: "Model Y", files: ["/models/tesla_model_y.glb", "/models/tesla_model_3.glb"] },
-  { key: "model_x", label: "Model X", files: ["/models/tesla_model_x.glb", "/models/tesla_model_3.glb"] },
+  { key: "model_y", label: "Model Y", files: ["/models/tesla_model_y.glb"] },
+  { key: "model_3", label: "Model 3", files: ["/models/tesla_model_3_highland.glb", "/models/tesla_model_3.glb"] },
+  { key: "model_x", label: "Model X", files: ["/models/tesla_model_x.glb"] },
   { key: "cybertruck", label: "Cybertruck", files: ["/models/tesla_cybertruck.glb"] },
   { key: "semi", label: "Semi", files: ["/models/tesla_semi.glb"] },
 ];
 
 function resolveModelKey(modelStr?: string | null): TeslaModelKey {
-  if (!modelStr) return "model_3";
-  const m = modelStr.toLowerCase();
+  if (!modelStr) return "model_y";
+  const m = modelStr.toLowerCase().replace(/[\s\-_]/g, "");
   if (m.includes("cyber") || m.includes("truck")) return "cybertruck";
-  if (m.includes("model y") || m.includes("modely") || m === "y") return "model_y";
-  if (m.includes("model x") || m.includes("modelx") || m === "x") return "model_x";
+  if (m.includes("modely") || m === "y") return "model_y";
+  if (m.includes("modelx") || m === "x") return "model_x";
+  if (m.includes("models") || m === "s") return "model_3";
   if (m.includes("semi")) return "semi";
-  return "model_3";
+  if (m.includes("model3") || m === "3") return "model_3";
+  return "model_y";
 }
 
 interface Tesla3DViewerProps {
@@ -43,7 +45,7 @@ interface Tesla3DViewerProps {
 export function Tesla3DViewer({
   colorHex = "#4B5563",
   colorName = "Midnatssølv metallisk",
-  modelName = "Tesla Model 3",
+  modelName = "Tesla Model Y",
   chargingState,
   locked,
 }: Tesla3DViewerProps) {
@@ -219,13 +221,11 @@ export function Tesla3DViewer({
               const matName = (mat?.name || "").toLowerCase();
 
               const isCarPaint =
-                matName.toLowerCase() === "paint" ||
+                matName.includes("paint") ||
                 matName.includes("carpaint") ||
                 matName.includes("car_paint") ||
-                (modelKey === "cybertruck" && (matName.includes("body") || matName.includes("white.002"))) ||
-                (modelKey === "model_x" && matName.includes("paint")) ||
-                (modelKey === "semi" && matName === "tt_bake_node") ||
-                (modelKey === "model_y" && matName === "material.001");
+                (modelKey === "cybertruck" && (matName.includes("metal_exterior") || matName.includes("paint") || matName.includes("body"))) ||
+                (modelKey === "semi" && matName === "tt_bake_node");
 
               const isExcluded =
                 matName.includes("glass") ||
