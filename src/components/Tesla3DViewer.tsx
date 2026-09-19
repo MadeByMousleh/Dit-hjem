@@ -3,7 +3,34 @@ import React, { useEffect, useRef, useState } from "react";
 import { ActivityIndicator, Platform, Pressable, StyleSheet, Text, View } from "react-native";
 import * as THREE from "three";
 import { OrbitControls } from "three/examples/jsm/controls/OrbitControls.js";
+import { DRACOLoader } from "three/examples/jsm/loaders/DRACOLoader.js";
 import { GLTFLoader } from "three/examples/jsm/loaders/GLTFLoader.js";
+
+export type TeslaModelKey = "model_3" | "model_y" | "model_x" | "cybertruck" | "semi";
+
+export interface ModelOption {
+  key: TeslaModelKey;
+  label: string;
+  files: string[];
+}
+
+export const TESLA_MODELS: ModelOption[] = [
+  { key: "model_3", label: "Model 3", files: ["/models/tesla_model_3.glb", "/models/tesla_model_3_fast.glb"] },
+  { key: "model_y", label: "Model Y", files: ["/models/tesla_model_y.glb", "/models/tesla_model_3.glb"] },
+  { key: "model_x", label: "Model X", files: ["/models/tesla_model_x.glb", "/models/tesla_model_3.glb"] },
+  { key: "cybertruck", label: "Cybertruck", files: ["/models/tesla_cybertruck.glb"] },
+  { key: "semi", label: "Semi", files: ["/models/tesla_semi.glb"] },
+];
+
+function resolveModelKey(modelStr?: string | null): TeslaModelKey {
+  if (!modelStr) return "model_3";
+  const m = modelStr.toLowerCase();
+  if (m.includes("cyber") || m.includes("truck")) return "cybertruck";
+  if (m.includes("model y") || m.includes("modely") || m === "y") return "model_y";
+  if (m.includes("model x") || m.includes("modelx") || m === "x") return "model_x";
+  if (m.includes("semi")) return "semi";
+  return "model_3";
+}
 
 interface Tesla3DViewerProps {
   colorHex?: string;
@@ -18,28 +45,36 @@ export function Tesla3DViewer({
   colorHex = "#4B5563",
   colorName = "Midnatssølv metallisk",
   modelName = "Tesla Model 3",
-  isPreconditioning = false,
   chargingState,
   locked,
 }: Tesla3DViewerProps) {
   const containerRef = useRef<any>(null);
+  const [selectedModel, setSelectedModel] = useState<TeslaModelKey>(() => resolveModelKey(modelName));
   const [loading, setLoading] = useState(true);
   const [autoRotate, setAutoRotate] = useState(true);
   const [cameraView, setCameraView] = useState<"front" | "side" | "rear" | "iso">("iso");
+
+  // Keep selected model in sync if prop changes
+  useEffect(() => {
+    setSelectedModel(resolveModelKey(modelName));
+  }, [modelName]);
 
   const sceneRef = useRef<THREE.Scene | null>(null);
   const rendererRef = useRef<THREE.WebGLRenderer | null>(null);
   const controlsRef = useRef<OrbitControls | null>(null);
   const cameraRef = useRef<THREE.PerspectiveCamera | null>(null);
-  const bodyMaterialsRef = useRef<THREE.MeshPhysicalMaterial[]>([]);
+  const carGroupRef = useRef<THREE.Group | null>(null);
+  const bodyMaterialsRef = useRef<THREE.Material[]>([]);
   const animFrameIdRef = useRef<number | null>(null);
 
-  // Update paint color dynamically whenever colorHex changes
+  // Apply paint color dynamically whenever colorHex changes
   useEffect(() => {
     const targetColor = new THREE.Color(colorHex);
-    bodyMaterialsRef.current.forEach((mat) => {
-      mat.color.set(targetColor);
-      mat.needsUpdate = true;
+    bodyMaterialsRef.current.forEach((mat: any) => {
+      if (mat.color) {
+        mat.color.set(targetColor);
+        mat.needsUpdate = true;
+      }
     });
   }, [colorHex]);
 
@@ -80,6 +115,190 @@ export function Tesla3DViewer({
     controls.update();
   };
 
+  // Helper to load GLB model with DRACO fallback
+  const loadCarModel = (modelKey: TeslaModelKey) => {
+    const carGroup = carGroupRef.current;
+    if (!carGroup) return;
+
+    setLoading(true);
+    carGroup.clear();
+    bodyMaterialsRef.current = [];
+
+    // Body Paint Material with realistic metallic automotive finish
+    const bodyPaint = new THREE.MeshPhysicalMaterial({
+      color: new THREE.Color(colorHex),
+      metalness: 0.86,
+      roughness: 0.18,
+      clearcoat: 1.0,
+      clearcoatRoughness: 0.08,
+      reflectivity: 0.9,
+    });
+    bodyMaterialsRef.current.push(bodyPaint);
+
+    const glassMat = new THREE.MeshPhysicalMaterial({
+      color: 0x091419,
+      metalness: 0.1,
+      roughness: 0.05,
+      transmission: 0.7,
+      transparent: true,
+      opacity: 0.85,
+    });
+
+    const darkTrimMat = new THREE.MeshStandardMaterial({
+      color: 0x14181a,
+      roughness: 0.6,
+      metalness: 0.3,
+    });
+
+    const tireRubberMat = new THREE.MeshStandardMaterial({
+      color: 0x1a1a1a,
+      roughness: 0.85,
+      metalness: 0.05,
+    });
+
+    const wheelRimMat = new THREE.MeshStandardMaterial({
+      color: 0x3a4043,
+      metalness: 0.85,
+      roughness: 0.25,
+    });
+
+    const headlightMat = new THREE.MeshStandardMaterial({
+      color: 0xffffff,
+      emissive: 0xe0f2fe,
+      emissiveIntensity: 0.8,
+      roughness: 0.1,
+    });
+
+    const taillightMat = new THREE.MeshStandardMaterial({
+      color: 0xff2222,
+      emissive: 0xdc2626,
+      emissiveIntensity: 0.9,
+      roughness: 0.1,
+    });
+
+    const dracoLoader = new DRACOLoader();
+    dracoLoader.setDecoderPath("/draco/");
+    const gltfLoader = new GLTFLoader();
+    gltfLoader.setDRACOLoader(dracoLoader);
+
+    const modelConfig = TESLA_MODELS.find((m) => m.key === modelKey) ?? TESLA_MODELS[0];
+    const candidateFiles = modelConfig?.files ?? ["/models/tesla_model_3.glb"];
+
+    const tryLoadFile = (index: number) => {
+      if (index >= candidateFiles.length) {
+        // Build procedural 3D model if all files fail
+        buildProceduralTesla(carGroup, {
+          bodyPaint,
+          glassMat,
+          darkTrimMat,
+          tireRubberMat,
+          wheelRimMat,
+          headlightMat,
+          taillightMat,
+        });
+        setLoading(false);
+        return;
+      }
+
+      const fileUrl = candidateFiles[index];
+      if (!fileUrl) {
+        setLoading(false);
+        return;
+      }
+
+      gltfLoader.load(
+        fileUrl,
+        (gltf) => {
+          carGroup.clear();
+          bodyMaterialsRef.current = [];
+
+          gltf.scene.traverse((child) => {
+            if ((child as THREE.Mesh).isMesh) {
+              const mesh = child as THREE.Mesh;
+              mesh.castShadow = true;
+              mesh.receiveShadow = true;
+
+              const meshName = (mesh.name || "").toLowerCase();
+              const mat = mesh.material as any;
+              const matName = (mat?.name || "").toLowerCase();
+
+              const isCarPaint =
+                matName.includes("paint") ||
+                matName.includes("carpaint") ||
+                matName.includes("car_paint") ||
+                matName.includes("body") ||
+                matName.includes("exterior") ||
+                matName === "white.002" ||
+                matName === "material.001" ||
+                matName === "tt_bake_node" ||
+                meshName.includes("body") ||
+                meshName.includes("paint") ||
+                meshName.includes("hood") ||
+                meshName.includes("door") ||
+                meshName.includes("bumper") ||
+                meshName.includes("trunk");
+
+              const isExcluded =
+                matName.includes("glass") ||
+                matName.includes("window") ||
+                matName.includes("tire") ||
+                matName.includes("rubber") ||
+                matName.includes("rim") ||
+                matName.includes("light") ||
+                matName.includes("chrome") ||
+                matName.includes("interior") ||
+                meshName.includes("glass") ||
+                meshName.includes("wheel") ||
+                meshName.includes("tire");
+
+              if (isCarPaint && !isExcluded) {
+                // If existing material has metallic/roughness properties, update its color
+                if (mat && mat.color) {
+                  mat.color.set(new THREE.Color(colorHex));
+                  if ("metalness" in mat) mat.metalness = 0.85;
+                  if ("roughness" in mat) mat.roughness = 0.2;
+                  bodyMaterialsRef.current.push(mat);
+                } else {
+                  mesh.material = bodyPaint;
+                  bodyMaterialsRef.current.push(bodyPaint);
+                }
+              }
+            }
+          });
+
+          // Compute bounding box and normalize scale & ground positioning
+          const box = new THREE.Box3().setFromObject(gltf.scene);
+          const size = box.getSize(new THREE.Vector3());
+          const center = box.getCenter(new THREE.Vector3());
+          const maxAxis = Math.max(size.x, size.y, size.z);
+          const targetSize = modelKey === "semi" ? 4.8 : 4.0;
+          const scale = targetSize / maxAxis;
+
+          gltf.scene.scale.setScalar(scale);
+          gltf.scene.position.x = -center.x * scale;
+          gltf.scene.position.z = -center.z * scale;
+          gltf.scene.position.y = -box.min.y * scale;
+
+          carGroup.add(gltf.scene);
+          setLoading(false);
+        },
+        undefined,
+        () => {
+          tryLoadFile(index + 1);
+        }
+      );
+    };
+
+    tryLoadFile(0);
+  };
+
+  // Switch 3D model when user clicks a model pill or prop changes
+  useEffect(() => {
+    if (Platform.OS !== "web") return;
+    loadCarModel(selectedModel);
+  }, [selectedModel]);
+
+  // Main Three.js Scene Setup
   useEffect(() => {
     if (Platform.OS !== "web") {
       setLoading(false);
@@ -122,8 +341,8 @@ export function Tesla3DViewer({
     controls.enableDamping = true;
     controls.dampingFactor = 0.05;
     controls.enablePan = false;
-    controls.minDistance = 3.2;
-    controls.maxDistance = 8.5;
+    controls.minDistance = 3.0;
+    controls.maxDistance = 9.0;
     // Limit polar angle: Cannot dip below floor horizon (Math.PI / 2 = 90 deg = ground level)
     controls.maxPolarAngle = Math.PI / 2 - 0.04;
     // Allow viewing from high angles up to almost top-down
@@ -134,7 +353,7 @@ export function Tesla3DViewer({
     controlsRef.current = controls;
 
     // 5. Lighting Setup (Automotive Studio setup)
-    const ambientLight = new THREE.AmbientLight(0xffffff, 0.7);
+    const ambientLight = new THREE.AmbientLight(0xffffff, 0.85);
     scene.add(ambientLight);
 
     const mainKeyLight = new THREE.DirectionalLight(0xffffff, 1.8);
@@ -195,129 +414,15 @@ export function Tesla3DViewer({
     ringMesh.position.y = 0.005;
     scene.add(ringMesh);
 
-    // 7. Car Material Factory
-    bodyMaterialsRef.current = [];
-    const bodyPaint = new THREE.MeshPhysicalMaterial({
-      color: new THREE.Color(colorHex),
-      metalness: 0.86,
-      roughness: 0.18,
-      clearcoat: 1.0,
-      clearcoatRoughness: 0.08,
-      reflectivity: 0.9,
-    });
-    bodyMaterialsRef.current.push(bodyPaint);
-
-    const glassMat = new THREE.MeshPhysicalMaterial({
-      color: 0x091419,
-      metalness: 0.1,
-      roughness: 0.05,
-      transmission: 0.7,
-      transparent: true,
-      opacity: 0.85,
-    });
-
-    const darkTrimMat = new THREE.MeshStandardMaterial({
-      color: 0x14181a,
-      roughness: 0.6,
-      metalness: 0.3,
-    });
-
-    const tireRubberMat = new THREE.MeshStandardMaterial({
-      color: 0x1a1a1a,
-      roughness: 0.85,
-      metalness: 0.05,
-    });
-
-    const wheelRimMat = new THREE.MeshStandardMaterial({
-      color: 0x3a4043,
-      metalness: 0.85,
-      roughness: 0.25,
-    });
-
-    const headlightMat = new THREE.MeshStandardMaterial({
-      color: 0xffffff,
-      emissive: 0xe0f2fe,
-      emissiveIntensity: 0.8,
-      roughness: 0.1,
-    });
-
-    const taillightMat = new THREE.MeshStandardMaterial({
-      color: 0xff2222,
-      emissive: 0xdc2626,
-      emissiveIntensity: 0.9,
-      roughness: 0.1,
-    });
-
-    // 8. Try loading custom GLB if available, otherwise construct stylized Tesla Sedan Mesh
+    // 7. Car Root Group
     const carGroup = new THREE.Group();
     scene.add(carGroup);
+    carGroupRef.current = carGroup;
 
-    let loadedExternalModel = false;
-    const gltfLoader = new GLTFLoader();
+    // Load initial car model
+    loadCarModel(selectedModel);
 
-    // Check for custom model file in /models/
-    gltfLoader.load(
-      "/models/tesla_model_3.glb",
-      (gltf) => {
-        carGroup.clear();
-        bodyMaterialsRef.current = [];
-
-        gltf.scene.traverse((child) => {
-          if ((child as THREE.Mesh).isMesh) {
-            const mesh = child as THREE.Mesh;
-            mesh.castShadow = true;
-            mesh.receiveShadow = true;
-
-            const name = (mesh.name || "").toLowerCase();
-            const matName = ((mesh.material as any)?.name || "").toLowerCase();
-
-            if (
-              name.includes("body") ||
-              name.includes("paint") ||
-              name.includes("carpaint") ||
-              name.includes("exterior") ||
-              name.includes("hood") ||
-              name.includes("door") ||
-              matName.includes("paint") ||
-              matName.includes("body")
-            ) {
-              mesh.material = bodyPaint;
-              bodyMaterialsRef.current.push(bodyPaint);
-            }
-          }
-        });
-
-        // Auto center and scale model
-        const box = new THREE.Box3().setFromObject(gltf.scene);
-        const size = box.getSize(new THREE.Vector3());
-        const center = box.getCenter(new THREE.Vector3());
-        const maxAxis = Math.max(size.x, size.y, size.z);
-        const scale = 3.8 / maxAxis;
-        gltf.scene.scale.setScalar(scale);
-        gltf.scene.position.sub(center.multiplyScalar(scale));
-        gltf.scene.position.y += (size.y * scale) / 2;
-
-        carGroup.add(gltf.scene);
-        loadedExternalModel = true;
-        setLoading(false);
-      },
-      undefined,
-      () => {
-        // Fallback: Build Procedural Sleek Tesla Model
-        buildProceduralTesla(carGroup, {
-          bodyPaint,
-          glassMat,
-          darkTrimMat,
-          tireRubberMat,
-          wheelRimMat,
-          headlightMat,
-          taillightMat,
-        });
-        setLoading(false);
-      }
-    );
-
-    // 9. Resize listener
+    // 8. Resize listener
     const handleResize = () => {
       if (!containerRef.current || !rendererRef.current || !cameraRef.current) return;
       const newW = containerRef.current.clientWidth || 360;
@@ -329,7 +434,7 @@ export function Tesla3DViewer({
 
     window.addEventListener("resize", handleResize);
 
-    // 10. Animation Loop
+    // 9. Animation Loop
     const animate = () => {
       animFrameIdRef.current = requestAnimationFrame(animate);
       controls.update();
@@ -355,24 +460,39 @@ export function Tesla3DViewer({
         {loading ? (
           <View style={styles.loaderWrap}>
             <ActivityIndicator size="small" color="#10B981" />
-            <Text style={styles.loaderText}>Klargør 3D Tesla...</Text>
+            <Text style={styles.loaderText}>Henter 3D {TESLA_MODELS.find((m) => m.key === selectedModel)?.label}...</Text>
           </View>
         ) : null}
 
-        {/* Floating Controls Overlay */}
+        {/* Floating Top Controls Overlay */}
         <View style={styles.topOverlayRow}>
-          <View style={styles.modelTag}>
-            <View style={[styles.colorDot, { backgroundColor: colorHex }]} />
-            <Text style={styles.modelTagText}>{modelName}</Text>
+          {/* Model Selector Pills */}
+          <View style={styles.modelSelectorPills}>
+            {TESLA_MODELS.map((m) => {
+              const isSelected = selectedModel === m.key;
+              return (
+                <Pressable
+                  key={m.key}
+                  onPress={() => setSelectedModel(m.key)}
+                  style={[styles.modelPill, isSelected && styles.modelPillActive]}
+                >
+                  {isSelected ? <View style={[styles.colorDot, { backgroundColor: colorHex }]} /> : null}
+                  <Text style={[styles.modelPillText, isSelected && styles.modelPillTextActive]}>
+                    {m.label}
+                  </Text>
+                </Pressable>
+              );
+            })}
           </View>
 
           <Pressable
             onPress={() => setAutoRotate(!autoRotate)}
+            accessibilityLabel={autoRotate ? "Slå auto-rotation fra" : "Slå auto-rotation til"}
             style={[styles.glassPillButton, autoRotate && styles.glassPillButtonActive]}
           >
             <Feather name="rotate-cw" size={13} color={autoRotate ? "#10B981" : "#8DA89F"} />
             <Text style={[styles.glassPillText, autoRotate && styles.glassPillTextActive]}>
-              {autoRotate ? "Auto-rotation" : "Manuel"}
+              {autoRotate ? "Rotation" : "Manuel"}
             </Text>
           </Pressable>
         </View>
@@ -409,7 +529,7 @@ export function Tesla3DViewer({
           <View style={[styles.colorSwatchLarge, { backgroundColor: colorHex }]} />
           <View>
             <Text style={styles.colorNameTitle}>{colorName}</Text>
-            <Text style={styles.colorSubTitle}>Dynamisk Tesla-lakering</Text>
+            <Text style={styles.colorSubTitle}>Dynamisk autolakering i realtid</Text>
           </View>
         </View>
 
@@ -634,46 +754,60 @@ const styles = StyleSheet.create({
   },
   topOverlayRow: {
     position: "absolute",
-    top: 12,
-    left: 12,
-    right: 12,
+    top: 10,
+    left: 10,
+    right: 10,
     flexDirection: "row",
     justifyContent: "space-between",
     alignItems: "center",
     zIndex: 10,
     pointerEvents: "box-none",
+    gap: 8,
   },
-  modelTag: {
+  modelSelectorPills: {
     flexDirection: "row",
-    alignItems: "center",
-    gap: 7,
-    backgroundColor: "rgba(11, 26, 23, 0.8)",
-    paddingVertical: 5,
-    paddingHorizontal: 10,
-    borderRadius: 16,
+    flexWrap: "wrap",
+    gap: 5,
+    backgroundColor: "rgba(11, 26, 23, 0.85)",
+    padding: 3,
+    borderRadius: 14,
     borderWidth: 1,
     borderColor: "#1E423A",
   },
+  modelPill: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 5,
+    paddingVertical: 3,
+    paddingHorizontal: 8,
+    borderRadius: 10,
+  },
+  modelPillActive: {
+    backgroundColor: "#0B694F",
+  },
+  modelPillText: {
+    fontFamily: "DMSans_700Bold",
+    fontSize: 10,
+    color: "#8DA89F",
+  },
+  modelPillTextActive: {
+    color: "#FFFFFF",
+  },
   colorDot: {
-    width: 10,
-    height: 10,
-    borderRadius: 5,
+    width: 7,
+    height: 7,
+    borderRadius: 4,
     borderWidth: 1,
     borderColor: "rgba(255,255,255,0.4)",
-  },
-  modelTagText: {
-    fontFamily: "DMSans_700Bold",
-    fontSize: 11,
-    color: "#F8FAF8",
   },
   glassPillButton: {
     flexDirection: "row",
     alignItems: "center",
-    gap: 6,
+    gap: 5,
     backgroundColor: "rgba(11, 26, 23, 0.85)",
-    paddingVertical: 6,
-    paddingHorizontal: 11,
-    borderRadius: 16,
+    paddingVertical: 5,
+    paddingHorizontal: 9,
+    borderRadius: 14,
     borderWidth: 1,
     borderColor: "#1E423A",
   },
@@ -683,7 +817,7 @@ const styles = StyleSheet.create({
   },
   glassPillText: {
     fontFamily: "DMSans_700Bold",
-    fontSize: 11,
+    fontSize: 10,
     color: "#8DA89F",
   },
   glassPillTextActive: {
