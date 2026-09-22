@@ -5,7 +5,7 @@ import { PricePoint } from "../prices";
 import { TeslaVehicle } from "../types/app";
 import { formatDuration, formatPrice } from "../utils/formatting";
 
-const colors = { ink: "#18332F", muted: "#65736E", white: "#FFFEFA", green: "#0B694F" };
+const colors = { ink: "#3C3246", muted: "#504678", white: "#FFFFFF", primary: "#5A78FF", line: "#CBD8FF", surface: "#CBD8FF" };
 
 export function TeslaConnectionCard({ connected, vehicle, points, now, evModels, refreshing, showOnDashboard, onConnect, onRefresh, onToggleDashboard, onOpenDetails }: {
   connected: boolean;
@@ -49,7 +49,7 @@ export function TeslaConnectionCard({ connected, vehicle, points, now, evModels,
         </View>
         <View style={styles.actions}>
           <Pressable accessibilityLabel={showOnDashboard ? "Skjul Tesla fra overblik" : "Vis Tesla på overblik"} onPress={onToggleDashboard} style={[styles.visibilityButton, showOnDashboard && styles.visibilityButtonActive]}>
-            <Feather name="eye" size={15} color={showOnDashboard ? colors.green : colors.muted} />
+            <Feather name="eye" size={15} color={showOnDashboard ? colors.primary : colors.muted} />
           </Pressable>
           <View style={[styles.statusDot, connected && styles.statusDotConnected]} />
         </View>
@@ -78,18 +78,18 @@ export function TeslaConnectionCard({ connected, vehicle, points, now, evModels,
 }
 
 const styles = StyleSheet.create({
-  card: { marginTop: 18, padding: 15, borderRadius: 8, backgroundColor: "#E8F0EC", borderWidth: 1, borderColor: "#C7D9CD" },
+  card: { marginTop: 18, padding: 15, borderRadius: 16, backgroundColor: colors.surface, borderWidth: 1, borderColor: colors.line },
   header: { flexDirection: "row", alignItems: "center", gap: 11 },
   icon: { width: 40, height: 40, borderRadius: 20, alignItems: "center", justifyContent: "center", backgroundColor: colors.white },
   copy: { flex: 1 },
   title: { fontFamily: "DMSans_700Bold", fontSize: 14, color: colors.ink },
   description: { fontFamily: "DMSans_400Regular", fontSize: 11, lineHeight: 16, color: colors.muted, marginTop: 3 },
   actions: { alignItems: "center", gap: 8 },
-  visibilityButton: { width: 30, height: 30, alignItems: "center", justifyContent: "center", borderRadius: 15, backgroundColor: "rgba(255,254,250,0.7)" },
+  visibilityButton: { width: 30, height: 30, alignItems: "center", justifyContent: "center", borderRadius: 15, backgroundColor: "rgba(255,255,255,0.7)" },
   visibilityButtonActive: { backgroundColor: colors.white },
-  statusDot: { width: 9, height: 9, borderRadius: 5, backgroundColor: "#B6C0BA" },
-  statusDotConnected: { backgroundColor: colors.green },
-  stats: { flexDirection: "row", flexWrap: "wrap", gap: 8, marginTop: 15, paddingTop: 13, borderTopWidth: 1, borderTopColor: "#C7D9CD" },
+  statusDot: { width: 9, height: 9, borderRadius: 5, backgroundColor: colors.line },
+  statusDotConnected: { backgroundColor: colors.primary },
+  stats: { flexDirection: "row", flexWrap: "wrap", gap: 8, marginTop: 15, paddingTop: 13, borderTopWidth: 1, borderTopColor: colors.line },
   primaryStat: { minWidth: 92, flex: 1, paddingRight: 8 },
   stat: { minWidth: 92, flex: 1, paddingRight: 8 },
   batteryNumber: { fontFamily: "Fraunces_600SemiBold", fontSize: 28, color: colors.ink },
@@ -97,6 +97,6 @@ const styles = StyleSheet.create({
   label: { fontFamily: "DMSans_700Bold", fontSize: 8, color: colors.muted, marginTop: 3 },
   connectButton: { minHeight: 36, marginTop: 13, flexDirection: "row", alignItems: "center", justifyContent: "center", gap: 7, borderRadius: 18, backgroundColor: colors.ink },
   connectButtonText: { fontFamily: "DMSans_700Bold", fontSize: 11, color: colors.white },
-  detailsButton: { minHeight: 34, marginTop: 8, flexDirection: "row", alignItems: "center", justifyContent: "center", gap: 7, borderRadius: 17, borderWidth: 1, borderColor: "#B7C9BD", backgroundColor: "rgba(255,254,250,0.7)" },
+  detailsButton: { minHeight: 34, marginTop: 8, flexDirection: "row", alignItems: "center", justifyContent: "center", gap: 7, borderRadius: 17, borderWidth: 1, borderColor: colors.line, backgroundColor: "rgba(255,255,255,0.7)" },
   detailsButtonText: { fontFamily: "DMSans_700Bold", fontSize: 11, color: colors.ink },
 });

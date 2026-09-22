@@ -3,6 +3,10 @@ import { HouseholdDevice } from "../types/app";
 
 export const DEVICES_STORAGE_KEY = "stromblik.household-devices.v1";
 export const PROFILE_STORAGE_KEY = "stromblik.profile.v1";
+export const ELECTRICITY_PLAN_STORAGE_KEY = "stromblik.electricity-plan.v1";
+export type ElectricityPlan = { supplierId: string; supplierName: string; priceType: "spot" | "fixed"; markupOre: string; subscription: string; startDate: string };
+export async function loadElectricityPlan() { const stored = await AsyncStorage.getItem(ELECTRICITY_PLAN_STORAGE_KEY); return stored ? JSON.parse(stored) as ElectricityPlan : undefined; }
+export async function saveElectricityPlan(plan: ElectricityPlan) { await AsyncStorage.setItem(ELECTRICITY_PLAN_STORAGE_KEY, JSON.stringify(plan)); }
 
 export type StoredProfile = {
   name?: string;

@@ -20,6 +20,9 @@
     }
   ],
   "functions": {
+    "api/eloverblik/usage.mjs": {
+      "maxDuration": 60
+    },
     "api/**/*.mjs": {
       "maxDuration": 30
     }

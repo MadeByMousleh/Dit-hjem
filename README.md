@@ -19,6 +19,48 @@ Scan QR-koden med Expo Go, eller tryk `a` for Android. iOS-simulator kræver mac
 npm run typecheck
 ```
 
+## Faktisk elforbrug fra Eloverblik
+
+Appen hostes på Vercel og gemmer målerdata i Supabase PostgreSQL. Under **Mit hjem** logger brugeren ind med et Supabase-login-link. Kun eksplicit inviterede, e-mailbekræftede brugere kan læse husstandens data. Nye konti får ingen husstandsadgang automatisk.
+
+Backend kræver `SUPABASE_URL`, `SUPABASE_PUBLISHABLE_KEY`, `SUPABASE_SECRET_KEY`, `EL_OVERBLIK_TOKEN` og `EL_OVERBLIK_HOUSEHOLD_ID`. De konfigureres både lokalt i `.env` og som Vercel production environment variables. Hemmelige nøgler må aldrig have `EXPO_PUBLIC_`-præfiks. Appen henter kun Supabase URL og publishable key fra `/api/auth/config`. Både Vercel og den lokale forbrugsrute kræver et gyldigt bruger-JWT og kontrollerer medlemskab før privilegeret databaseadgang. Token-overrides fra klienten accepteres ikke.
+
+En administrator kan knytte serverens token til en husstand og invitere en bestemt e-mail:
+
+```sh
+node --env-file=.env scripts/provision-household.mjs bruger@example.com
+```
+
+Kommandoen registrerer tilknyttede forbrugsmålere og gemmer husstands-ID i lokal `.env`. Den sender ingen mail. Kør kun med en udtrykkeligt autoriseret e-mail. Ved senere invitationer bruges samme husstands-ID. For at fjerne adgang skal administratoren slette både invitationen og medlemskabet. Andre husstande kan have egne data, men serverens Eloverblik-token bruges udelukkende til den konfigurerede husstand.
+
+Målinger gemmes pr. måler, UTC-tidspunkt og opløsning. Import erstatter en periode atomisk, håndterer rettelser og fjerner udgåede målinger. Kun én opløsning indgår i en vist sum. Seneste 30 dage genkontrolleres efter en time, ældre ufuldstændige perioder efter seks timer og komplet historik efter syv dage. **Opdater** bruger denne cachepolitik; det gennemtvinger ikke et nyt upstream-kald. Ved upstream-fejl beholdes eksisterende data og vises som ikke opdateret. Manglende data er ikke nul. Dansk kalender og UTC-intervaller bevarer begge gentagne timer ved vintertid.
+
+Årsoversigten viser de fem foregående år og indeværende år, samt ældre år hvis de allerede er arkiveret. Hver upstream-forespårgsel er højst ét år. Klik på periodetitlen for at vælge år, måned eller en kalenderdato til timevisningen.
+
+Start lokal server med `npm run server`. På en fysisk telefon skal `EXPO_PUBLIC_API_URL` pege på serverens HTTPS-adresse eller computerens lokale IP. Production bør bruge samme origin og ikke en localhost-URL. Hosted Auth-redirects styres af den afgrænsede konfiguration i `supabase/hosted/supabase/config.toml`:
+
+```sh
+node --env-file=.env scripts/supabase-auth-config.mjs diff
+node --env-file=.env scripts/supabase-auth-config.mjs push
+```
+
+Standardmailen bruger et login-link. Kodefeltet kan bruges hvis en senere konfigureret mailtemplate indeholder en OTP-kode. Supabases standard-mailudbyder har leveringsbegrænsninger; brugerens mailmodtagelse skal verificeres separat. Ingen GDPR-compliance er fastslået af denne opsætning.
+
+## Database og test
+
+Schema- og RLS-ændringer skal ligge i nye versionerede migrationer. Rediger ikke allerede anvendte migrationer. CLI-migrationsadgang kræver CLI-login/link og er adskilt fra API-nøgler.
+
+```sh
+npm run db:status
+npm run db:new -- change_name
+npm run db:plan
+npm run db:migrate
+node --test --test-isolation=none scripts/test-eloverblik.mjs scripts/test-consumption.mjs
+node --env-file=.env scripts/test-consumption-live.mjs
+```
+
+Den sidste test opretter midlertidige testbrugere/husstande i den konfigurerede database og sletter kun disse efter testen. Den tester invitationer, JWT, RLS, adgang på tværs af husstande, cache, rettelser og idempotent import. Den sender ingen mail. Den eksisterende `update_page.js` har syntaksfejl, som blokerer projektets fulde typecheck.
+
 ## Varme og vand fra eForsyning
 
 Appen kan hente varme- og vandforbrug gennem den lokale proxy i `server.mjs`. Kopier `.env.example` til `.env` og udfyld brugernavn, adgangskode fra regningen samt forsynings-ID'et fra eForsyning.

@@ -2,6 +2,8 @@ import { createCipheriv, createDecipheriv, createHash, createHmac, randomBytes, 
 import { createServer } from "node:http";
 import { readFileSync } from "node:fs";
 import { extname, join, normalize } from "node:path";
+import { usageResponse } from "./src/services/household-usage.mjs";
+import { publicAuthConfig } from "./api/auth/config.mjs";
 
 const port = Number(process.env.EFORSYNING_PORT ?? 8787);
 const baseUrl = process.env.EFORSYNING_BASE_URL ?? "https://eforsyning.dk/";
@@ -499,8 +501,28 @@ function wasteHealth(municipality) {
 
 export async function handler(request, response) {
   response.setHeader("Access-Control-Allow-Origin", "*");
-  response.setHeader("Access-Control-Allow-Headers", "Content-Type");
+  response.setHeader("Access-Control-Allow-Headers", "Content-Type, Authorization");
   if (request.method === "OPTIONS") { response.writeHead(204); response.end(); return; }
+  if (request.method === "GET" && request.url === "/api/auth/config") {
+    response.writeHead(200, { "Content-Type": "application/json", "Cache-Control": "no-store" });
+    response.end(JSON.stringify(publicAuthConfig()));
+    return;
+  }
+  if (request.url === "/api/eloverblik/usage") {
+    response.setHeader("Cache-Control", "no-store");
+    if (request.method !== "POST") { response.writeHead(405, { Allow: "POST" }); response.end(); return; }
+    try {
+      const body = await readJson(request);
+      const req = new Request("http://localhost/api/eloverblik/usage", { method: "POST", headers: { authorization: request.headers.authorization ?? "" } });
+      const result = await usageResponse(req, body);
+      response.writeHead(result.status, { "Content-Type": "application/json" });
+      response.end(JSON.stringify(result.body));
+    } catch {
+      response.writeHead(400, { "Content-Type": "application/json" });
+      response.end(JSON.stringify({ error: "Invalid JSON" }));
+    }
+    return;
+  }
   if (request.method === "GET" && new URL(request.url ?? "/", `http://${request.headers.host}`).pathname === "/.well-known/appspecific/com.tesla.3p.public-key.pem") {
     try {
       const publicKey = readFileSync(teslaPublicKeyPath, "utf8");

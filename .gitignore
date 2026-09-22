@@ -3,6 +3,15 @@ node_modules/
 secrets/
 .expo/
 dist/
+dist-vault-check/
 web-build/
 *.log
 .DS_Storenode_modules
+.vercel
+supabase/.temp/
+supabase/.branches/
+.env.*
+!.env.example
+
+.vercel
+.env*

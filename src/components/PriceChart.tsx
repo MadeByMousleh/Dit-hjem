@@ -271,7 +271,7 @@ export function PriceChart({ points, now, onScrubChange }: { points: PricePoint[
 
       <View style={styles.chartToolbar}>
         <View style={styles.swipeHint}>
-          <Feather name="sliders" size={12} color={isSliding ? colors.green : colors.muted} />
+          <Feather name="sliders" size={12} color={isSliding ? colors.primary : colors.muted} />
           <Text style={[styles.chartLabel, isSliding && styles.chartLabelActive]}>
             {isSliding ? "Skubber time" : "Skub prikken for at se timepriser"}
           </Text>

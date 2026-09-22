@@ -1,0 +1,13 @@
+# Deliberately scoped: other hosted settings are left unchanged.
+project_id = "dit-hjem-auth"
+[auth]
+site_url = "https://dit-hjem-five.vercel.app"
+additional_redirect_urls = ["https://dit-hjem-five.vercel.app", "http://localhost:8081", "http://localhost:19006"]
+[auth.email]
+enable_confirmations = true
+[auth.email.template.magic_link]
+subject = "Din engangskode til Strømblik"
+content_path = "./supabase/templates/login-code.html"
+[auth.email.template.confirmation]
+subject = "Bekræft din konto i Strømblik"
+content_path = "./supabase/templates/login-code.html"

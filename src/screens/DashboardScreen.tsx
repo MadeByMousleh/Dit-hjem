@@ -1,6 +1,5 @@
 import { Feather } from "@expo/vector-icons";
 import { StatusBar } from "expo-status-bar";
-import { useState } from "react";
 import {
   ActivityIndicator,
   Pressable,
@@ -12,7 +11,6 @@ import {
   View,
 } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
-import { TeslaConnectionCard } from "../components/TeslaConnectionCard";
 import { FamilyPlanner as ExtractedFamilyPlanner } from "../components/FamilyPlanner";
 import { DevicePlanCard } from "../components/DevicePlanCard";
 import { PriceChart } from "../components/PriceChart";
@@ -25,6 +23,7 @@ import { useWasteCalendar } from "../hooks/useWasteCalendar";
 import { useQuickDevices } from "../hooks/useQuickDevices";
 import { useProfileAddress } from "../hooks/useProfileAddress";
 import { useEvModels } from "../hooks/useEvModels";
+import { useElectricityUsage } from "../hooks/useElectricityUsage";
 import { useDashboardViewState } from "../hooks/useDashboardViewState";
 import { formatPrice } from "../utils/formatting";
 import { colors, dkDay, dkTime } from "../styles/theme";
@@ -58,7 +57,7 @@ function Dashboard() {
   } = useProfileAddress({ refreshKey: activeTab, gridSuppliers, setSelectedSupplierId });
   const { devices: quickDevices, expandedId: expandedQuickId, toggleExpanded: toggleQuickExpanded, updateDevice: updateQuickDevice } = useQuickDevices(activeTab);
   const tesla = useTeslaConnection(activeTab);
-  const [showTeslaPage, setShowTeslaPage] = useState(false);
+  const electricityUsage = useElectricityUsage();
 
   const renderDeviceCard = (props: any) => <DevicePlanCard {...props} styles={styles} colors={colors} dkTime={dkTime} dkDay={dkDay} />;
 
@@ -66,16 +65,16 @@ function Dashboard() {
 
   const navigation = (
     <View style={styles.bottomNavigation}>
-      {(["dashboard", "home", "profile"] as const).map((tab) => (
+      {(["dashboard", "home", "car", "profile"] as const).map((tab) => (
         <Pressable key={tab} onPress={() => setActiveTab(tab)} style={[styles.navigationItem, activeTab === tab && styles.navigationItemActive]}>
-          <Feather name={tab === "dashboard" ? "activity" : tab === "home" ? "home" : "user"} size={17} color={activeTab === tab ? colors.green : colors.muted} />
-          <Text style={[styles.navigationText, activeTab === tab && styles.navigationTextActive]}>{tab === "dashboard" ? "Overblik" : tab === "home" ? "Mit hjem" : "Profil"}</Text>
+          <Feather name={tab === "dashboard" ? "activity" : tab === "home" ? "home" : tab === "car" ? "truck" : "user"} size={17} color={activeTab === tab ? colors.primary : colors.muted} />
+          <Text style={[styles.navigationText, activeTab === tab && styles.navigationTextActive]}>{tab === "dashboard" ? "Overblik" : tab === "home" ? "Mit hjem" : tab === "car" ? "Bil" : "Profil"}</Text>
         </Pressable>
       ))}
     </View>
   );
 
-  if (activeTab !== "dashboard") return <SecondaryTabScreen activeTab={activeTab} now={now} load={load} isMobile={isMobile} styles={styles} colors={colors} profileName={profileName} setProfileName={setProfileName} profileEmail={profileEmail} setProfileEmail={setProfileEmail} saveProfile={saveProfile} profileSaved={profileSaved} address={address} setAddress={setAddress} addressSuggestions={addressSuggestions} chooseAddress={chooseAddress} addressLookupLoading={addressLookupLoading} addressError={addressError} selectedSupplier={selectedSupplier} prices={prices} evModels={evModels} teslaConnected={tesla.connected} teslaVehicle={tesla.vehicle} teslaRefreshing={tesla.refreshing} teslaShowOnDashboard={tesla.showOnDashboard} connectTesla={tesla.connect} refreshTesla={tesla.refresh} saveTeslaVisibility={tesla.setDashboardVisibility} renderDeviceCard={renderDeviceCard} navigation={navigation} showTeslaPage={showTeslaPage} setShowTeslaPage={setShowTeslaPage} />;
+  if (activeTab !== "dashboard") return <SecondaryTabScreen activeTab={activeTab} now={now} load={load} isMobile={isMobile} styles={styles} colors={colors} profileName={profileName} setProfileName={setProfileName} profileEmail={profileEmail} setProfileEmail={setProfileEmail} saveProfile={saveProfile} profileSaved={profileSaved} address={address} setAddress={setAddress} addressSuggestions={addressSuggestions} chooseAddress={chooseAddress} addressLookupLoading={addressLookupLoading} addressError={addressError} selectedSupplier={selectedSupplier} prices={prices} evModels={evModels} teslaConnected={tesla.connected} teslaVehicle={tesla.vehicle} teslaRefreshing={tesla.refreshing} connectTesla={tesla.connect} refreshTesla={tesla.refresh} electricityUsage={electricityUsage} renderDeviceCard={renderDeviceCard} navigation={navigation} />;
 
   return (
     <SafeAreaView style={styles.safeArea} edges={["top"]}>
@@ -85,7 +84,7 @@ function Dashboard() {
         contentContainerStyle={[styles.scrollContent, styles.scrollContentGrow]}
         nestedScrollEnabled
         scrollEnabled={!chartScrubbing}
-        refreshControl={<RefreshControl refreshing={refreshing} onRefresh={() => void load(true)} tintColor={colors.green} />}
+        refreshControl={<RefreshControl refreshing={refreshing} onRefresh={() => void load(true)} tintColor={colors.primary} />}
       >
         <View style={[styles.container, isMobile && styles.containerMobile]}>
           <View style={styles.header}>
@@ -94,7 +93,7 @@ function Dashboard() {
               <Text style={styles.date}>{dkDay.format(new Date(now))}</Text>
             </View>
             <Pressable accessibilityLabel="Opdater priser" onPress={() => void load(true)} style={styles.iconButton}>
-              <Feather name="refresh-cw" size={19} color={colors.ink} />
+              <Feather name="refresh-cw" size={19} color={colors.primary} />
             </Pressable>
           </View>
           {navigation}
@@ -103,7 +102,7 @@ function Dashboard() {
 
           {isSample ? (
             <View style={styles.notice}>
-              <Feather name="wifi-off" size={16} color="#8A492F" />
+              <Feather name="wifi-off" size={16} color={colors.coral} />
               <Text style={styles.noticeText}>Offlinevisning: eksempelpriser vises</Text>
             </View>
           ) : null}
@@ -114,32 +113,14 @@ function Dashboard() {
                 <Text style={styles.eyebrow}>TIMEPRISER · OP TIL 7 DAGE</Text>
                 <Text style={styles.sectionTitle}>Prisens bevægelse</Text>
               </View>
-              {loading ? <ActivityIndicator color={colors.green} size="small" /> : <Feather name="trending-up" size={22} color={colors.coral} />}
+              {loading ? <ActivityIndicator color={colors.primary} size="small" /> : <Feather name="trending-up" size={22} color={colors.coral} />}
             </View>
             <PriceChart points={prices} now={now} onScrubChange={setChartScrubbing} />
           </View>
 
           <View style={styles.dashboardDevicesSummary}>
             <Text style={styles.pageEyebrow}>MIT HJEM</Text>
-            <Text style={styles.dashboardSummaryText}>Dine apparater og elbil ligger samlet i Mit hjem.</Text>
-            {tesla.showOnDashboard ? (
-              <TeslaConnectionCard
-                connected={tesla.connected}
-                vehicle={tesla.vehicle}
-                points={prices}
-                now={now}
-                evModels={evModels}
-                refreshing={tesla.refreshing}
-                showOnDashboard={tesla.showOnDashboard}
-                onConnect={tesla.connect}
-                onRefresh={() => void tesla.refresh()}
-                onToggleDashboard={() => tesla.setDashboardVisibility(false)}
-                onOpenDetails={() => {
-                  setActiveTab("home");
-                  setShowTeslaPage(true);
-                }}
-              />
-            ) : null}
+            <Text style={styles.dashboardSummaryText}>Dine apparater ligger samlet i Mit hjem. Bilstatus finder du under Bil.</Text>
             {quickDevices.filter((device) => device.showOnDashboard).length ? (
               <View style={styles.quickDeviceList}>
                 {quickDevices.filter((device) => device.showOnDashboard).map((device) => (
@@ -166,7 +147,7 @@ function Dashboard() {
                   <Text style={styles.eyebrow}>FORSYNING · SENESTE AFLÆSNING</Text>
                   <Text style={styles.sectionTitle}>Varme og vand</Text>
                 </View>
-                <Feather name="droplet" size={21} color={colors.green} />
+                <Feather name="droplet" size={21} color={colors.primary} />
               </View>
               <View style={styles.utilityGrid}>
                 <View style={styles.utilityValue}>
@@ -194,7 +175,7 @@ function Dashboard() {
                   <Text style={styles.eyebrow}>FORSYNING</Text>
                   <Text style={styles.sectionTitle}>Se varmeforbrug</Text>
                 </View>
-                <Feather name="lock" size={20} color={colors.green} />
+                <Feather name="lock" size={20} color={colors.primary} />
               </View>
               <Text style={styles.loginText}>Log ind med oplysningerne fra din eForsyning-regning for at se varme, vand og afkøling.</Text>
               <TextInput accessibilityLabel="Brugernummer" autoCapitalize="none" placeholder="Brugernummer" placeholderTextColor={colors.muted} value={eforsyningUsername} onChangeText={setEforsyningUsername} style={styles.loginInput} />

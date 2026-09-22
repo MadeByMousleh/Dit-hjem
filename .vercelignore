@@ -1,0 +1,7 @@
+.env
+.ENV
+.env.*
+secrets/
+update_page.js
+supabase/.temp/
+supabase/.branches/

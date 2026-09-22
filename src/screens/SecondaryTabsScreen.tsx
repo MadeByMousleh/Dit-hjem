@@ -1,18 +1,21 @@
 import { Feather } from "@expo/vector-icons";
 import { StatusBar } from "expo-status-bar";
-import { ReactNode, useEffect, useState } from "react";
+import { ReactNode } from "react";
 import { ActivityIndicator, Pressable, ScrollView, Text, TextInput, View } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
-import { TeslaConnectionCard } from "../components/TeslaConnectionCard";
 import { TeslaDetailsPage } from "../components/TeslaDetailsPage";
+import { ElectricityUsageCard } from "../components/ElectricityUsageCard";
+import { useElectricityUsage } from "../hooks/useElectricityUsage";
 import { FamilyPlanner } from "../components/FamilyPlanner";
 import { AddressSuggestion } from "../addresses";
 import { EvModel } from "../evData";
 import { GridSupplier, PricePoint } from "../prices";
 import { TeslaVehicle } from "../types/app";
+import { ElectricityPriceCard } from "../components/ElectricityPriceCard";
+import { EncryptedEnergyControls } from '../components/EncryptedEnergyControls';
 
 type SecondaryTabScreenProps = {
-  activeTab: "home" | "profile" | "dashboard";
+  activeTab: "home" | "car" | "profile" | "dashboard";
   now: number;
   load: (refresh?: boolean) => Promise<void> | void;
   isMobile: boolean;
@@ -36,14 +39,11 @@ type SecondaryTabScreenProps = {
   teslaConnected: boolean;
   teslaVehicle: TeslaVehicle | null;
   teslaRefreshing: boolean;
-  teslaShowOnDashboard: boolean;
   connectTesla: () => void;
   refreshTesla: () => Promise<void> | void;
-  saveTeslaVisibility: (value: boolean) => void;
+  electricityUsage: ReturnType<typeof useElectricityUsage>;
   renderDeviceCard: (props: any) => ReactNode;
   navigation: ReactNode;
-  showTeslaPage?: boolean;
-  setShowTeslaPage?: (show: boolean) => void;
 };
 
 export function SecondaryTabScreen(props: SecondaryTabScreenProps) {
@@ -72,21 +72,12 @@ export function SecondaryTabScreen(props: SecondaryTabScreenProps) {
     teslaConnected,
     teslaVehicle,
     teslaRefreshing,
-    teslaShowOnDashboard,
     connectTesla,
     refreshTesla,
-    saveTeslaVisibility,
+    electricityUsage,
     renderDeviceCard,
     navigation,
   } = props;
-
-  const [internalShowTeslaPage, setInternalShowTeslaPage] = useState(false);
-  const showTeslaPage = props.showTeslaPage ?? internalShowTeslaPage;
-  const setShowTeslaPage = props.setShowTeslaPage ?? setInternalShowTeslaPage;
-
-  useEffect(() => {
-    if (activeTab !== "home") setShowTeslaPage(false);
-  }, [activeTab, setShowTeslaPage]);
 
   return (
     <SafeAreaView style={styles.safeArea} edges={["top"]}>
@@ -106,51 +97,28 @@ export function SecondaryTabScreen(props: SecondaryTabScreenProps) {
           {activeTab === "home" ? (
             <>
               <Text style={styles.pageEyebrow}>MIT HJEM</Text>
-              {!showTeslaPage ? (
-                <>
-                  <Text style={styles.pageTitle}>Apparater og elbil</Text>
-                  <Text style={styles.pageIntro}>Gem dine apparater et sted. Finjuster program, temperatur, lader og batteriniveau, nar du planlaegger.</Text>
-                  <TeslaConnectionCard
-                    connected={teslaConnected}
-                    vehicle={teslaVehicle}
-                    points={prices}
-                    now={now}
-                    evModels={evModels}
-                    refreshing={teslaRefreshing}
-                    showOnDashboard={teslaShowOnDashboard}
-                    onConnect={connectTesla}
-                    onRefresh={() => void refreshTesla()}
-                    onToggleDashboard={() => saveTeslaVisibility(!teslaShowOnDashboard)}
-                    onOpenDetails={() => setShowTeslaPage(true)}
-                  />
-                  <FamilyPlanner points={prices} now={now} evModels={evModels} styles={styles} colors={colors} DeviceCard={renderDeviceCard} />
-                </>
-              ) : (
-                <>
-                  <View style={styles.sectionHeadingRow}>
-                    <View>
-                      <Text style={styles.eyebrow}>TESLA</Text>
-                      <Text style={styles.sectionTitle}>Bil og batteri</Text>
-                    </View>
-                    <Pressable onPress={() => setShowTeslaPage(false)} style={styles.iconButton}>
-                      <Feather name="arrow-left" size={18} color={colors.ink} />
-                    </Pressable>
-                  </View>
-                  <Text style={styles.pageIntro}>Overblik over model, farve, batteri, ladeforhold og bilens essentielle status.</Text>
-                  <TeslaDetailsPage
-                    vehicle={teslaVehicle}
-                    refreshing={teslaRefreshing}
-                    onRefresh={() => void refreshTesla()}
-                    connected={teslaConnected}
-                    onConnect={connectTesla}
-                    showOnDashboard={teslaShowOnDashboard}
-                    onToggleDashboard={() => saveTeslaVisibility(!teslaShowOnDashboard)}
-                    points={prices}
-                    now={now}
-                    evModels={evModels}
-                  />
-                </>
-              )}
+              <Text style={styles.pageTitle}>Mit hjem</Text>
+              <Text style={styles.pageIntro}>Se dit faktiske elforbrug og planlæg dine apparater.</Text>
+              <ElectricityUsageCard {...electricityUsage} />
+              <EncryptedEnergyControls onSync={async () => { await electricityUsage.agreements.refresh(); electricityUsage.disconnect(); await electricityUsage.loadBackground(); }} />
+              <ElectricityPriceCard key={electricityUsage.auth.householdId} householdId={electricityUsage.auth.householdId} agreements={electricityUsage.agreements} />
+              <FamilyPlanner points={prices} now={now} evModels={evModels} styles={styles} colors={colors} DeviceCard={renderDeviceCard} />
+            </>
+          ) : activeTab === "car" ? (
+            <>
+              <Text style={styles.pageEyebrow}>MIN BIL</Text>
+              <Text style={styles.pageTitle}>Tesla</Text>
+              <Text style={styles.pageIntro}>Batteri, opladning, klima og bilstatus samlet ét sted.</Text>
+              <TeslaDetailsPage
+                vehicle={teslaVehicle}
+                refreshing={teslaRefreshing}
+                onRefresh={() => void refreshTesla()}
+                connected={teslaConnected}
+                onConnect={connectTesla}
+                points={prices}
+                now={now}
+                evModels={evModels}
+              />
             </>
           ) : (
             <>
@@ -159,7 +127,7 @@ export function SecondaryTabScreen(props: SecondaryTabScreenProps) {
 
               <View style={styles.profileCard}>
                 <View style={styles.profileAvatar}>
-                  <Feather name="user" size={24} color={colors.green} />
+                  <Feather name="user" size={24} color={colors.primary} />
                 </View>
                 <TextInput
                   accessibilityLabel="Navn"
@@ -191,7 +159,7 @@ export function SecondaryTabScreen(props: SecondaryTabScreenProps) {
               <View style={styles.profileAddressCard}>
                 <View style={styles.addressSearchWrap}>
                   <View style={styles.addressIconWrap}>
-                    <Feather name="map-pin" size={16} color={colors.green} />
+                    <Feather name="map-pin" size={16} color={colors.primary} />
                   </View>
                   <TextInput
                     accessibilityLabel="Adresse"
@@ -205,7 +173,7 @@ export function SecondaryTabScreen(props: SecondaryTabScreenProps) {
 
                 {addressLookupLoading ? (
                   <View style={styles.currentSupplierRow}>
-                    <ActivityIndicator color={colors.green} size="small" />
+                    <ActivityIndicator color={colors.primary} size="small" />
                     <Text style={styles.addressSuggestionText}>Finder netselskab...</Text>
                   </View>
                 ) : null}

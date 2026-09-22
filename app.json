@@ -20,6 +20,9 @@
     },
     "web": {
       "bundler": "metro"
-    }
+    },
+    "plugins": [
+      ["expo-secure-store", { "configureAndroidBackup": true, "faceIDPermission": "Brug Face ID til at låse dine krypterede eldata op." }]
+    ]
   }
 }

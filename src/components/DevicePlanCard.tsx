@@ -61,14 +61,14 @@ export function DevicePlanCard({ device, points, now, evModels, expanded, onTogg
     <View style={styles.deviceCard}>
       <View style={styles.deviceHeader}>
         <View style={styles.deviceIdentity}>
-          <View style={styles.deviceIcon}><Feather name={device.icon} size={18} color={colors.green} /></View>
+          <View style={styles.deviceIcon}><Feather name={device.icon} size={18} color={colors.primary} /></View>
           <View>
             <Text style={styles.deviceName}>{device.name}</Text>
             <Text style={styles.deviceMeta}>{formatPrice(energyKwh, 2)} kWh · ca. {formatDuration(durationHours)}</Text>
           </View>
         </View>
         <View style={styles.deviceActions}>
-          {onToggleDashboard ? <Pressable accessibilityLabel={`${device.showOnDashboard ? "Skjul" : "Vis"} ${device.name} på overblik`} onPress={onToggleDashboard} style={[styles.deviceActionButton, device.showOnDashboard && styles.deviceActionButtonActive]}><Feather name="eye" size={16} color={device.showOnDashboard ? colors.green : colors.muted} /></Pressable> : null}
+          {onToggleDashboard ? <Pressable accessibilityLabel={`${device.showOnDashboard ? "Skjul" : "Vis"} ${device.name} på overblik`} onPress={onToggleDashboard} style={[styles.deviceActionButton, device.showOnDashboard && styles.deviceActionButtonActive]}><Feather name="eye" size={16} color={device.showOnDashboard ? colors.primary : colors.muted} /></Pressable> : null}
           <Pressable accessibilityLabel={`${expanded ? "Luk" : "Tilpas"} ${device.name}`} onPress={onToggle} style={styles.deviceActionButton}>
             <Feather name={expanded ? "chevron-up" : "sliders"} size={17} color={colors.ink} />
           </Pressable>
@@ -92,7 +92,7 @@ export function DevicePlanCard({ device, points, now, evModels, expanded, onTogg
       </View>
       {plan && endTime ? (
         <View style={styles.cheapestSuggestion}>
-          <Feather name="clock" size={14} color={colors.green} />
+          <Feather name="clock" size={14} color={colors.primary} />
           <Text style={styles.cheapestSuggestionText}>Billigst {dkDay.format(plan.cheapest.startsAt)} kl. {dkTime.format(plan.cheapest.startsAt)} · {formatPrice(plan.cheapest.cost, 2)} kr</Text>
           <Text style={styles.cheapestSaving}>Spar {formatPrice(plan.savings, 2)} kr</Text>
         </View>

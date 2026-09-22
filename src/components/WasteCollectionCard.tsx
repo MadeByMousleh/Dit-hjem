@@ -10,7 +10,7 @@ export function WasteCollectionCard({ events, error, wasteHealth, showOnDashboar
       <View style={styles.sectionHeadingRow}>
         <View><Text style={styles.pageEyebrow}>AFFALD</Text><Text style={styles.sectionTitle}>Næste afhentning</Text></View>
         <Pressable accessibilityLabel={showOnDashboard ? "Skjul næste afhentning fra overblik" : "Vis næste afhentning på overblik"} onPress={onToggleDashboard} style={[styles.deviceActionButton, showOnDashboard && styles.deviceActionButtonActive]}>
-          <Feather name="eye" size={16} color={showOnDashboard ? colors.green : colors.muted} />
+          <Feather name="eye" size={16} color={showOnDashboard ? colors.primary : colors.muted} />
         </Pressable>
       </View>
       {events.length ? events.slice(0, 3).map((event) => (
