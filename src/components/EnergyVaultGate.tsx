@@ -1,5 +1,5 @@
 import { createContext, useContext, useEffect, useState, ReactNode } from 'react';
-import { ActivityIndicator, AppState, Platform, Pressable, ScrollView, StyleSheet, Text, TextInput, View } from 'react-native';
+import { ActivityIndicator, Alert, AppState, Platform, Pressable, ScrollView, StyleSheet, Text, TextInput, View } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { EnergyVault, generateKey, recoveryKey, parseRecoveryKey } from '../services/energy-vault';
 import type { VaultHistory } from '../services/energy-vault';
@@ -38,15 +38,44 @@ function VaultSession({ householdId, userId, children }: { householdId: string; 
     vault.exists().then(value => { if (active) setExists(value); }).catch(() => { if (active) setError('Backup kunne ikke hentes. Kontrollér forbindelsen og prøv igen.'); });
     return () => { active = false; };
   }, [vault, attempt]);
+  useEffect(() => {
+    if (!exists || Platform.OS === 'web') return;
+    let active = true;
+    let attempted = false;
+    const unlock = async () => {
+      if (attempted || AppState.currentState !== 'active') return;
+      attempted = true;
+      setBusy(true);
+      try {
+        const unlocked = await vault.unlockRemembered();
+        if (active && unlocked) setReady(true);
+      } catch {
+        if (active) setError('Sikker oplåsning blev ikke gennemført. Prøv igen eller brug din gendannelsesnøgle.');
+      } finally {
+        if (active) setBusy(false);
+      }
+    };
+    void unlock();
+    const listener = AppState.addEventListener('change', state => { if (state === 'active') void unlock(); });
+    return () => { active = false; listener.remove(); };
+  }, [exists, vault]);
   useEffect(() => () => vault.close(), [vault]);
+  async function rememberPhone() {
+    if (Platform.OS === 'web') return;
+    try { await vault.remember(); }
+    catch {
+      Alert.alert('Telefonen kunne ikke huskes', 'Dine data er låst op, men nøglen kunne ikke gemmes sikkert. Kontrollér, at biometri er sat op på telefonen. Behold din gendannelsesnøgle; du skal bruge den ved næste oplåsning.');
+    }
+  }
   async function run(action: () => Promise<void>) { if (busy) return; setBusy(true); setError(''); try { await action(); } catch (cause) { setError(cause instanceof Error ? cause.message : 'Handlingen mislykkedes.'); } finally { setBusy(false); } }
   if (ready) return <Context.Provider value={vault}>{children}</Context.Provider>;
   return <SafeAreaView style={s.page}><ScrollView keyboardShouldPersistTaps="handled" contentContainerStyle={s.container}><View style={s.card}>
     <Text style={s.title}>{exists === false ? 'Beskyt dine eldata' : 'Lås dine eldata op'}</Text>
     <Text style={s.copy}>Din konto giver adgang til backup. Din personlige gendannelsesnøgle låser indholdet op — også på en ny telefon.</Text>
+    {Platform.OS !== 'web' ? <Text style={s.copy}>Denne telefon huskes automatisk med sikker nøglelagring. Næste gang bruger du biometri. Behold din gendannelsesnøgle til en ny telefon.</Text> : null}
     {exists === null ? <>{!error ? <ActivityIndicator color={colors.primary} /> : null}<Pressable style={s.secondary} onPress={() => { setError(''); setAttempt(value => value + 1); }}><Text>Prøv igen</Text></Pressable></> : exists ? <>
       <TextInput accessibilityLabel="Gendannelsesnøgle" value={input} onChangeText={setInput} secureTextEntry autoCapitalize="none" autoCorrect={false} placeholder="Indtast din gendannelsesnøgle" style={s.input} />
-      <Pressable disabled={busy || !input.trim()} style={s.button} onPress={() => void run(async () => { await vault.unlock(input); setInput(''); setReady(true); })}><Text style={s.buttonText}>Lås op og synkroniser</Text></Pressable>
+      <Pressable disabled={busy || !input.trim()} style={s.button} onPress={() => void run(async () => { await vault.unlock(input); setInput(''); await rememberPhone(); setReady(true); })}><Text style={s.buttonText}>Lås op og synkroniser</Text></Pressable>
       {Platform.OS !== 'web' ? <Pressable disabled={busy} style={s.secondary} onPress={() => void run(async () => { if (!await vault.unlockRemembered()) throw new Error('Ingen nøgle er gemt på denne telefon. Brug din gendannelsesnøgle.'); setReady(true); })}><Text>Brug telefonens sikre nøglelager</Text></Pressable> : null}
       <Pressable disabled={busy} style={s.secondary} onPress={() => void run(async () => { setSelectedVersion(null); setHistory(await vault.history()); })}><Text>Kan du ikke åbne backup? Se tidligere versioner</Text></Pressable>
       {history ? <View>
@@ -63,6 +92,7 @@ function VaultSession({ householdId, userId, children }: { householdId: string; 
           <Text style={s.copy}>Gendan version {selectedVersion} som ny aktuel backup? Ændringer efter denne version vil ikke være med i den gendannede historik. Alle gemte versioner bevares. Handlingen erstatter den aktuelle version {history.currentRevision}.</Text>
           <Pressable disabled={busy || !input.trim()} style={s.button} onPress={() => void run(async () => {
             await vault.restoreVersion(input, selectedVersion, history.currentRevision);
+            await rememberPhone();
             setInput(''); setHistory(null); setSelectedVersion(null); setReady(true);
           })}><Text style={s.buttonText}>Bekræft gendannelse af version {selectedVersion}</Text></Pressable>
         </> : null}
@@ -80,7 +110,7 @@ function VaultSession({ householdId, userId, children }: { householdId: string; 
           if (!matches) throw new Error('Nøglerne er ikke ens. Kontrollér din gemte kopi.');
           try { await vault.enroll(input); }
           catch (cause) { try { if (await vault.exists()) setExists(true); } catch {} throw cause; }
-          setGenerated(''); setInput(''); setReady(true);
+          setGenerated(''); setInput(''); await rememberPhone(); setReady(true);
         })}><Text style={s.buttonText}>Bekræft og krypter backup</Text></Pressable>
       </>}
     </>}

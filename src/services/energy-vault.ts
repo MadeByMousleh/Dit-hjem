@@ -2,7 +2,8 @@ import AsyncStorage from '@react-native-async-storage/async-storage';
 import * as Crypto from 'expo-crypto';
 import * as SecureStore from 'expo-secure-store';
 import { Platform } from 'react-native';
-import { getSupabase } from './supabase';
+import { API_URL, getSupabase, getSupabaseProjectUrl } from './supabase';
+import { MAX_WRITE_BYTES, signVaultWrite } from './vault-signing.mjs';
 import { openVault, sealVault, parseRecoveryKey, recoveryKey } from './vault-crypto.mjs';
 import type { ElectricityAgreement } from '../hooks/useElectricityAgreements';
 
@@ -45,6 +46,25 @@ export class EnergyVault {
     this.revision = row.revision;
   }
   private async cache(row: VaultRow) { try { await AsyncStorage.setItem(this.cacheName, JSON.stringify(row)); } catch { /* Cloud save remains authoritative. */ } }
+  private async saveSigned(envelope: VaultRow['envelope'], key: Uint8Array, expectedRevision: number, legacyDigest: string | null = null): Promise<VaultRow> {
+    const db = await getSupabase();
+    const { data, error } = await db.auth.getSession();
+    if (error || !data.session || data.session.user.id !== this.userId) throw new Error('Log ind igen med den rigtige konto.');
+    const projectUrl = await getSupabaseProjectUrl();
+    if (this.closed) throw new Error('Lagringen er låst.');
+    if (envelope.ciphertext.length > MAX_WRITE_BYTES - 2048) throw new Error('Backup er for stor til signeret synkronisering. Intet er ændret.');
+    const body = JSON.stringify(signVaultWrite({ projectUrl, householdId: this.householdId, userId: this.userId, expectedRevision, envelope, legacyDigest }, key));
+    const controller = new AbortController();
+    const timeout = setTimeout(() => controller.abort(), 30000);
+    try {
+      const response = await fetch(`${API_URL}/api/energy/vault`, { method: 'POST', headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${data.session.access_token}` }, body, signal: controller.signal });
+      const result = await response.json();
+      if (!response.ok) throw new Error(typeof result.error === 'string' ? result.error : 'Signeret backup kunne ikke gemmes. Synkroniser før du prøver igen.');
+      const row = result.row as VaultRow;
+      if (!row || row.household_id !== this.householdId || row.revision !== expectedRevision + 1 || row.envelope?.format !== envelope.format || row.envelope.nonce !== envelope.nonce || row.envelope.ciphertext !== envelope.ciphertext) throw new Error('Gemningen kunne ikke verificeres. Synkroniser før du prøver igen.');
+      return row;
+    } finally { clearTimeout(timeout); }
+  }
   async unlock(text: string, remember = false) {
     const key = parseRecoveryKey(text);
     try {
@@ -81,8 +101,7 @@ export class EnergyVault {
       payload.readings = payload.readings.map(row => ({ ...row, starts_at: new Date(row.starts_at).toISOString(), ends_at: new Date(row.ends_at).toISOString() }));
       const envelope = sealVault(payload, key, await Crypto.getRandomBytesAsync(24), this.householdId, 1);
       if (envelope.ciphertext.length > 64 * 1024 * 1024) throw new Error('Historikken er for stor til én backup. Intet er slettet.');
-      const result = await db.rpc('save_energy_vault', { p_household: this.householdId, p_expected: 0, p_envelope: envelope, p_legacy_digest: exported.data.digest });
-      if (result.error) throw new Error(result.error.message);
+      await this.saveSigned(envelope, key, 0, exported.data.digest);
       const verified = await this.remote();
       if (!verified) throw new Error('Backup kunne ikke verificeres. Gem din gendannelsesnøgle og prøv oplåsning.');
       this.accept(verified, key); this.key = key;
@@ -123,9 +142,7 @@ export class EnergyVault {
         const envelope = sealVault(payload, key, await Crypto.getRandomBytesAsync(24), this.householdId, expectedRevision + 1);
         if (envelope.ciphertext.length > 64 * 1024 * 1024) throw new Error('Backup er for stor. Intet er ændret.');
         if (this.closed) throw new Error('Lagringen er låst.');
-        const result = await db.rpc('save_energy_vault', { p_household: this.householdId, p_expected: expectedRevision, p_envelope: envelope });
-        if (result.error) throw new Error(result.error.message);
-        const saved = result.data?.[0] as VaultRow | undefined;
+        const saved = await this.saveSigned(envelope, key, expectedRevision);
         if (!saved || saved.household_id !== this.householdId || saved.revision !== expectedRevision + 1 || JSON.stringify(validate(openVault(saved.envelope, key, this.householdId, saved.revision))) !== JSON.stringify(payload)) throw new Error('Gendannelsen kunne ikke verificeres. Hent versionslisten igen; tidligere versioner er bevaret.');
         this.accept(saved, key);
         this.key?.fill(0); this.key = key;
@@ -143,10 +160,7 @@ export class EnergyVault {
       const envelope = sealVault(next, this.key!, await Crypto.getRandomBytesAsync(24), this.householdId, expected + 1);
       if (envelope.ciphertext.length > 64 * 1024 * 1024) throw new Error('Backup er for stor. Ændringen blev ikke gemt.');
       if (this.closed) throw new Error('Lagringen er låst.');
-      const db = await getSupabase();
-      const result = await db.rpc('save_energy_vault', { p_household: this.householdId, p_expected: expected, p_envelope: envelope });
-      if (result.error) throw new Error(result.error.message);
-      const row = result.data?.[0] as VaultRow;
+      const row = await this.saveSigned(envelope, this.key!, expected);
       this.accept(row, this.key!); await this.cache(row);
     });
     this.queue = task; return task;

@@ -1,5 +1,5 @@
-import { useCallback, useEffect, useState } from "react";
-import { createSamplePrices, fetchGridSuppliers, fetchPrices, GridSupplier, GRID_SUPPLIERS, PricePoint } from "../prices";
+import { useCallback, useEffect, useRef, useState } from "react";
+import { createSamplePrices, fetchGridSuppliers, fetchPrices, getCachedPrices, GridSupplier, GRID_SUPPLIERS, PricePoint } from "../prices";
 
 const DEFAULT_GRID_SUPPLIER: GridSupplier = { id: "n1_c", name: "N1", area: "DK1" };
 
@@ -8,24 +8,35 @@ export function useEnergyPrices() {
   const [selectedSupplierId, setSelectedSupplierId] = useState("n1_c");
   const [now, setNow] = useState(() => Date.now());
   const selectedSupplier = gridSuppliers.find((supplier) => supplier.id === selectedSupplierId) ?? DEFAULT_GRID_SUPPLIER;
-  const [prices, setPrices] = useState<PricePoint[]>(() => createSamplePrices(selectedSupplier.area));
-  const [loading, setLoading] = useState(true);
+  const [prices, setPrices] = useState<PricePoint[]>(() => getCachedPrices(selectedSupplier.area, selectedSupplier.id) ?? createSamplePrices(selectedSupplier.area));
+  const [loading, setLoading] = useState(() => !getCachedPrices(selectedSupplier.area, selectedSupplier.id));
   const [refreshing, setRefreshing] = useState(false);
-  const [isSample, setIsSample] = useState(false);
+  const [isSample, setIsSample] = useState(() => !getCachedPrices(selectedSupplier.area, selectedSupplier.id));
+  const sequence = useRef(0);
 
   const load = useCallback(async (refresh = false) => {
-    refresh ? setRefreshing(true) : setLoading(true);
+    const request = ++sequence.current;
+    const cached = getCachedPrices(selectedSupplier.area, selectedSupplier.id);
+    setPrices(cached ?? createSamplePrices(selectedSupplier.area));
+    setIsSample(!cached);
+    setRefreshing(refresh);
+    setLoading(!cached);
     try {
-      setPrices(await fetchPrices(selectedSupplier.area, selectedSupplier.id));
+      const next = await fetchPrices(selectedSupplier.area, selectedSupplier.id, refresh);
+      if (request !== sequence.current) return;
+      setPrices(next);
       setIsSample(false);
     } catch {
-      setPrices(createSamplePrices("DK1"));
-      setIsSample(true);
+      if (request !== sequence.current) return;
+      setPrices(cached ?? createSamplePrices(selectedSupplier.area));
+      setIsSample(!cached);
     } finally {
-      setLoading(false);
-      setRefreshing(false);
+      if (request === sequence.current) {
+        setLoading(false);
+        setRefreshing(false);
+      }
     }
-  }, [selectedSupplier]);
+  }, [selectedSupplier.area, selectedSupplier.id]);
 
   useEffect(() => {
     const interval = setInterval(() => setNow(Date.now()), 60_000);
@@ -34,6 +45,7 @@ export function useEnergyPrices() {
 
   useEffect(() => {
     void load();
+    return () => { sequence.current++; };
   }, [load, Math.floor(now / (15 * 60 * 1000))]);
 
   useEffect(() => {

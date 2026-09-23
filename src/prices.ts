@@ -1,3 +1,5 @@
+import AsyncStorage from '@react-native-async-storage/async-storage';
+
 export type PriceArea = "DK1" | "DK2";
 
 export type GridSupplier = {
@@ -48,6 +50,14 @@ type CompletePriceResponse = {
 
 const API_URL = "https://stromligning.dk/api/prices";
 const SUPPLIERS_API_URL = "https://stromligning.dk/api/suppliers";
+const PRICE_TTL = 15 * 60 * 1000;
+const priceCache = new Map<string, { points: PricePoint[]; fetchedAt: number }>();
+const pendingPrices = new Map<string, Promise<PricePoint[]>>();
+
+export function getCachedPrices(area: PriceArea, supplierId: string): PricePoint[] | undefined {
+  const cached = priceCache.get(`${area}:${supplierId}`);
+  return cached && Date.now() - cached.fetchedAt < PRICE_TTL ? cached.points : undefined;
+}
 
 export async function fetchGridSuppliers(): Promise<GridSupplier[]> {
   const response = await fetch(SUPPLIERS_API_URL);
@@ -61,17 +71,53 @@ export async function fetchGridSuppliers(): Promise<GridSupplier[]> {
   return [...unique.values()].sort((left, right) => left.name.localeCompare(right.name, "da"));
 }
 
-export async function fetchPrices(area: PriceArea, supplierId: string): Promise<PricePoint[]> {
+export function fetchPrices(area: PriceArea, supplierId: string, refresh = false): Promise<PricePoint[]> {
+  const key = `${area}:${supplierId}`;
+  const pending = pendingPrices.get(key);
+  if (pending) return pending;
+  const cached = getCachedPrices(area, supplierId);
+  if (!refresh && cached) return Promise.resolve(cached);
+  const request = (async () => {
+    // Public tariff data only. Never store household readings or credentials here.
+    const storageKey = `stromblik.public-prices.v1.${key}`;
+    if (!refresh) {
+      try {
+        const raw = await AsyncStorage.getItem(storageKey);
+        const stored = raw ? JSON.parse(raw) : null;
+        if (stored && Number.isFinite(stored.fetchedAt) && stored.fetchedAt <= Date.now() && Date.now() - stored.fetchedAt < PRICE_TTL && Array.isArray(stored.points) && stored.points.length) {
+          const points: PricePoint[] = stored.points.map((point: PricePoint) => ({ ...point, startsAt: new Date(point.startsAt) }));
+          if (points.every(point => Number.isFinite(point.startsAt.getTime()) && Number.isFinite(point.priceDkkMwh) && Number.isFinite(point.totalOrePerKwh) && Number.isFinite(point.gridAndTaxOrePerKwh))) {
+            priceCache.set(key, { points, fetchedAt: stored.fetchedAt });
+            return points;
+          }
+        }
+      } catch { /* Ignore invalid or unavailable public cache. */ }
+    }
+    const points = await requestPrices(area, supplierId);
+    const entry = { points, fetchedAt: Date.now() };
+    priceCache.set(key, entry);
+    void AsyncStorage.setItem(storageKey, JSON.stringify(entry)).catch(() => {});
+    return points;
+  })().finally(() => pendingPrices.delete(key));
+  pendingPrices.set(key, request);
+  return request;
+}
+
+async function requestPrices(area: PriceArea, supplierId: string): Promise<PricePoint[]> {
+  const windowStart = Math.floor(Date.now() / PRICE_TTL) * PRICE_TTL;
   const query = new URLSearchParams({
-    from: new Date(Date.now() - 24 * 60 * 60 * 1000).toISOString(),
-    to: new Date(Date.now() + 7 * 24 * 60 * 60 * 1000).toISOString(),
+    from: new Date(windowStart - 24 * 60 * 60 * 1000).toISOString(),
+    to: new Date(windowStart + 7 * 24 * 60 * 60 * 1000).toISOString(),
     supplierId,
     customerGroupId: "c",
     priceArea: area,
     forecast: "true",
   });
   const url = `${API_URL}?${query.toString()}`;
-  const response = await fetch(url);
+  const controller = new AbortController();
+  const timeout = setTimeout(() => controller.abort(), 15000);
+  try {
+  const response = await fetch(url, { signal: controller.signal });
 
   if (!response.ok) {
     throw new Error(`Prisserveren svarede med ${response.status}`);
@@ -93,6 +139,7 @@ export async function fetchPrices(area: PriceArea, supplierId: string): Promise<
   }
 
   return prices;
+  } finally { clearTimeout(timeout); }
 }
 
 export function createSamplePrices(area: PriceArea): PricePoint[] {

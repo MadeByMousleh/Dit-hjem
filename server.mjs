@@ -4,6 +4,8 @@ import { readFileSync } from "node:fs";
 import { extname, join, normalize } from "node:path";
 import { usageResponse } from "./src/services/household-usage.mjs";
 import { publicAuthConfig } from "./api/auth/config.mjs";
+import { vaultWriteResponse } from "./src/services/vault-write-server.mjs";
+import { MAX_WRITE_BYTES } from "./src/services/vault-signing.mjs";
 
 const port = Number(process.env.EFORSYNING_PORT ?? 8787);
 const baseUrl = process.env.EFORSYNING_BASE_URL ?? "https://eforsyning.dk/";
@@ -521,6 +523,23 @@ export async function handler(request, response) {
       response.writeHead(400, { "Content-Type": "application/json" });
       response.end(JSON.stringify({ error: "Invalid JSON" }));
     }
+    return;
+  }
+  if (request.url === "/api/energy/vault") {
+    response.setHeader("Cache-Control", "no-store");
+    if (request.method !== "POST") { response.writeHead(405, { Allow: "POST" }); response.end(); return; }
+    try {
+      const chunks = []; let size = 0;
+      for await (const chunk of request) {
+        size += Buffer.byteLength(chunk);
+        if (size > MAX_WRITE_BYTES) { response.writeHead(413); response.end(); return; }
+        chunks.push(Buffer.from(chunk));
+      }
+      const body = JSON.parse(Buffer.concat(chunks).toString('utf8'));
+      const req = new Request('http://localhost/api/energy/vault', { method: 'POST', headers: { authorization: request.headers.authorization ?? '' } });
+      const result = await vaultWriteResponse(req, body);
+      response.writeHead(result.status, { 'Content-Type': 'application/json' }); response.end(JSON.stringify(result.body));
+    } catch { response.writeHead(400); response.end(); }
     return;
   }
   if (request.method === "GET" && new URL(request.url ?? "/", `http://${request.headers.host}`).pathname === "/.well-known/appspecific/com.tesla.3p.public-key.pem") {

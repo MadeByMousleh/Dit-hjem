@@ -4,19 +4,26 @@ import { readFileSync } from 'node:fs';
 import vm from 'node:vm';
 import ts from 'typescript';
 import * as crypto from '../src/services/vault-crypto.mjs';
+import * as signing from '../src/services/vault-signing.mjs';
+import { vaultWriteResponse } from '../src/services/vault-write-server.mjs';
 
 // Exercise the actual TypeScript service with only its platform/I/O boundaries mocked.
 const clone = value => JSON.parse(JSON.stringify(value));
 const cache = new Map(), secure = new Map(), clouds = new Map(), uploads = [], versions = new Map();
+const writers = new Map(), signedRequests = [];
+const projectUrl = 'https://aaaaaaaaaaaaaaaaaaaa.supabase.co';
+process.env.SUPABASE_URL = projectUrl; // isolated process fixture, never .ENV
 let offline = false;
 let beforeSave;
 const db = {
+  auth: {getSession:async()=>({data:{session:{user:{id:user},access_token:'fixture-session'}},error:null})},
   from: table => {
     const filters = [];
     let columns;
     const rows = () => {
       if (offline) throw new Error('offline');
-      return [...(table === 'energy_vault_versions' ? versions : clouds).values()].filter(row => filters.every(fn => fn(row))).map(clone);
+      const source = table === 'household_members' ? [{household_id:home,user_id:user}] : [...(table === 'energy_vault_versions' ? versions : clouds).values()];
+      return source.filter(row => filters.every(fn => fn(row))).map(clone);
     };
     const query = {
       select: value => { columns = value; return query; },
@@ -33,12 +40,15 @@ const db = {
   },
   rpc: async (name, args) => {
     if (offline) throw new Error('offline');
-    if (name === 'export_energy_for_encryption') return { data: { payload: { version: 1, agreements: [], meters: [], readings: [] }, digest: 'fixture' } };
-    assert.equal(name,'save_energy_vault');
+    if (name === 'export_energy_for_encryption') return { data: { payload: { version: 1, agreements: [], meters: [], readings: [] }, digest: 'ab'.repeat(16) } };
+    assert.equal(name,'commit_signed_energy_vault');
     uploads.push(clone(args));
     if (beforeSave) { const callback = beforeSave; beforeSave = undefined; await callback(); }
     const previous = clouds.get(args.p_household);
-    if ((previous?.revision ?? 0) !== args.p_expected) return { error: { message: 'conflict' } };
+    if (previous && !writers.has(args.p_household)) return {error:{message:'legacy_write_locked'}};
+    if (writers.has(args.p_household) && writers.get(args.p_household)!==args.p_public_key) return {error:{message:'writer_key_mismatch'}};
+    if ((previous?.revision ?? 0) !== args.p_expected) return { error: { message: 'vault_revision_conflict' } };
+    writers.set(args.p_household,args.p_public_key);
     const row = { household_id: args.p_household, revision: args.p_expected+1, envelope: clone(args.p_envelope) };
     clouds.set(args.p_household,row);
     versions.set(`${args.p_household}:${row.revision}`, {...clone(row),saved_at:new Date().toISOString()});
@@ -51,12 +61,20 @@ const deps = {
   'expo-crypto': { getRandomBytesAsync: async n => new Uint8Array(randomBytes(n)) },
   'expo-secure-store': { WHEN_UNLOCKED_THIS_DEVICE_ONLY:'device-only', getItemAsync: async name => secure.get(name) ?? null, setItemAsync: async (name,value,options) => { assert.equal(options.requireAuthentication,true); assert.equal(options.keychainAccessible,'device-only'); secure.set(name,value); } },
   'react-native': { Platform: { OS:'ios' } },
-  './supabase': { getSupabase: async () => db },
+  './supabase': { getSupabase: async () => db, getSupabaseProjectUrl:async()=>projectUrl,API_URL:'https://app.example.invalid' },
   './vault-crypto.mjs': crypto,
+  './vault-signing.mjs': signing,
+};
+const mockFetch = async (url,options) => {
+  assert.equal(url,'https://app.example.invalid/api/energy/vault');
+  assert.equal(options.headers.Authorization,'Bearer fixture-session');
+  const body = JSON.parse(options.body); signedRequests.push(clone(body));
+  const result = await vaultWriteResponse(new Request(url,{method:'POST',headers:options.headers}),body,async()=>({data:{userClaims:{id:user},supabase:db,supabaseAdmin:db},error:null}));
+  return {ok:result.status===200,json:async()=>result.body};
 };
 const output = ts.transpileModule(readFileSync(new URL('../src/services/energy-vault.ts',import.meta.url),'utf8'), { compilerOptions: { module:ts.ModuleKind.CommonJS,target:ts.ScriptTarget.ES2022 } }).outputText;
 const mod = { exports:{} };
-vm.runInThisContext(`(function(require,module,exports){${output}\n})`)(name => { assert.ok(deps[name],name); return deps[name]; },mod,mod.exports);
+vm.runInThisContext(`(function(require,module,exports,fetch){${output}\n})`)(name => { assert.ok(deps[name],name); return deps[name]; },mod,mod.exports,mockFetch);
 const { EnergyVault } = mod.exports;
 const home = randomUUID(), user = randomUUID(), text = crypto.recoveryKey(new Uint8Array(randomBytes(32)));
 const phone1 = new EnergyVault(home,user);
@@ -105,7 +123,9 @@ clouds.set(home,latest);
 // Recovery from a corrupt head uses immutable ciphertext history, not a copy of
 // the old envelope under a new revision (which would fail AAD authentication).
 const previousHistory = clone([...versions.values()]);
-await db.rpc('save_energy_vault', {p_household:home,p_expected:latest.revision,p_envelope:{format:crypto.VAULT_FORMAT,nonce:'ab'.repeat(24),ciphertext:'cd'.repeat(32)}});
+// Model privileged corruption, not a login-only write (now rejected).
+const corruptRow = {household_id:home,revision:latest.revision+1,envelope:{format:crypto.VAULT_FORMAT,nonce:'ab'.repeat(24),ciphertext:'cd'.repeat(32)}};
+clouds.set(home,corruptRow); versions.set(`${home}:${corruptRow.revision}`,{...clone(corruptRow),saved_at:new Date().toISOString()});
 const recoveryPhone = new EnergyVault(home,user);
 const listed = await recoveryPhone.history();
 assert.equal(listed.currentRevision,latest.revision+1);
@@ -136,7 +156,7 @@ await freshPhone.mutate(data => data);
 await assert.rejects(recoveryPhone.restoreVersion(text,1,staleList.currentRevision),/anden enhed/);
 const raceHead = clouds.get(home).revision;
 beforeSave = async () => { await freshPhone.mutate(data => {data.meters.push({id:'concurrent',metering_point_id:'333333333333333333'});return data;}); };
-await assert.rejects(recoveryPhone.restoreVersion(text,1,raceHead),/conflict/);
+await assert.rejects(recoveryPhone.restoreVersion(text,1,raceHead),/anden enhed/);
 assert.equal(clouds.get(home).revision,raceHead+1);
 assert.equal(freshPhone.data.meters[0].id,'concurrent');
 
@@ -155,6 +175,12 @@ for (const upload of uploads) {
   assert.ok(!JSON.stringify(upload).includes(text));
   assert.ok(!JSON.stringify(upload).includes('metering_point_id'));
 }
+assert.ok(signedRequests.every(signing.verifyVaultWrite));
+assert.ok(signedRequests.every(row=>!JSON.stringify(row).includes(text)));
+const pinned = writers.get(home); writers.delete(home);
+const beforeLocked = clone(clouds.get(home));
+await assert.rejects(freshPhone.mutate(data=>data),/skrivebeskyttet/);
+assert.deepEqual(clouds.get(home),beforeLocked); writers.set(home,pinned);
 phone1.close();
 assert.throws(() => phone1.data);
 await assert.rejects(phone1.mutate(data => data));

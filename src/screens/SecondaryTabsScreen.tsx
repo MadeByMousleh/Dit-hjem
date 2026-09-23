@@ -82,7 +82,7 @@ export function SecondaryTabScreen(props: SecondaryTabScreenProps) {
   return (
     <SafeAreaView style={styles.safeArea} edges={["top"]}>
       <StatusBar style="dark" />
-      <ScrollView contentContainerStyle={styles.scrollContent}>
+      <ScrollView style={{ flex: 1 }} contentContainerStyle={styles.scrollContent}>
         <View style={[styles.container, isMobile && styles.containerMobile]}>
           <View style={styles.header}>
             <View>
@@ -197,9 +197,9 @@ export function SecondaryTabScreen(props: SecondaryTabScreenProps) {
             </>
           )}
 
-          {navigation}
         </View>
       </ScrollView>
+      {navigation}
     </SafeAreaView>
   );
 }

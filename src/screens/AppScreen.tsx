@@ -8,6 +8,8 @@ import { styles } from "../styles/appStyles";
 import { HouseholdSessionProvider, useHouseholdSession } from '../hooks/useHouseholdSession';
 import { LoginScreen } from './LoginScreen';
 import { EnergyVaultGate } from '../components/EnergyVaultGate';
+import { useEffect } from 'react';
+import { fetchPrices } from '../prices';
 
 function AuthenticatedApp() {
   const auth = useHouseholdSession();
@@ -17,6 +19,10 @@ function AuthenticatedApp() {
 }
 
 export default function AppScreen() {
+  useEffect(() => {
+    // Warm public default-area prices while fonts, Auth and vault unlock run.
+    void fetchPrices('DK1', 'n1_c').catch(() => {});
+  }, []);
   const [dmLoaded] = useDMSans({ DMSans_400Regular, DMSans_500Medium, DMSans_700Bold });
   const [frauncesLoaded] = useFraunces({ Fraunces_600SemiBold });
 

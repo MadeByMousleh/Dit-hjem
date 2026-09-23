@@ -10,11 +10,13 @@ export function formatDuration(hours: number) {
   return minutes ? `${wholeHours} t ${minutes} min` : `${wholeHours} t`;
 }
 
-export function dayKey(date: Date) {
-  return new Intl.DateTimeFormat("sv-SE", {
+const dayFormatter = new Intl.DateTimeFormat("sv-SE", {
     timeZone: "Europe/Copenhagen",
     year: "numeric",
     month: "2-digit",
     day: "2-digit",
-  }).format(date);
+  });
+
+export function dayKey(date: Date) {
+  return dayFormatter.format(date);
 }

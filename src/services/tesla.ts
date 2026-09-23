@@ -1,8 +1,5 @@
 import { TeslaVehicle } from "../types/app";
-
-const API_URL = typeof window !== "undefined" && !["localhost", "127.0.0.1", "::1", "[::1]"].includes(window.location.hostname)
-  ? ""
-  : "http://localhost:8787";
+import { API_URL } from "./supabase";
 
 export async function getTeslaStatus() {
   const response = await fetch(`${API_URL}/api/tesla/status`);

@@ -1,0 +1,32 @@
+# Agent handoff: Dit-hjem / Strømblik
+
+Read [docs/ENVIRONMENTS.md](docs/ENVIRONMENTS.md) before environment, database, auth, or deployment work. Read [supabase/ENCRYPTED-ENERGY.md](supabase/ENCRYPTED-ENERGY.md) before changing electricity storage or cryptography.
+
+## Environment safety
+
+- Development database: `dit-hjem-test`, project ref `wsdomkzhnksyjrpxqfvn`.
+- Production database: `mit-hjem`, project ref `arkpfdsglgufnnukader`.
+- `dev` is the development branch; `main` is the production code line. **Switching Git branches does not switch databases or API settings.** Automated deployment connections have not been verified.
+- The local Supabase CLI link was last verified pointing at **production**. Never assume `--linked` alone is safe. Use the explicit dev reference and commands in [supabase/DEV-TESTING.md](supabase/DEV-TESTING.md).
+- Do not use `npm run db:migrate`, `db:plan`, `db:status`, or `db:link` as a dev shortcut: the wrappers rely on the default link/environment. Do not relink production to perform development work.
+- Default to dev with synthetic data. Production migrations, auth changes, destructive cleanup and releases require explicit user approval. Never reset the production database.
+- `.ENV` / `.env` and deployed settings may contain real credentials. Do not print, commit, or copy them into docs. Do not change them merely to run database tests. Only public client configuration belongs in `EXPO_PUBLIC_*`.
+- A development API secret was shared in chat. Its rotation is **not confirmed**. Do not recover or reuse it from conversation history; ask the user to rotate privately if still outstanding. The CLI tests use the CLI account login, not that API secret.
+
+## Current handoff (2026-09-22; verify before acting)
+
+- All nine repository migrations through `202609230006_signed_energy_writes.sql` were applied to dev. Three rollback-only SQL suites passed, assertions enabled, no fixture users/households/vaults/writers/versions remained.
+- Production was not migrated during this dev setup. Do not infer production schema or deployment state from the dev result.
+- Security step **1a** provides encrypted history/recovery. **1b** adds Ed25519-signed writes through a verified server-only gateway; the old login-only RPC is revoked on dev. Code/local tests and dev DB tests pass; the backend route is NOT deployed or tested end-to-end yet. Existing unregistered vaults remain readable but write-locked; their trusted transition is NOT implemented. Read [supabase/SIGNED-WRITES.md](supabase/SIGNED-WRITES.md). Do not call the system production-ready.
+- Further work includes key/device revocation, secure session storage, cache-corruption recovery, onboarding/background behavior, native phone tests, SMTP/code-login setup, dependency remediation, and approved cleanup of legacy plaintext/server credentials.
+- Keep work step-by-step. Finish an agreed increment, report verification and remaining risks, and do not silently expand into production deployment.
+
+## Working conventions
+
+- Check `git status` and preserve existing user changes. Commit/push only when requested; do not automatically push later changes because an earlier push was requested.
+- Root `AGENTS.md` is the short entry point; keep detailed architecture and commands in the linked guides. Update handoff status after verified milestones, distinguishing local code, dev database and production deployment.
+- Load `.agents/skills/supabase-server/SKILL.md` before applicable backend auth/client changes. Do not rewrite crypto or auth protocols without reviewing their documented limitations and tests.
+- Local checks: `node scripts/test-vault-crypto.mjs`, `node scripts/test-energy-vault-client.mjs`, `node scripts/test-private-electricity.mjs`, `node scripts/test-consumption.mjs`, `node scripts/test-background-usage.mjs`.
+- Signed-write checks: `node scripts/test-vault-signing.mjs`, `node scripts/test-vault-write-server.mjs`. Next verification increment: isolated dev backend setup and deployed end-to-end signed-write test; requires private configuration with a rotated dev secret. Do not deploy to production.
+- `npx tsc --noEmit --allowJs false` is the previously passing TypeScript-only check. It is not the same as a clean full `npm run typecheck`; the existing `update_page.js` helper has known parse issues. Do not silently delete or rewrite it.
+- SQL tests, mock client tests, bundle exports and physical-device tests prove different things. Report which actually ran.

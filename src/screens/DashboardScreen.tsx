@@ -14,6 +14,7 @@ import { SafeAreaView } from "react-native-safe-area-context";
 import { FamilyPlanner as ExtractedFamilyPlanner } from "../components/FamilyPlanner";
 import { DevicePlanCard } from "../components/DevicePlanCard";
 import { PriceChart } from "../components/PriceChart";
+import { BottomTabs } from "../components/BottomTabs";
 import { WasteCollectionCard } from "../components/WasteCollectionCard";
 import { SecondaryTabScreen } from "./SecondaryTabsScreen";
 import { useTeslaConnection } from "../hooks/useTeslaConnection";
@@ -63,16 +64,7 @@ function Dashboard() {
 
   const { events: wasteEvents, error: wasteError, health: wasteHealth } = useWasteCalendar({ municipality: addressMunicipality, postcode: addressPostcode, calendarUrl: wasteCalendarUrl, address });
 
-  const navigation = (
-    <View style={styles.bottomNavigation}>
-      {(["dashboard", "home", "car", "profile"] as const).map((tab) => (
-        <Pressable key={tab} onPress={() => setActiveTab(tab)} style={[styles.navigationItem, activeTab === tab && styles.navigationItemActive]}>
-          <Feather name={tab === "dashboard" ? "activity" : tab === "home" ? "home" : tab === "car" ? "truck" : "user"} size={17} color={activeTab === tab ? colors.primary : colors.muted} />
-          <Text style={[styles.navigationText, activeTab === tab && styles.navigationTextActive]}>{tab === "dashboard" ? "Overblik" : tab === "home" ? "Mit hjem" : tab === "car" ? "Bil" : "Profil"}</Text>
-        </Pressable>
-      ))}
-    </View>
-  );
+  const navigation = <BottomTabs activeTab={activeTab} onSelect={setActiveTab} />;
 
   if (activeTab !== "dashboard") return <SecondaryTabScreen activeTab={activeTab} now={now} load={load} isMobile={isMobile} styles={styles} colors={colors} profileName={profileName} setProfileName={setProfileName} profileEmail={profileEmail} setProfileEmail={setProfileEmail} saveProfile={saveProfile} profileSaved={profileSaved} address={address} setAddress={setAddress} addressSuggestions={addressSuggestions} chooseAddress={chooseAddress} addressLookupLoading={addressLookupLoading} addressError={addressError} selectedSupplier={selectedSupplier} prices={prices} evModels={evModels} teslaConnected={tesla.connected} teslaVehicle={tesla.vehicle} teslaRefreshing={tesla.refreshing} connectTesla={tesla.connect} refreshTesla={tesla.refresh} electricityUsage={electricityUsage} renderDeviceCard={renderDeviceCard} navigation={navigation} />;
 
@@ -96,14 +88,13 @@ function Dashboard() {
               <Feather name="refresh-cw" size={19} color={colors.primary} />
             </Pressable>
           </View>
-          {navigation}
 
           <View style={styles.dashboardContext}><Text style={styles.dashboardContextLabel}>PRISER FRA</Text><Text style={styles.dashboardContextValue}>{selectedSupplier.name} · {area}</Text></View>
 
           {isSample ? (
             <View style={styles.notice}>
               <Feather name="wifi-off" size={16} color={colors.coral} />
-              <Text style={styles.noticeText}>Offlinevisning: eksempelpriser vises</Text>
+              <Text style={styles.noticeText}>{loading ? 'Henter priser: eksempelpriser vises imens' : 'Priser kunne ikke hentes: eksempelpriser vises'}</Text>
             </View>
           ) : null}
 
@@ -192,6 +183,7 @@ function Dashboard() {
 
         </View>
       </ScrollView>
+      {navigation}
     </SafeAreaView>
   );
 }
