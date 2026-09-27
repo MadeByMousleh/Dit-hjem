@@ -1,12 +1,20 @@
-export const danishDate = (date = new Date()) => new Intl.DateTimeFormat('sv-SE', { timeZone: 'Europe/Copenhagen', year: 'numeric', month: '2-digit', day: '2-digit' }).format(date);
+const dateFormatter = new Intl.DateTimeFormat('sv-SE', { timeZone: 'Europe/Copenhagen', year: 'numeric', month: '2-digit', day: '2-digit' });
+const hourFormatter = new Intl.DateTimeFormat('en-GB', { timeZone: 'Europe/Copenhagen', hour: '2-digit', hourCycle: 'h23' });
+const timestampFormatter = new Intl.DateTimeFormat('sv-SE', { timeZone: 'Europe/Copenhagen', year: 'numeric', month: '2-digit', day: '2-digit', hour: '2-digit', minute: '2-digit', second: '2-digit', hourCycle: 'h23' });
+const midnights = new Map();
+export const danishDate = (date = new Date()) => dateFormatter.format(date);
 export function midnight(date) {
+  if (midnights.has(date)) return midnights.get(date);
   const noon = new Date(date + 'T12:00:00Z');
-  const hour = Number(new Intl.DateTimeFormat('en-GB', { timeZone: 'Europe/Copenhagen', hour: '2-digit', hourCycle: 'h23' }).format(noon));
+  const hour = Number(hourFormatter.format(noon));
   // Determine the offset at midnight, which can differ from noon on DST days.
   let instant = Date.parse(date + 'T00:00:00Z') - (hour - 12) * 3600000;
-  const local = new Intl.DateTimeFormat('sv-SE', { timeZone: 'Europe/Copenhagen', year: 'numeric', month: '2-digit', day: '2-digit', hour: '2-digit', minute: '2-digit', second: '2-digit', hourCycle: 'h23' }).format(new Date(instant));
+  const local = timestampFormatter.format(new Date(instant));
   instant += Date.parse(date + 'T00:00:00Z') - Date.parse(local.replace(' ', 'T') + 'Z');
-  return new Date(instant).toISOString();
+  const result = new Date(instant).toISOString();
+  if (midnights.size >= 4096) midnights.clear();
+  midnights.set(date, result);
+  return result;
 }
 export function advance(date, resolution) {
   const d = new Date(date + 'T12:00:00Z');
@@ -40,7 +48,8 @@ export function meterReadings(payload, meterPointId, resolution) {
     if (typeof identity === 'string' && identity !== meterPointId) throw new Error('Uventet målepunkt i svaret.');
     for (const period of series.Period ?? []) {
       const actual = resolutions[period.resolution?.replace(/^PT1([DMY])$/, 'P1$1')];
-      if (actual !== resolution) throw new Error('Uventet opløsning i målerdata.');
+      const rank = { quarter: 0, hour: 1, day: 2, month: 3, year: 4 };
+      if (actual === undefined || rank[actual] > rank[resolution]) throw new Error('Uventet opløsning i målerdata.');
       const start = new Date(period.timeInterval?.start);
       if (!Number.isFinite(+start)) throw new Error('Ugyldigt tidspunkt i målerdata.');
       for (const point of period.Point ?? []) {
@@ -78,10 +87,33 @@ export function meterReadings(payload, meterPointId, resolution) {
   }
   const sorted = [...rows.values()].sort((a,b) => a.starts_at.localeCompare(b.starts_at));
   if (sorted.some((row,index)=>index>0 && sorted[index-1].ends_at>row.starts_at)) throw new Error('Overlappende målinger.');
-  return sorted;
+  const coarser = resolution === 'hour' ? 3600000 : resolution === 'quarter' ? 900000 : null;
+  const bucketFor = row => {
+    if (coarser) return new Date(Math.floor(Date.parse(row.starts_at) / coarser) * coarser).toISOString();
+    const date = danishDate(new Date(row.starts_at));
+    return midnight(resolution === 'year' ? `${date.slice(0, 4)}-01-01` : resolution === 'month' ? `${date.slice(0, 7)}-01` : date);
+  };
+  if (sorted.every(row => bucketFor(row) === row.starts_at && (coarser ? Date.parse(row.ends_at) - Date.parse(row.starts_at) === coarser : row.ends_at === midnight(advance(danishDate(new Date(row.starts_at)), resolution))))) return sorted;
+  const buckets = new Map();
+  for (const row of sorted) {
+    const start = bucketFor(row);
+    if (!buckets.has(start)) buckets.set(start, []);
+    buckets.get(start).push(row);
+  }
+  return [...buckets].map(([start, parts]) => {
+    const end = coarser ? new Date(Date.parse(start) + coarser).toISOString() : midnight(advance(danishDate(new Date(start)), resolution));
+    let covered = start, sum = 0, complete = true;
+    for (const part of parts) {
+      if (part.starts_at !== covered || part.kwh === null) complete = false;
+      if (part.kwh !== null) sum += part.kwh;
+      covered = part.ends_at;
+    }
+    return { starts_at: start, ends_at: end, kwh: complete && covered === end ? sum : null, quality: null };
+  });
 }
 
 export function aggregateReadings(rows, meters, from, to, resolution, today) {
+  const todayStart = midnight(today);
   const grouped = new Map();
   for (const row of rows) {
     const date = danishDate(new Date(row.starts_at));
@@ -91,7 +123,7 @@ export function aggregateReadings(rows, meters, from, to, resolution, today) {
     grouped.get(key).push({...row,starts_at:new Date(row.starts_at).toISOString(),ends_at:new Date(row.ends_at).toISOString()});
   }
   return expectedIntervals(from,to,resolution).map(interval=>{
-    let sum=0, present=false, incomplete=interval.ends_at>midnight(today);
+    let sum=0, present=false, incomplete=interval.ends_at>todayStart;
     for (const meter of meters) {
       const values=(grouped.get(`${meter.id}/${interval.starts_at}`)??[]).sort((a,b)=>a.starts_at.localeCompare(b.starts_at));
       let covered=interval.starts_at;

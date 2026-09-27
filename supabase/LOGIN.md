@@ -6,6 +6,28 @@ Energy readings and agreements reference an opaque household UUID. Account email
 
 ## Email delivery blocker
 
+2026-09-27 read-only verification of the deployed site's `/api/auth/config` and
+Supabase `/auth/v1/settings`: the site uses production `arkpfdsglgufnnukader`;
+`disable_signup=false`, `external.email=true`, `mailer_autoconfirm=false`.
+Signup is already enabled live. The earlier assumption that live signup was
+disabled was incorrect. Public settings do not reveal SMTP configuration or
+prove delivery. No users were created and no emails were sent during this check.
+
+Supabase's default SMTP service only delivers to project-team addresses:
+https://supabase.com/docs/guides/auth/auth-smtp . An existing Auth user alone is
+not an exemption. Confirm the error code or redacted Auth logs before assigning
+the cause; `email_address_not_authorized` indicates this recipient restriction.
+The client now distinguishes that error from disabled signup, rate limits,
+invalid email and server failures. Custom SMTP needs private sender setup and
+verified delivery for new and existing accounts; local config edits do not deploy it.
+
+Email login cannot recover the existing encryption key. The locked-vault screen
+now explains recovery through a saved key or the existing native SecureStore
+unlock action. Version recovery also requires the key. There is no email key
+escrow, destructive reset or bypass added. Email-based recovery would require
+a separately agreed recovery design and enrollment while the key is available;
+it cannot retroactively recover a key already lost on all devices.
+
 On 2026-09-21, the hosted configuration push rejected custom OTP email templates with: "Email template modification is not available for free tier projects using the default email provider. Please upgrade your plan or configure a custom SMTP provider."
 
 The app therefore retains the existing email-link flow until delivery is configured. Code verification is implemented, but do not advertise code-only login yet. For native app login without browser redirects:

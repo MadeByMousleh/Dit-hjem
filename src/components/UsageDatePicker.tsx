@@ -4,11 +4,11 @@ import { UsageAggregation } from '../services/eloverblik';
 import { colors } from '../styles/theme';
 import { usageToday } from '../utils/usagePeriods';
 
-type Props = { aggregation: UsageAggregation; anchor: string; years: number[]; onSelect: (date: string) => void; onClose: () => void };
-export function UsageDatePicker({ aggregation, anchor, years, onSelect, onClose }: Props) {
+type Props = { aggregation: UsageAggregation; anchor: string; years: number[]; maxDate?: string; onSelect: (date: string) => void; onClose: () => void };
+export function UsageDatePicker({ aggregation, anchor, years, maxDate, onSelect, onClose }: Props) {
   const [year, setYear] = useState(Number(anchor.slice(0,4)));
   const [month, setMonth] = useState(Number(anchor.slice(5,7)));
-  const today = usageToday();
+  const today = maxDate ?? usageToday();
   const prefix = `${year}-${String(month).padStart(2,'0')}`;
   const days = new Date(Date.UTC(year,month,0)).getUTCDate();
   const offset = (new Date(`${prefix}-01T12:00:00Z`).getUTCDay()+6)%7;
@@ -20,7 +20,7 @@ export function UsageDatePicker({ aggregation, anchor, years, onSelect, onClose 
     <View style={s.backdrop}><View style={s.dialog} accessibilityViewIsModal>
       <View style={s.heading}><Text style={s.title}>{aggregation === 'Hour' ? 'Vælg dato' : aggregation === 'Day' ? 'Vælg måned' : 'Vælg år'}</Text><Pressable accessibilityLabel="Luk datovælger" onPress={onClose} style={s.cell}><Text style={s.text}>Luk</Text></Pressable></View>
       <ScrollView style={{ maxHeight: 480 }}>
-        <View style={s.grid}>{years.map(value => <Pressable key={value} accessibilityRole="button" accessibilityState={{ selected: year === value }} onPress={() => { if (aggregation === 'Month') onSelect(`${value}-01-01`); else { setYear(value); if (`${value}-${String(month).padStart(2,'0')}-01` > today) setMonth(Number(today.slice(5,7))); } }} style={[s.cell, year === value && s.active]}><Text style={s.text}>{value}</Text></Pressable>)}</View>
+        <View style={s.grid}>{years.filter(value => value <= Number(today.slice(0,4))).map(value => <Pressable key={value} accessibilityRole="button" accessibilityState={{ selected: year === value }} onPress={() => { if (aggregation === 'Year' || aggregation === 'Month') onSelect(`${value}-01-01`); else { setYear(value); if (`${value}-${String(month).padStart(2,'0')}-01` > today) setMonth(Number(today.slice(5,7))); } }} style={[s.cell, year === value && s.active]}><Text style={s.text}>{value}</Text></Pressable>)}</View>
         {aggregation !== 'Month' ? <View style={s.grid}>{Array.from({length:12},(_,i)=>i+1).map(value => {
           const date = `${year}-${String(value).padStart(2,'0')}-01`;
           return <Pressable key={value} accessibilityRole="button" disabled={date > today} onPress={() => chooseMonth(value)} style={[s.month, month === value && s.active, date > today && s.disabled]}><Text style={s.text}>{new Intl.DateTimeFormat('da-DK',{month:'short',timeZone:'UTC'}).format(new Date(date+'T12:00:00Z'))}</Text></Pressable>;

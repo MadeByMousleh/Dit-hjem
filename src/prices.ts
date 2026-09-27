@@ -53,6 +53,28 @@ const SUPPLIERS_API_URL = "https://stromligning.dk/api/suppliers";
 const PRICE_TTL = 15 * 60 * 1000;
 const priceCache = new Map<string, { points: PricePoint[]; fetchedAt: number }>();
 const pendingPrices = new Map<string, Promise<PricePoint[]>>();
+const historicPrices = new Map<string, Promise<PricePoint[]>>();
+
+export function fetchHistoricalPrices(area: PriceArea, supplierId: string, from: string, to: string): Promise<PricePoint[]> {
+  const key = `${area}:${supplierId}:${from}:${to}`;
+  const pending = historicPrices.get(key);
+  if (pending) return pending;
+  const request = (async () => {
+    const storageKey = `stromblik.public-history.v1.${key}`;
+    try {
+      const raw = await AsyncStorage.getItem(storageKey);
+      const cached = raw ? JSON.parse(raw) : null;
+      if (cached && Date.now() - cached.fetchedAt < 7 * 86400000 && Array.isArray(cached.points)) {
+        return cached.points.map((point: PricePoint) => ({ ...point, startsAt: new Date(point.startsAt) }));
+      }
+    } catch { /* Fetch fresh public prices. */ }
+    const points = await requestPrices(area, supplierId, from, to, false);
+    void AsyncStorage.setItem(storageKey, JSON.stringify({ fetchedAt: Date.now(), points })).catch(() => {});
+    return points;
+  })().finally(() => historicPrices.delete(key));
+  historicPrices.set(key, request);
+  return request;
+}
 
 export function getCachedPrices(area: PriceArea, supplierId: string): PricePoint[] | undefined {
   const cached = priceCache.get(`${area}:${supplierId}`);
@@ -103,15 +125,15 @@ export function fetchPrices(area: PriceArea, supplierId: string, refresh = false
   return request;
 }
 
-async function requestPrices(area: PriceArea, supplierId: string): Promise<PricePoint[]> {
+async function requestPrices(area: PriceArea, supplierId: string, from?: string, to?: string, forecast = true): Promise<PricePoint[]> {
   const windowStart = Math.floor(Date.now() / PRICE_TTL) * PRICE_TTL;
   const query = new URLSearchParams({
-    from: new Date(windowStart - 24 * 60 * 60 * 1000).toISOString(),
-    to: new Date(windowStart + 7 * 24 * 60 * 60 * 1000).toISOString(),
+    from: from ?? new Date(windowStart - 72 * 60 * 60 * 1000).toISOString(),
+    to: to ?? new Date(windowStart + 7 * 24 * 60 * 60 * 1000).toISOString(),
     supplierId,
     customerGroupId: "c",
     priceArea: area,
-    forecast: "true",
+    forecast: String(forecast),
   });
   const url = `${API_URL}?${query.toString()}`;
   const controller = new AbortController();

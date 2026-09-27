@@ -5,6 +5,8 @@ import { PricePoint } from "../prices";
 import { dayKey, formatPrice } from "../utils/formatting";
 import { colors, dkDay, dkTime } from "../styles/theme";
 import { styles } from "../styles/appStyles";
+import { useBarScrub } from '../hooks/useBarScrub';
+import { tickSelection } from '../utils/barScrub';
 
 export function PriceChart({ points, now, onScrubChange }: { points: PricePoint[]; now: number; onScrubChange?: (isScrubbing: boolean) => void }) {
   const allHours = useMemo(() => {
@@ -88,8 +90,11 @@ export function PriceChart({ points, now, onScrubChange }: { points: PricePoint[
     scrollToBar(initialIndex, true);
   }, [chartViewportWidth, cheapestBarIndex, currentBarIndex, selectedDayIndex, showFullDay, scrollToBar]);
 
-  const selectHour = useCallback((index: number, scroll = true) => {
+  const selectHour = useCallback((index: number, scroll = true, feedback = false, initial = false) => {
+    if (!hourly.length) return;
     const next = Math.max(0, Math.min(hourly.length - 1, index));
+    if (feedback && (initial || selectedIndexRef.current !== next)) tickSelection();
+    selectedIndexRef.current = next;
     setSelectedIndex(next);
     if (scroll) {
       scrollToBar(next, false);
@@ -100,8 +105,12 @@ export function PriceChart({ points, now, onScrubChange }: { points: PricePoint[
     if (!hourly.length || sliderWidth <= 0) return;
     const xInTrack = Math.max(0, Math.min(sliderWidth, pageX - sliderTrackPageX.current));
     const nextIndex = Math.round((xInTrack + (showFullDay ? 0 : scrollXRef.current) - padding - barWidth / 2) / stride);
-    selectHour(nextIndex, false);
+    selectHour(nextIndex, false, true);
   }, [hourly.length, sliderWidth, selectHour, showFullDay, barWidth, stride]);
+
+  const barScrub = useBarScrub({ count: hourly.length, stride, inset: padding, viewportWidth: chartViewportWidth,
+    contentWidth: hourly.length * stride - gap + padding * 2, scrollRef: chartScrollRef,
+    onSelect: (index, initial) => selectHour(index, false, true, initial), onScrubChange });
 
   useEffect(() => {
     if (!isSliding || showFullDay || !sliderWidth) return;
@@ -220,6 +229,11 @@ export function PriceChart({ points, now, onScrubChange }: { points: PricePoint[
         </View>
       </View>
       <View
+        ref={barScrub.viewportRef}
+        collapsable={false}
+        {...barScrub.panHandlers}
+        onTouchEnd={barScrub.end}
+        onTouchCancel={barScrub.end}
         style={styles.barViewport}
         onLayout={(event) => {
           setChartViewportWidth(event.nativeEvent.layout.width);
@@ -228,11 +242,12 @@ export function PriceChart({ points, now, onScrubChange }: { points: PricePoint[
         <ScrollView
           ref={chartScrollRef}
           horizontal
-          scrollEnabled={!showFullDay && !isSliding}
+          scrollEnabled={!showFullDay && !isSliding && !barScrub.isScrubbing}
           showsHorizontalScrollIndicator={false}
           decelerationRate="fast"
           onScroll={(event) => {
             scrollXRef.current = event.nativeEvent.contentOffset.x;
+            barScrub.setScrollX(event.nativeEvent.contentOffset.x);
             setScrollX(event.nativeEvent.contentOffset.x);
           }}
           scrollEventThrottle={16}
@@ -247,7 +262,10 @@ export function PriceChart({ points, now, onScrubChange }: { points: PricePoint[
               <Pressable
                 key={item.startsAt.toISOString()}
                 accessibilityLabel={`${dkTime.format(item.startsAt)}, ${formatPrice(item.price, 2)} kroner per kilowatttime`}
-                onPress={() => selectHour(index)}
+                accessibilityHint="Hold og træk for at vælge andre timer"
+                delayLongPress={300}
+                onLongPress={event => barScrub.begin(index, event.nativeEvent.pageX)}
+                onPress={() => { if (!barScrub.shouldIgnorePress()) selectHour(index, true, true); }}
                 style={[
                   styles.barSlot,
                   { width: barWidth },
@@ -311,7 +329,7 @@ export function PriceChart({ points, now, onScrubChange }: { points: PricePoint[
         <View style={styles.swipeHint}>
           <Feather name="sliders" size={12} color={isSliding ? colors.primary : colors.muted} />
           <Text style={[styles.chartLabel, isSliding && styles.chartLabelActive]}>
-            {isSliding ? "Skubber time" : "Skub prikken for at se timepriser"}
+            {isSliding || barScrub.isScrubbing ? "Vælger time" : "Hold en søjle eller skub prikken"}
           </Text>
         </View>
         <Pressable accessibilityLabel={showFullDay ? "Vis større søjler" : "Vis hele dagen"} onPress={() => setShowFullDay((value) => !value)} style={styles.overviewButton}>

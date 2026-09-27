@@ -3,13 +3,13 @@
 ## Implemented
 
 - Login authorizes access to a household's ciphertext, not its decryption key.
-- A client-generated 256-bit random key encrypts electricity agreements, meters and readings with XChaCha20-Poly1305. Each save uses a fresh 192-bit random nonce. The authenticated context includes the format, household UUID and revision.
+- A client-generated 256-bit random key encrypts electricity agreements, meters, meter master data and readings with XChaCha20-Poly1305. Each save uses a fresh 192-bit random nonce. The authenticated context includes the format, household UUID and revision.
 - The recovery key is this random secret, formatted as grouped hexadecimal. It is not derived from an email code or account password and is never uploaded. Users must re-enter their saved copy before enrollment.
 - A new device logs into the same account and enters the recovery key. A native device may remember it using authenticated Expo SecureStore, restricted to that device. Web keys stay in memory. Backgrounding the app unmounts the unlocked session and clears the mutable key buffer; JS strings/garbage-collected objects cannot be guaranteed wiped.
 - The server stores an encrypted snapshot and a monotonic revision. Household membership is enforced by RLS and the write RPC. Compare-and-swap rejects stale writes. The client fetches the latest snapshot before a change; failed/offline writes are not reported as saved.
 - Local caching contains only ciphertext. Offline reads are possible when the session and encrypted cache are available; writes require the server. Cache failure does not negate a successful cloud save. This is not a general offline editing engine.
-- The native electricity path contacts Eloverblik directly. Its access token stays in memory, is not in the backup and must be supplied again after relocking/new-device setup. Web is a viewer for synced history; there is no plaintext proxy fallback.
-- Supplier history and usage calculations run client-side. Profile/device preferences, Tesla and eForsyning are outside this energy-vault change and must not be described as E2EE.
+- The native electricity path contacts Eloverblik directly. Its long-lived refresh token is stored only in that phone's native SecureStore and is not in the backup, AsyncStorage or backend; a short-lived access token stays in memory. Removing the connection or changing phones requires connecting again. Web is a viewer for synced history; there is no plaintext proxy fallback.
+- Supplier history and usage calculations run client-side. The new native Sønderborg Varme integration stores imported history in optional `heating` inside the encrypted vault; its credentials stay in native SecureStore. This local addition is not real-account/device verified; see [EFORSYNING.md](../docs/EFORSYNING.md). Profile/device preferences, Tesla and legacy eForsyning server routes remain outside this protection.
 
 ## Migration
 

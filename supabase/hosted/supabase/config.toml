@@ -3,7 +3,11 @@ project_id = "dit-hjem-auth"
 [auth]
 site_url = "https://dit-hjem-five.vercel.app"
 additional_redirect_urls = ["https://dit-hjem-five.vercel.app", "http://localhost:8081", "http://localhost:19006"]
+# Explicitly permit self-service, passwordless account creation.
+enable_signup = true
 [auth.email]
+# An unknown email supplied with shouldCreateUser must receive its confirmation.
+enable_signup = true
 enable_confirmations = true
 [auth.email.template.magic_link]
 subject = "Din engangskode til Strømblik"

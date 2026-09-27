@@ -6,12 +6,21 @@ import { API_URL, getSupabase, getSupabaseProjectUrl } from './supabase';
 import { MAX_WRITE_BYTES, signVaultWrite } from './vault-signing.mjs';
 import { openVault, sealVault, parseRecoveryKey, recoveryKey } from './vault-crypto.mjs';
 import type { ElectricityAgreement } from '../hooks/useElectricityAgreements';
+import type { HeatHistory } from './private-heating';
 
 export type VaultData = {
+  heating?: HeatHistory[];
   version: 1; agreements: ElectricityAgreement[];
-  meters: { id: string; metering_point_id: string }[];
+  meters: ElectricityMeter[];
   readings: { meter_id: string; starts_at: string; ends_at: string; kwh: number | null; resolution: string }[];
+  synced_ranges?: { meter_id: string; resolution: string; from: string; to: string; fetched_at: string }[];
 };
+export type ElectricityMeterDetails = {
+  address: string | null; meterNumber: string | null; gridOperatorName: string | null; gridArea: string | null;
+  balanceSupplierName: string | null; balanceSupplierStartDate: string | null; consumerStartDate: string | null;
+  settlementMethod: string | null; meterReadingOccurrence: string | null; taxReduction: string | null;
+};
+export type ElectricityMeter = { id: string; metering_point_id: string; details?: ElectricityMeterDetails | null; details_fetched_at?: string | null };
 type VaultRow = { household_id: string; revision: number; envelope: { format: string; nonce: string; ciphertext: string } };
 export type VaultVersion = { revision: number; saved_at: string };
 export type VaultHistory = { currentRevision: number; versions: VaultVersion[]; hasMore: boolean };

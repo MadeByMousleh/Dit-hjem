@@ -17,6 +17,18 @@ test('Danish midnight, 23-hour spring and 25-hour autumn days', () => {
   assert.equal(new Set(fall.map(r=>r.starts_at)).size,25);
   assert.equal(Date.parse(fall.at(-1).ends_at)-Date.parse(fall[0].starts_at),25*3600000);
 });
+test('quarter-hour meter replies are summed into complete hourly readings', () => {
+  const p = payload('2026-01-01', '2026-01-02', 'hour');
+  const period = p.result[0].MyEnergyData_MarketDocument.TimeSeries[0].Period[0];
+  period.resolution = 'PT15M';
+  period.Point = Array.from({ length: 96 }, (_, i) => ({ position: i + 1, 'out_Quantity.quantity': 0.25, 'out_Quantity.quality': 'A01' }));
+  const rows = meterReadings(p, meter, 'hour');
+  assert.equal(rows.length, 24);
+  assert.equal(rows[0].kwh, 1);
+  assert.equal(rows.at(-1).kwh, 1);
+  period.Point.splice(2, 1);
+  assert.equal(meterReadings(p, meter, 'hour')[0].kwh, null);
+});
 test('daily intervals retain local midnight across DST', () => {
   const rows = meterReadings(payload('2026-03-28','2026-03-31','day'),meter,'day');
   assert.equal(rows.length,3);

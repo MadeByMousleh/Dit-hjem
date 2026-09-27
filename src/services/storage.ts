@@ -19,13 +19,26 @@ export type StoredProfile = {
   teslaShowOnDashboard?: boolean;
 };
 
-export async function loadProfile() {
-  const stored = await AsyncStorage.getItem(PROFILE_STORAGE_KEY);
-  return stored ? JSON.parse(stored) as StoredProfile : undefined;
+function userProfileKey(userId: string) {
+  return `${PROFILE_STORAGE_KEY}.${userId}`;
 }
 
-export async function saveProfile(profile: StoredProfile) {
-  await AsyncStorage.setItem(PROFILE_STORAGE_KEY, JSON.stringify(profile));
+export async function loadProfile(userId?: string, accountEmail?: string) {
+  if (userId) {
+    const scoped = await AsyncStorage.getItem(userProfileKey(userId));
+    if (scoped) return JSON.parse(scoped) as StoredProfile;
+  }
+  const stored = await AsyncStorage.getItem(PROFILE_STORAGE_KEY);
+  if (!stored) return undefined;
+  const legacy = JSON.parse(stored) as StoredProfile;
+  // The old key was shared by every local login. Only adopt personal details
+  // when they can be matched to the authenticated account.
+  if (userId && (!accountEmail || legacy.email?.trim().toLowerCase() !== accountEmail.trim().toLowerCase())) return undefined;
+  return legacy;
+}
+
+export async function saveProfile(profile: StoredProfile, userId?: string) {
+  await AsyncStorage.setItem(userId ? userProfileKey(userId) : PROFILE_STORAGE_KEY, JSON.stringify(profile));
 }
 
 export async function updateProfile(changes: Partial<StoredProfile>) {

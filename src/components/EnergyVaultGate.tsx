@@ -33,6 +33,7 @@ function VaultSession({ householdId, userId, children }: { householdId: string; 
   const [attempt, setAttempt] = useState(0);
   const [history, setHistory] = useState<VaultHistory | null>(null);
   const [selectedVersion, setSelectedVersion] = useState<number | null>(null);
+  const [lostKeyHelp, setLostKeyHelp] = useState(false);
   useEffect(() => {
     let active = true;
     vault.exists().then(value => { if (active) setExists(value); }).catch(() => { if (active) setError('Backup kunne ikke hentes. Kontrollér forbindelsen og prøv igen.'); });
@@ -77,6 +78,12 @@ function VaultSession({ householdId, userId, children }: { householdId: string; 
       <TextInput accessibilityLabel="Gendannelsesnøgle" value={input} onChangeText={setInput} secureTextEntry autoCapitalize="none" autoCorrect={false} placeholder="Indtast din gendannelsesnøgle" style={s.input} />
       <Pressable disabled={busy || !input.trim()} style={s.button} onPress={() => void run(async () => { await vault.unlock(input); setInput(''); await rememberPhone(); setReady(true); })}><Text style={s.buttonText}>Lås op og synkroniser</Text></Pressable>
       {Platform.OS !== 'web' ? <Pressable disabled={busy} style={s.secondary} onPress={() => void run(async () => { if (!await vault.unlockRemembered()) throw new Error('Ingen nøgle er gemt på denne telefon. Brug din gendannelsesnøgle.'); setReady(true); })}><Text>Brug telefonens sikre nøglelager</Text></Pressable> : null}
+      <Pressable accessibilityRole="button" accessibilityState={{ expanded: lostKeyHelp }} style={s.secondary} onPress={() => setLostKeyHelp(value => !value)}><Text>Jeg har mistet min gendannelsesnøgle</Text></Pressable>
+      {lostKeyHelp ? <View>
+        <Text style={s.copy}>En e-mailkode logger dig ind på kontoen, men kan ikke genskabe krypteringsnøglen. Vi har ingen kopi af nøglen.</Text>
+        <Text style={s.copy}>Prøv en telefon, hvor du tidligere har gemt nøglen, og vælg “Brug telefonens sikre nøglelager”. Behold appen og dens data på den telefon. Se også efter din gemte nøgle i din passwordmanager eller på papir.</Text>
+        <Text style={s.copy}>Hvis hverken en gemt nøgle eller en telefon med adgang er tilbage, kan den eksisterende krypterede historik ikke gendannes. Tidligere backupversioner kræver også nøglen.</Text>
+      </View> : null}
       <Pressable disabled={busy} style={s.secondary} onPress={() => void run(async () => { setSelectedVersion(null); setHistory(await vault.history()); })}><Text>Kan du ikke åbne backup? Se tidligere versioner</Text></Pressable>
       {history ? <View>
         <Text style={s.copy}>Vælg en gemt version, hvis den seneste backup er beskadiget. Gendannelsesnøglen ovenfor er nødvendig. Tidspunkterne er serverens registreringer.</Text>

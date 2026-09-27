@@ -1,0 +1,22 @@
+import assert from 'node:assert/strict';
+import { readFileSync } from 'node:fs';
+import vm from 'node:vm';
+import ts from 'typescript';
+
+const source = readFileSync(new URL('../src/utils/energyCost.ts', import.meta.url), 'utf8');
+const output = ts.transpileModule(source, { compilerOptions: { module: ts.ModuleKind.CommonJS, target: ts.ScriptTarget.ES2022 } }).outputText;
+const module = { exports: {} };
+vm.runInThisContext(`(function(require,module,exports){${output}\n})`)(name => { throw new Error(name); }, module, module.exports);
+const { estimateEnergyCost, estimateDailyTotalCost } = module.exports;
+const fixed = [{ id: 'a', household_id: 'h', supplier_id: 'fixed', supplier_name: 'Fast strøm', price_type: 'fixed', fixed_ore: 90, markup_ore: 10, subscription_dkk: 0, date_from: '2026-01-01', date_to: null }];
+const spot = [{ ...fixed[0], id: 'b', supplier_name: 'Spot strøm', price_type: 'spot', fixed_ore: null, markup_ore: 10 }];
+const points = [{ at: '2026-09-26T10:00:00.000Z', kwh: 2 }];
+const prices = [{ startsAt: new Date('2026-09-26T10:00:00.000Z'), totalOrePerKwh: 200, gridAndTaxOrePerKwh: 50, priceDkkMwh: 0 }];
+assert.deepEqual(estimateEnergyCost(points, 'Day', fixed, prices), { ore: 200, supplierName: 'Fast strøm', hasEstimate: true, partial: false });
+assert.deepEqual(estimateEnergyCost(points, 'Hour', spot, prices), { ore: 320, supplierName: 'Spot strøm', hasEstimate: true, partial: false });
+assert.equal(estimateEnergyCost(points, 'Day', spot, prices).hasEstimate, false);
+const fullHour = [{ ...points[0], incomplete: false }];
+assert.equal(estimateDailyTotalCost(fullHour, spot, prices), 420);
+assert.equal(estimateDailyTotalCost([{ ...fullHour[0], incomplete: true }], spot, prices), null);
+assert.equal(estimateDailyTotalCost(fullHour, spot, []), null);
+console.log('PASS: fixed agreement pricing, hourly spot pricing and unavailable historical spot pricing.');

@@ -11,6 +11,7 @@ import {
   View,
 } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
+import { useState } from 'react';
 import { FamilyPlanner as ExtractedFamilyPlanner } from "../components/FamilyPlanner";
 import { DevicePlanCard } from "../components/DevicePlanCard";
 import { PriceChart } from "../components/PriceChart";
@@ -19,13 +20,13 @@ import { WasteCollectionCard } from "../components/WasteCollectionCard";
 import { SecondaryTabScreen } from "./SecondaryTabsScreen";
 import { useTeslaConnection } from "../hooks/useTeslaConnection";
 import { useEnergyPrices } from "../hooks/useEnergyPrices";
-import { useEforsyning } from "../hooks/useEforsyning";
 import { useWasteCalendar } from "../hooks/useWasteCalendar";
 import { useQuickDevices } from "../hooks/useQuickDevices";
 import { useProfileAddress } from "../hooks/useProfileAddress";
 import { useEvModels } from "../hooks/useEvModels";
 import { useElectricityUsage } from "../hooks/useElectricityUsage";
 import { useDashboardViewState } from "../hooks/useDashboardViewState";
+import { useRememberedScroll } from "../hooks/useRememberedScroll";
 import { formatPrice } from "../utils/formatting";
 import { colors, dkDay, dkTime } from "../styles/theme";
 import { styles } from "../styles/appStyles";
@@ -35,18 +36,21 @@ function Dashboard() {
   const isMobile = width < 520;
   const { gridSuppliers, selectedSupplier, setSelectedSupplierId, now, prices, loading, refreshing, isSample, load } = useEnergyPrices();
   const area = selectedSupplier.area;
-  const { data: eforsyning, username: eforsyningUsername, setUsername: setEforsyningUsername, password: eforsyningPassword, setPassword: setEforsyningPassword, supplierId: eforsyningSupplierId, setSupplierId: setEforsyningSupplierId, loading: eforsyningLoading, error: eforsyningError, login: loginToEforsyning } = useEforsyning();
-  const { activeTab, setActiveTab, chartScrubbing, setChartScrubbing } = useDashboardViewState();
+  const { activeTab, setActiveTab } = useDashboardViewState();
+  const [chartScrubbing, setChartScrubbing] = useState(false);
+  const rememberedScroll = useRememberedScroll('dashboard', activeTab === 'dashboard');
   const evModels = useEvModels();
   const {
     profileName,
     setProfileName,
     profileEmail,
-    setProfileEmail,
     profileSaved,
+    profileSaving,
+    profileError,
     saveProfile,
     address,
     setAddress,
+    addressSelected,
     addressSuggestions,
     chooseAddress,
     addressLookupLoading,
@@ -58,7 +62,7 @@ function Dashboard() {
   } = useProfileAddress({ refreshKey: activeTab, gridSuppliers, setSelectedSupplierId });
   const { devices: quickDevices, expandedId: expandedQuickId, toggleExpanded: toggleQuickExpanded, updateDevice: updateQuickDevice } = useQuickDevices(activeTab);
   const tesla = useTeslaConnection(activeTab);
-  const electricityUsage = useElectricityUsage();
+  const electricityUsage = useElectricityUsage(activeTab === 'home', now);
 
   const renderDeviceCard = (props: any) => <DevicePlanCard {...props} styles={styles} colors={colors} dkTime={dkTime} dkDay={dkDay} />;
 
@@ -66,12 +70,17 @@ function Dashboard() {
 
   const navigation = <BottomTabs activeTab={activeTab} onSelect={setActiveTab} />;
 
-  if (activeTab !== "dashboard") return <SecondaryTabScreen activeTab={activeTab} now={now} load={load} isMobile={isMobile} styles={styles} colors={colors} profileName={profileName} setProfileName={setProfileName} profileEmail={profileEmail} setProfileEmail={setProfileEmail} saveProfile={saveProfile} profileSaved={profileSaved} address={address} setAddress={setAddress} addressSuggestions={addressSuggestions} chooseAddress={chooseAddress} addressLookupLoading={addressLookupLoading} addressError={addressError} selectedSupplier={selectedSupplier} prices={prices} evModels={evModels} teslaConnected={tesla.connected} teslaVehicle={tesla.vehicle} teslaRefreshing={tesla.refreshing} connectTesla={tesla.connect} refreshTesla={tesla.refresh} electricityUsage={electricityUsage} renderDeviceCard={renderDeviceCard} navigation={navigation} />;
+  if (activeTab !== "dashboard") return <SecondaryTabScreen key={activeTab} activeTab={activeTab} now={now} load={load} isMobile={isMobile} styles={styles} colors={colors} profileName={profileName} setProfileName={setProfileName} profileEmail={profileEmail} saveProfile={saveProfile} profileSaved={profileSaved} profileSaving={profileSaving} profileError={profileError} address={address} setAddress={setAddress} addressSelected={addressSelected} addressSuggestions={addressSuggestions} chooseAddress={chooseAddress} addressLookupLoading={addressLookupLoading} addressError={addressError} selectedSupplier={selectedSupplier} prices={prices} evModels={evModels} teslaConnected={tesla.connected} teslaVehicle={tesla.vehicle} teslaRefreshing={tesla.refreshing} connectTesla={tesla.connect} refreshTesla={tesla.refresh} electricityUsage={electricityUsage} renderDeviceCard={renderDeviceCard} navigation={navigation} />;
 
   return (
     <SafeAreaView style={styles.safeArea} edges={["top"]}>
       <StatusBar style="dark" />
       <ScrollView
+        ref={rememberedScroll.scrollRef}
+        onLayout={rememberedScroll.onLayout}
+        onContentSizeChange={rememberedScroll.onContentSizeChange}
+        onScroll={rememberedScroll.onScroll}
+        scrollEventThrottle={100}
         style={styles.dashboardScroll}
         contentContainerStyle={[styles.scrollContent, styles.scrollContentGrow]}
         nestedScrollEnabled
@@ -131,55 +140,6 @@ function Dashboard() {
             <Pressable onPress={() => setActiveTab("home")} style={styles.dashboardSummaryButton}><Text style={styles.dashboardSummaryButtonText}>Åbn Mit hjem</Text><Feather name="arrow-right" size={15} color={colors.white} /></Pressable>
           </View>
 
-          {eforsyning ? (
-            <View style={styles.utilityPanel}>
-              <View style={styles.sectionHeadingRow}>
-                <View>
-                  <Text style={styles.eyebrow}>FORSYNING · SENESTE AFLÆSNING</Text>
-                  <Text style={styles.sectionTitle}>Varme og vand</Text>
-                </View>
-                <Feather name="droplet" size={21} color={colors.primary} />
-              </View>
-              <View style={styles.utilityGrid}>
-                <View style={styles.utilityValue}>
-                  <Text style={styles.utilityLabel}>VARME</Text>
-                  <Text style={styles.utilityNumber}>{eforsyning.heating.usedKwh == null ? "–" : formatPrice(eforsyning.heating.usedKwh, 1)}</Text>
-                  <Text style={styles.utilityUnit}>kWh</Text>
-                </View>
-                <View style={styles.utilityValue}>
-                  <Text style={styles.utilityLabel}>VAND</Text>
-                  <Text style={styles.utilityNumber}>{eforsyning.water.usedM3 == null ? "–" : formatPrice(eforsyning.water.usedM3, 2)}</Text>
-                  <Text style={styles.utilityUnit}>m³</Text>
-                </View>
-                <View style={styles.utilityValue}>
-                  <Text style={styles.utilityLabel}>AFKØLING</Text>
-                  <Text style={styles.utilityNumber}>{eforsyning.temperatures.coolingC == null ? "–" : formatPrice(eforsyning.temperatures.coolingC, 1)}</Text>
-                  <Text style={styles.utilityUnit}>°C</Text>
-                </View>
-              </View>
-              <Text style={styles.utilityMeta}>{eforsyning.period.from ?? ""} – {eforsyning.period.to ?? ""}</Text>
-            </View>
-          ) : (
-            <View style={styles.loginPanel}>
-              <View style={styles.sectionHeadingRow}>
-                <View style={styles.loginHeadingCopy}>
-                  <Text style={styles.eyebrow}>FORSYNING</Text>
-                  <Text style={styles.sectionTitle}>Se varmeforbrug</Text>
-                </View>
-                <Feather name="lock" size={20} color={colors.primary} />
-              </View>
-              <Text style={styles.loginText}>Log ind med oplysningerne fra din eForsyning-regning for at se varme, vand og afkøling.</Text>
-              <TextInput accessibilityLabel="Brugernummer" autoCapitalize="none" placeholder="Brugernummer" placeholderTextColor={colors.muted} value={eforsyningUsername} onChangeText={setEforsyningUsername} style={styles.loginInput} />
-              <TextInput accessibilityLabel="Adgangskode" autoCapitalize="none" placeholder="Adgangskode" placeholderTextColor={colors.muted} secureTextEntry value={eforsyningPassword} onChangeText={setEforsyningPassword} style={styles.loginInput} />
-              <TextInput accessibilityLabel="Forsynings-ID" autoCapitalize="none" placeholder="Forsynings-ID" placeholderTextColor={colors.muted} value={eforsyningSupplierId} onChangeText={setEforsyningSupplierId} style={styles.loginInput} />
-              {eforsyningError ? <Text style={styles.loginError}>{eforsyningError}</Text> : null}
-              <Pressable disabled={eforsyningLoading} onPress={() => void loginToEforsyning()} style={[styles.loginButton, eforsyningLoading && styles.loginButtonDisabled]}>
-                <Feather name={eforsyningLoading ? "loader" : "log-in"} size={16} color={colors.white} />
-                <Text style={styles.loginButtonText}>{eforsyningLoading ? "Logger ind..." : "Log ind og vis forbrug"}</Text>
-              </Pressable>
-              <Text style={styles.loginPrivacy}>Oplysningerne sendes til din lokale proxy og gemmes ikke i appen.</Text>
-            </View>
-          )}
 
         </View>
       </ScrollView>

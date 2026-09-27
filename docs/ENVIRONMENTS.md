@@ -49,7 +49,7 @@ Expo app (React Native iOS/Android; Expo web)
 - The vault encrypts locally with XChaCha20-Poly1305. The random recovery key is not sent to the server. Authenticated context includes household and revision; saves use fresh nonces and compare-and-swap revisions.
 - The version archive is populated transactionally by a database trigger. Clients can read authorized ciphertext versions, but cannot directly insert/update/delete archive rows. Recovery decrypts an old version locally and creates a freshly encrypted new revision. A privileged operator is not constrained like a client.
 - There is no complete encrypted local SQLite database: local vault persistence is an encrypted snapshot cache in AsyncStorage. The unlocked data is in memory; native remembered keys use SecureStore. Auth session tokens currently use AsyncStorage, a known remaining security issue.
-- Profiles/device preferences, Tesla and eForsyning are outside the energy-vault E2EE scope. Legacy plaintext database rows and old provider credentials require separate approved cleanup.
+- Profiles/device preferences, Tesla and legacy eForsyning server routes are outside the energy-vault E2EE scope. The new native Sønderborg Varme flow stores imported heat history in the existing encrypted snapshot and credentials only in native SecureStore; it is local, not deployed or real-account verified. See [EFORSYNING.md](EFORSYNING.md). Legacy plaintext database rows and old provider credentials require separate approved cleanup.
 
 See [ENCRYPTED-ENERGY.md](../supabase/ENCRYPTED-ENERGY.md) for exact guarantees, limits and remaining work.
 

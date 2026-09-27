@@ -1,11 +1,11 @@
 import { UsageAggregation, UsageSelection } from "../services/eloverblik";
 
-export const usageToday = () => new Intl.DateTimeFormat("sv-SE", { timeZone: "Europe/Copenhagen", year: "numeric", month: "2-digit", day: "2-digit" }).format(new Date());
+const dateFormatter = new Intl.DateTimeFormat("sv-SE", { timeZone: "Europe/Copenhagen", year: "numeric", month: "2-digit", day: "2-digit" });
+export const usageToday = (now = Date.now()) => dateFormatter.format(new Date(now));
 export function usagePeriod(aggregation: UsageAggregation, anchor: string, availableYears: number[] = []): UsageSelection {
   if (aggregation === 'Year') {
-    const year = Number(usageToday().slice(0,4));
-    const first = availableYears.length ? Math.min(...availableYears) : year - 5;
-    return { from: `${first}-01-01`, to: `${year+1}-01-01`, aggregation };
+    const year = Number(anchor.slice(0, 4));
+    return { from: `${year}-01-01`, to: `${year + 1}-01-01`, aggregation };
   }
   const date = new Date(anchor + "T12:00:00Z");
   if (aggregation === "Month") date.setUTCMonth(0, 1);

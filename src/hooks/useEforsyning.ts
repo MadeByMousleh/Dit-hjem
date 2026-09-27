@@ -1,35 +1,36 @@
-import { useState } from "react";
-import { EforsyningData } from "../types/app";
-
-const API_URL = "http://localhost:8787";
+import { useEffect, useRef, useState } from 'react';
+import { useEnergyVault } from '../components/EnergyVaultGate';
+import { syncHeating } from '../services/private-heating';
 
 export function useEforsyning() {
-  const [data, setData] = useState<EforsyningData | null>(null);
-  const [username, setUsername] = useState("");
-  const [password, setPassword] = useState("");
-  const [supplierId, setSupplierId] = useState("");
+  const vault = useEnergyVault();
+  const [histories, setHistories] = useState(vault.data.heating ?? []);
+  const [username, setUsername] = useState('');
+  const [password, setPassword] = useState('');
   const [loading, setLoading] = useState(false);
-  const [error, setError] = useState("");
-
-  const login = async () => {
-    setLoading(true);
-    setError("");
+  const [error, setError] = useState('');
+  const generation = useRef(0);
+  async function run(connect: boolean, force = false) {
+    const id = generation.current;
+    setLoading(true); setError('');
     try {
-      const response = await fetch(`${API_URL}/api/eforsyning/login`, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ username, password, supplierId }),
-      });
-      const result = await response.json() as EforsyningData & { error?: string };
-      if (!response.ok) throw new Error(result.error ?? "Login mislykkedes");
-      setData(result);
-      setPassword("");
-    } catch (loginError) {
-      setError(loginError instanceof Error ? loginError.message : "Login mislykkedes");
+      await syncHeating(vault, connect ? { username, password } : undefined, force);
+      if (id === generation.current) setHistories(vault.data.heating ?? []);
+      return true;
+    } catch (cause) {
+      if (id === generation.current) {
+        try { setHistories(vault.data.heating ?? []); } catch { /* Locked session. */ }
+        setError(cause instanceof Error ? cause.message : 'Varmeforbruget kunne ikke hentes.');
+      }
+      return false;
     } finally {
-      setLoading(false);
+      if (id === generation.current) { setLoading(false); setPassword(''); }
     }
-  };
-
-  return { data, username, setUsername, password, setPassword, supplierId, setSupplierId, loading, error, login };
+  }
+  useEffect(() => {
+    setHistories(vault.data.heating ?? []);
+    void run(false);
+    return () => { generation.current++; };
+  }, [vault]);
+  return { histories, username, setUsername, password, setPassword, loading, error, login: () => run(true), refresh: () => run(false, true) };
 }

@@ -2,6 +2,7 @@ import { createContext, createElement, ReactNode, useContext, useEffect, useRef,
 import { AppState, Platform } from 'react-native';
 import { Session } from '@supabase/supabase-js';
 import { getSupabase } from '../services/supabase';
+import { authErrorMessage } from '../utils/authError';
 type Household = { id: string; name: string };
 function useSessionState() {
   const [session, setSession] = useState<Session | null>(null);
@@ -56,7 +57,7 @@ function useSessionState() {
     })().catch(error => { if (active) setAuthError(error.message); }).finally(() => { if (active) setAuthLoading(false); });
     return () => { active = false; };
   }, [session?.user.id, reload]);
-  async function authenticate() {
+  async function authenticate(createAccount = false) {
     if (authLoading) return;
     if (!codeSent && Date.now() < retryAt) { setAuthError('Vent et minut mellem nye koder.'); return; }
     if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email.trim())) { setAuthError('Indtast en gyldig e-mail.'); return; }
@@ -65,8 +66,8 @@ function useSessionState() {
       const client = await getSupabase();
       const result = codeSent
         ? await client.auth.verifyOtp({ email: email.trim(), token: code.trim(), type: 'email' })
-        : await client.auth.signInWithOtp({ email: email.trim(), options: { shouldCreateUser: true, ...(typeof window !== 'undefined' && window.location?.origin ? { emailRedirectTo: window.location.origin } : {}) } });
-      if (result.error) throw new Error(codeSent ? 'Koden er ugyldig eller udløbet.' : 'Login-mail kunne ikke sendes. Prøv igen senere.');
+        : await client.auth.signInWithOtp({ email: email.trim(), options: { shouldCreateUser: createAccount, ...(typeof window !== 'undefined' && window.location?.origin ? { emailRedirectTo: window.location.origin } : {}) } });
+      if (result.error) throw new Error(authErrorMessage(result.error, codeSent, createAccount));
       if (!codeSent) { setCodeSent(true); setRetryAt(Date.now() + 60000); }
     } catch (error) { setAuthError(error instanceof Error ? error.message : 'Login mislykkedes.'); }
     finally { setAuthLoading(false); }
