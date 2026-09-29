@@ -4,6 +4,17 @@ Last verified: 2026-09-22. This describes repository behavior and verified datab
 
 ## Environment map
 
+### Explicit Expo startup
+
+Use `npm run start:dev` for the test database and `npm run start:prod` only for intentional production testing. Add `-- --localhost --port 8081` when using ADB reverse.
+The launcher overrides inherited `EXPO_PUBLIC_API_URL`, clears Metro's cache and verifies `/api/auth/config` matches the selected Supabase project before starting Expo.
+
+- Dev API alias: `https://dit-hjem-git-dev-mohammed-mouslehs-projects.vercel.app` (Vercel Preview).
+- Production API: `https://dit-hjem-five.vercel.app` (Vercel Production).
+- Dev Tesla redirect URI: `https://dit-hjem-git-dev-mohammed-mouslehs-projects.vercel.app/callback`. This must be registered in the Tesla developer application. Registration and authenticated device login have not been verified.
+
+Both Vercel environments are currently under the `dit-hjem` project. Keep Preview and Production environment variables separate. A deployment-specific URL can retain obsolete API behavior even after production has been updated. Local `.env` files are excluded from Vercel uploads; server configuration comes from Vercel's selected environment.
+
 | Concern | Development | Production |
 | --- | --- | --- |
 | Git branch convention | `dev` | `main` |

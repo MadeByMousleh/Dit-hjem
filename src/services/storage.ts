@@ -17,6 +17,18 @@ export type StoredProfile = {
   wasteCalendarUrl?: string;
   wasteShowOnDashboard?: boolean;
   teslaShowOnDashboard?: boolean;
+  lowPriceAlerts?: boolean;
+  highPriceAlerts?: boolean;
+  lowPriceAlertThresholdOre?: number;
+  highPriceAlertThresholdOre?: number;
+  consumptionBudgetAlerts?: boolean;
+  consumptionBudgetUnit?: "kwh" | "dkk";
+  consumptionBudgetLimit?: number;
+  chargingWindowAlerts?: boolean;
+  chargingDurationHours?: number;
+  chargingReadyByHour?: number;
+  monthlyEnergySummaryAlerts?: boolean;
+  monthlyEnergySummaryHour?: number;
 };
 
 function userProfileKey(userId: string) {

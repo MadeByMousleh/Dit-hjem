@@ -23,6 +23,10 @@ import { useEnergyPrices } from "../hooks/useEnergyPrices";
 import { useWasteCalendar } from "../hooks/useWasteCalendar";
 import { useQuickDevices } from "../hooks/useQuickDevices";
 import { useProfileAddress } from "../hooks/useProfileAddress";
+import { useLowPriceAlert } from "../hooks/useLowPriceAlert";
+import { useHighPriceAlert } from "../hooks/useHighPriceAlert";
+import { useConsumptionBudgetAlert } from "../hooks/useConsumptionBudgetAlert";
+import { useChargingWindowAlert } from "../hooks/useChargingWindowAlert";
 import { useEvModels } from "../hooks/useEvModels";
 import { useElectricityUsage } from "../hooks/useElectricityUsage";
 import { useDashboardViewState } from "../hooks/useDashboardViewState";
@@ -35,7 +39,6 @@ function Dashboard() {
   const { width } = useWindowDimensions();
   const isMobile = width < 520;
   const { gridSuppliers, selectedSupplier, setSelectedSupplierId, now, prices, loading, refreshing, isSample, load } = useEnergyPrices();
-  const area = selectedSupplier.area;
   const { activeTab, setActiveTab } = useDashboardViewState();
   const [chartScrubbing, setChartScrubbing] = useState(false);
   const rememberedScroll = useRememberedScroll('dashboard', activeTab === 'dashboard');
@@ -59,10 +62,35 @@ function Dashboard() {
     addressPostcode,
     wasteCalendarUrl,
     wasteShowOnDashboard,
+    lowPriceAlerts,
+    setLowPriceAlerts,
+    highPriceAlerts,
+    setHighPriceAlerts,
+    lowPriceAlertThresholdOre,
+    setLowPriceAlertThresholdOre,
+    highPriceAlertThresholdOre,
+    setHighPriceAlertThresholdOre,
+    consumptionBudgetAlerts,
+    setConsumptionBudgetAlerts,
+    consumptionBudgetUnit,
+    consumptionBudgetLimit,
+    setConsumptionBudget,
+    chargingWindowAlerts,
+    setChargingWindowAlerts,
+    chargingDurationHours,
+    chargingReadyByHour,
+    setChargingWindow,
+    monthlyEnergySummaryAlerts,
+    monthlyEnergySummaryHour,
+    setMonthlyEnergySummary,
   } = useProfileAddress({ refreshKey: activeTab, gridSuppliers, setSelectedSupplierId });
+  const { lowPriceAlertStatus, requestLowPriceAlertPermission } = useLowPriceAlert({ enabled: lowPriceAlerts, points: prices, samplePrices: isSample, thresholdOrePerKwh: lowPriceAlertThresholdOre });
+  const { highPriceAlertStatus, requestHighPriceAlertPermission } = useHighPriceAlert({ enabled: highPriceAlerts, points: prices, samplePrices: isSample, thresholdOrePerKwh: highPriceAlertThresholdOre });
   const { devices: quickDevices, expandedId: expandedQuickId, toggleExpanded: toggleQuickExpanded, updateDevice: updateQuickDevice } = useQuickDevices(activeTab);
   const tesla = useTeslaConnection(activeTab);
   const electricityUsage = useElectricityUsage(activeTab === 'home', now);
+  const { consumptionBudgetAlertStatus, requestConsumptionBudgetAlertPermission } = useConsumptionBudgetAlert({ enabled: consumptionBudgetAlerts, unit: consumptionBudgetUnit, limit: consumptionBudgetLimit, usage: electricityUsage.currentMonthDays, prices, now });
+  const { chargingWindowAlertStatus, requestChargingWindowAlertPermission } = useChargingWindowAlert({ enabled: chargingWindowAlerts, points: prices, samplePrices: isSample, durationHours: chargingDurationHours, readyByHour: chargingReadyByHour });
 
   const renderDeviceCard = (props: any) => <DevicePlanCard {...props} styles={styles} colors={colors} dkTime={dkTime} dkDay={dkDay} />;
 
@@ -70,7 +98,27 @@ function Dashboard() {
 
   const navigation = <BottomTabs activeTab={activeTab} onSelect={setActiveTab} />;
 
-  if (activeTab !== "dashboard") return <SecondaryTabScreen key={activeTab} activeTab={activeTab} now={now} load={load} isMobile={isMobile} styles={styles} colors={colors} profileName={profileName} setProfileName={setProfileName} profileEmail={profileEmail} saveProfile={saveProfile} profileSaved={profileSaved} profileSaving={profileSaving} profileError={profileError} address={address} setAddress={setAddress} addressSelected={addressSelected} addressSuggestions={addressSuggestions} chooseAddress={chooseAddress} addressLookupLoading={addressLookupLoading} addressError={addressError} selectedSupplier={selectedSupplier} prices={prices} evModels={evModels} teslaConnected={tesla.connected} teslaVehicle={tesla.vehicle} teslaRefreshing={tesla.refreshing} connectTesla={tesla.connect} refreshTesla={tesla.refresh} electricityUsage={electricityUsage} renderDeviceCard={renderDeviceCard} navigation={navigation} />;
+  const changeLowPriceAlerts = async (enabled: boolean) => {
+    if (enabled) await requestLowPriceAlertPermission();
+    await setLowPriceAlerts(enabled);
+  };
+  const changeHighPriceAlerts = async (enabled: boolean) => {
+    if (enabled) await requestHighPriceAlertPermission();
+    await setHighPriceAlerts(enabled);
+  };
+  const changeConsumptionBudgetAlerts = async (enabled: boolean) => {
+    if (enabled) await requestConsumptionBudgetAlertPermission();
+    await setConsumptionBudgetAlerts(enabled);
+  };
+  const changeChargingWindowAlerts = async (enabled: boolean) => {
+    if (enabled) await requestChargingWindowAlertPermission();
+    await setChargingWindowAlerts(enabled);
+  };
+  const changeMonthlyEnergySummaryAlerts = async (enabled: boolean) => {
+    await setMonthlyEnergySummary(enabled, monthlyEnergySummaryHour);
+  };
+
+  if (activeTab !== "dashboard") return <SecondaryTabScreen key={activeTab} activeTab={activeTab} now={now} isMobile={isMobile} styles={styles} colors={colors} profileName={profileName} setProfileName={setProfileName} profileEmail={profileEmail} saveProfile={saveProfile} profileSaved={profileSaved} profileSaving={profileSaving} profileError={profileError} address={address} setAddress={setAddress} addressSelected={addressSelected} addressSuggestions={addressSuggestions} chooseAddress={chooseAddress} addressLookupLoading={addressLookupLoading} addressError={addressError} selectedSupplier={selectedSupplier} lowPriceAlerts={lowPriceAlerts} setLowPriceAlerts={changeLowPriceAlerts} lowPriceAlertStatus={lowPriceAlertStatus} lowPriceAlertThresholdOre={lowPriceAlertThresholdOre} setLowPriceAlertThresholdOre={setLowPriceAlertThresholdOre} highPriceAlerts={highPriceAlerts} setHighPriceAlerts={changeHighPriceAlerts} highPriceAlertStatus={highPriceAlertStatus} highPriceAlertThresholdOre={highPriceAlertThresholdOre} setHighPriceAlertThresholdOre={setHighPriceAlertThresholdOre} consumptionBudgetAlerts={consumptionBudgetAlerts} setConsumptionBudgetAlerts={changeConsumptionBudgetAlerts} consumptionBudgetAlertStatus={consumptionBudgetAlertStatus} consumptionBudgetUnit={consumptionBudgetUnit} consumptionBudgetLimit={consumptionBudgetLimit} setConsumptionBudget={setConsumptionBudget} chargingWindowAlerts={chargingWindowAlerts} setChargingWindowAlerts={changeChargingWindowAlerts} chargingWindowAlertStatus={chargingWindowAlertStatus} chargingDurationHours={chargingDurationHours} chargingReadyByHour={chargingReadyByHour} setChargingWindow={setChargingWindow} monthlyEnergySummaryAlerts={monthlyEnergySummaryAlerts} setMonthlyEnergySummaryAlerts={changeMonthlyEnergySummaryAlerts} monthlyEnergySummaryHour={monthlyEnergySummaryHour} setMonthlyEnergySummary={setMonthlyEnergySummary} prices={prices} evModels={evModels} teslaConnected={tesla.connected} teslaVehicle={tesla.vehicle} teslaRefreshing={tesla.refreshing} teslaChargingCommandPending={tesla.chargingCommandPending} connectTesla={tesla.connect} refreshTesla={tesla.refresh} setTeslaCharging={tesla.setCharging} electricityUsage={electricityUsage} renderDeviceCard={renderDeviceCard} navigation={navigation} />;
 
   return (
     <SafeAreaView style={styles.safeArea} edges={["top"]}>
@@ -88,17 +136,7 @@ function Dashboard() {
         refreshControl={<RefreshControl refreshing={refreshing} onRefresh={() => void load(true)} tintColor={colors.primary} />}
       >
         <View style={[styles.container, isMobile && styles.containerMobile]}>
-          <View style={styles.header}>
-            <View>
-              <Text style={styles.brand}>STRØMBLIK</Text>
-              <Text style={styles.date}>{dkDay.format(new Date(now))}</Text>
-            </View>
-            <Pressable accessibilityLabel="Opdater priser" onPress={() => void load(true)} style={styles.iconButton}>
-              <Feather name="refresh-cw" size={19} color={colors.primary} />
-            </Pressable>
-          </View>
-
-          <View style={styles.dashboardContext}><Text style={styles.dashboardContextLabel}>PRISER FRA</Text><Text style={styles.dashboardContextValue}>{selectedSupplier.name} · {area}</Text></View>
+          <View style={styles.header}><Text style={styles.brand}>STRØMBLIK</Text></View>
 
           {isSample ? (
             <View style={styles.notice}>

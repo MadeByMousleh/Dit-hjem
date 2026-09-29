@@ -2,6 +2,7 @@
   "expo": {
     "name": "Strømblik",
     "slug": "stromblik",
+    "scheme": "stromblik",
     "version": "1.0.0",
     "orientation": "default",
     "userInterfaceStyle": "light",
@@ -22,6 +23,7 @@
       "bundler": "metro"
     },
     "plugins": [
+      "expo-notifications",
       ["expo-secure-store", { "configureAndroidBackup": true, "faceIDPermission": "Brug Face ID til at låse dine krypterede eldata op." }]
     ]
   }

@@ -12,6 +12,7 @@ import { EnergyVaultGate } from '../components/EnergyVaultGate';
 import { type ReactNode, useEffect, useRef, useState } from 'react';
 import { fetchPrices } from '../prices';
 import { DashboardViewStateProvider } from '../hooks/useDashboardViewState';
+import { configureLowPriceAlertPresentation } from '../services/low-price-alert';
 
 function PersistedViewState({ children }: { children: ReactNode }) {
   const auth = useHouseholdSession();
@@ -34,6 +35,7 @@ export default function AppScreen() {
   useEffect(() => {
     // Warm public default-area prices while fonts, Auth and vault unlock run.
     void fetchPrices('DK1', 'n1_c').catch(() => {});
+    void configureLowPriceAlertPresentation();
   }, []);
   useEffect(() => {
     let active = true;

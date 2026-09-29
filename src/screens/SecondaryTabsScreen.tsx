@@ -1,4 +1,3 @@
-import { Feather } from "@expo/vector-icons";
 import { StatusBar } from "expo-status-bar";
 import { ReactNode } from "react";
 import { Pressable, ScrollView, Text, View } from "react-native";
@@ -17,11 +16,15 @@ import { MonthlyUsageCard } from "../components/MonthlyUsageCard";
 import { HeatingPage } from '../components/HeatingPage';
 import { ProfilePage } from '../components/ProfilePage';
 import { useRememberedScroll } from '../hooks/useRememberedScroll';
+import type { LowPriceAlertStatus } from '../hooks/useLowPriceAlert';
+import type { HighPriceAlertStatus } from '../hooks/useHighPriceAlert';
+import type { ConsumptionBudgetAlertStatus } from '../hooks/useConsumptionBudgetAlert';
+import type { ChargingWindowAlertStatus } from '../hooks/useChargingWindowAlert';
+import type { ConsumptionBudgetUnit } from '../services/low-price-alert';
 
 type SecondaryTabScreenProps = {
   activeTab: "home" | "utilities" | "car" | "profile";
   now: number;
-  load: (refresh?: boolean) => Promise<void> | void;
   isMobile: boolean;
   styles: any;
   colors: any;
@@ -40,13 +43,41 @@ type SecondaryTabScreenProps = {
   addressLookupLoading: boolean;
   addressError: string;
   selectedSupplier: GridSupplier;
+  lowPriceAlerts: boolean;
+  setLowPriceAlerts: (enabled: boolean) => Promise<void> | void;
+  lowPriceAlertStatus: LowPriceAlertStatus;
+  lowPriceAlertThresholdOre: number;
+  setLowPriceAlertThresholdOre: (value: number) => Promise<void> | void;
+  highPriceAlerts: boolean;
+  setHighPriceAlerts: (enabled: boolean) => Promise<void> | void;
+  highPriceAlertStatus: HighPriceAlertStatus;
+  highPriceAlertThresholdOre: number;
+  setHighPriceAlertThresholdOre: (value: number) => Promise<void> | void;
+  consumptionBudgetAlerts: boolean;
+  setConsumptionBudgetAlerts: (enabled: boolean) => Promise<void> | void;
+  consumptionBudgetAlertStatus: ConsumptionBudgetAlertStatus;
+  consumptionBudgetUnit: ConsumptionBudgetUnit;
+  consumptionBudgetLimit: number;
+  setConsumptionBudget: (unit: ConsumptionBudgetUnit, limit: number) => Promise<void> | void;
+  chargingWindowAlerts: boolean;
+  setChargingWindowAlerts: (enabled: boolean) => Promise<void> | void;
+  chargingWindowAlertStatus: ChargingWindowAlertStatus;
+  chargingDurationHours: number;
+  chargingReadyByHour: number;
+  setChargingWindow: (durationHours: number, readyByHour: number) => Promise<void> | void;
+  monthlyEnergySummaryAlerts: boolean;
+  setMonthlyEnergySummaryAlerts: (enabled: boolean) => Promise<void> | void;
+  monthlyEnergySummaryHour: number;
+  setMonthlyEnergySummary: (enabled: boolean, hour: number) => Promise<void> | void;
   prices: PricePoint[];
   evModels: EvModel[];
   teslaConnected: boolean;
   teslaVehicle: TeslaVehicle | null;
   teslaRefreshing: boolean;
+  teslaChargingCommandPending: boolean;
   connectTesla: () => void;
   refreshTesla: () => Promise<void> | void;
+  setTeslaCharging: (action: 'start' | 'stop') => Promise<void> | void;
   electricityUsage: ReturnType<typeof useElectricityUsage>;
   renderDeviceCard: (props: any) => ReactNode;
   navigation: ReactNode;
@@ -57,7 +88,6 @@ export function SecondaryTabScreen(props: SecondaryTabScreenProps) {
   const {
     activeTab,
     now,
-    load,
     isMobile,
     styles,
     colors,
@@ -76,13 +106,41 @@ export function SecondaryTabScreen(props: SecondaryTabScreenProps) {
     addressLookupLoading,
     addressError,
     selectedSupplier,
+    lowPriceAlerts,
+    setLowPriceAlerts,
+    lowPriceAlertStatus,
+    lowPriceAlertThresholdOre,
+    setLowPriceAlertThresholdOre,
+    highPriceAlerts,
+    setHighPriceAlerts,
+    highPriceAlertStatus,
+    highPriceAlertThresholdOre,
+    setHighPriceAlertThresholdOre,
+    consumptionBudgetAlerts,
+    setConsumptionBudgetAlerts,
+    consumptionBudgetAlertStatus,
+    consumptionBudgetUnit,
+    consumptionBudgetLimit,
+    setConsumptionBudget,
+    chargingWindowAlerts,
+    setChargingWindowAlerts,
+    chargingWindowAlertStatus,
+    chargingDurationHours,
+    chargingReadyByHour,
+    setChargingWindow,
+    monthlyEnergySummaryAlerts,
+    setMonthlyEnergySummaryAlerts,
+    monthlyEnergySummaryHour,
+    setMonthlyEnergySummary,
     prices,
     evModels,
     teslaConnected,
     teslaVehicle,
     teslaRefreshing,
+    teslaChargingCommandPending,
     connectTesla,
     refreshTesla,
+    setTeslaCharging,
     electricityUsage,
     renderDeviceCard,
     navigation,
@@ -92,28 +150,25 @@ export function SecondaryTabScreen(props: SecondaryTabScreenProps) {
     profileSaved={profileSaved} profileSaving={profileSaving} profileError={profileError} saveProfile={saveProfile}
     address={address} setAddress={setAddress} addressSelected={addressSelected} addressSuggestions={addressSuggestions}
     chooseAddress={chooseAddress} addressLookupLoading={addressLookupLoading} addressError={addressError}
-    selectedSupplier={selectedSupplier} navigation={navigation} />;
+    selectedSupplier={selectedSupplier} lowPriceAlerts={lowPriceAlerts} setLowPriceAlerts={setLowPriceAlerts}
+    lowPriceAlertStatus={lowPriceAlertStatus} lowPriceAlertThresholdOre={lowPriceAlertThresholdOre} setLowPriceAlertThresholdOre={setLowPriceAlertThresholdOre}
+    highPriceAlerts={highPriceAlerts} setHighPriceAlerts={setHighPriceAlerts} highPriceAlertStatus={highPriceAlertStatus}
+    highPriceAlertThresholdOre={highPriceAlertThresholdOre} setHighPriceAlertThresholdOre={setHighPriceAlertThresholdOre}
+    consumptionBudgetAlerts={consumptionBudgetAlerts} setConsumptionBudgetAlerts={setConsumptionBudgetAlerts} consumptionBudgetAlertStatus={consumptionBudgetAlertStatus}
+    consumptionBudgetUnit={consumptionBudgetUnit} consumptionBudgetLimit={consumptionBudgetLimit} setConsumptionBudget={setConsumptionBudget}
+    chargingWindowAlerts={chargingWindowAlerts} setChargingWindowAlerts={setChargingWindowAlerts} chargingWindowAlertStatus={chargingWindowAlertStatus}
+    chargingDurationHours={chargingDurationHours} chargingReadyByHour={chargingReadyByHour} setChargingWindow={setChargingWindow}
+    monthlyEnergySummaryAlerts={monthlyEnergySummaryAlerts} setMonthlyEnergySummaryAlerts={setMonthlyEnergySummaryAlerts} monthlyEnergySummaryHour={monthlyEnergySummaryHour} setMonthlyEnergySummary={setMonthlyEnergySummary} navigation={navigation} />;
 
   return (
     <SafeAreaView style={styles.safeArea} edges={["top"]}>
       <StatusBar style="dark" />
       <ScrollView ref={rememberedScroll.scrollRef} onLayout={rememberedScroll.onLayout} onContentSizeChange={rememberedScroll.onContentSizeChange} onScroll={rememberedScroll.onScroll} scrollEventThrottle={100} style={{ flex: 1 }} contentContainerStyle={styles.scrollContent}>
         <View style={[styles.container, isMobile && styles.containerMobile]}>
-          <View style={styles.header}>
-            <View>
-              <Text style={styles.brand}>STROMBLIK</Text>
-              <Text style={styles.date}>{new Intl.DateTimeFormat("da-DK", { timeZone: "Europe/Copenhagen", weekday: "long", day: "numeric", month: "short" }).format(new Date(now))}</Text>
-            </View>
-            {activeTab !== "utilities" ? <Pressable accessibilityLabel="Opdater priser" onPress={() => void load(true)} style={styles.iconButton}>
-              <Feather name="refresh-cw" size={19} color={colors.ink} />
-            </Pressable> : null}
-          </View>
+          <View style={styles.header}><Text style={styles.brand}>STRØMBLIK</Text></View>
 
           {activeTab === "home" ? (
             <>
-              <Text style={styles.pageEyebrow}>MIT HJEM</Text>
-              <Text style={styles.pageTitle}>Mit hjem</Text>
-              <Text style={styles.pageIntro}>Se dit faktiske elforbrug og planlæg dine apparater.</Text>
               {electricityUsage.connected === true ? <MonthlyUsageCard data={electricityUsage.monthlyUsage} currentMonthDays={electricityUsage.currentMonthDays} previousMonthDays={electricityUsage.previousMonthDays} loading={electricityUsage.monthlyLoading} error={electricityUsage.monthlyError} agreements={electricityUsage.agreements.records} gridSupplier={selectedSupplier} /> : null}
               <ElectricityUsageCard {...electricityUsage} prices={prices} gridSupplierName={selectedSupplier.name} gridSupplier={selectedSupplier} />
               <ElectricityDetailsCard meters={electricityUsage.meters} />
@@ -122,21 +177,18 @@ export function SecondaryTabScreen(props: SecondaryTabScreenProps) {
             </>
           ) : activeTab === "utilities" ? (
             <>
-              <Text style={styles.pageEyebrow}>VAND OG VARME</Text>
-              <Text style={styles.pageTitle}>Vand og varme</Text>
               <HeatingPage key={`heat-${electricityUsage.auth.householdId}`} />
             </>
           ) : activeTab === "car" ? (
             <>
-              <Text style={styles.pageEyebrow}>MIN BIL</Text>
-              <Text style={styles.pageTitle}>Tesla</Text>
-              <Text style={styles.pageIntro}>Batteri, opladning, klima og bilstatus samlet ét sted.</Text>
               <TeslaDetailsPage
                 vehicle={teslaVehicle}
                 refreshing={teslaRefreshing}
+                chargingCommandPending={teslaChargingCommandPending}
                 onRefresh={() => void refreshTesla()}
                 connected={teslaConnected}
                 onConnect={connectTesla}
+                onSetCharging={setTeslaCharging}
                 points={prices}
                 now={now}
                 evModels={evModels}

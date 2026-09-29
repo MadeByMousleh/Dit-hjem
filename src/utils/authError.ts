@@ -7,8 +7,11 @@ export function authErrorMessage(error: { code?: string; status?: number }, veri
   if (error.code === 'email_address_not_authorized') {
     return 'Platformens mailafsender tillader endnu ikke denne modtager. Administratoren skal konfigurere en mailafsender til alle brugere. Ingen mail blev sendt.';
   }
-  if (error.code === 'signup_disabled' || error.code === 'otp_disabled') {
+  if (error.code === 'signup_disabled') {
     return 'Oprettelse af nye konti er slået fra på platformen. Kontakt administratoren.';
+  }
+  if (error.code === 'otp_disabled') {
+    return 'Engangskode-login er ikke aktiveret endnu. Brug login-linket i e-mailen i stedet.';
   }
   if (error.code === 'email_provider_disabled') {
     return 'Login med e-mail er slået fra på platformen. Kontakt administratoren.';

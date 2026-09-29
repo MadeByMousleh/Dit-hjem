@@ -1,7 +1,7 @@
+# Native Gradle output is installed directly on test devices; Vercel only needs
+# the Expo web build and API source files.
+android/
 .env
 .ENV
 .env.*
 secrets/
-update_page.js
-supabase/.temp/
-supabase/.branches/

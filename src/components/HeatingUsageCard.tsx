@@ -144,8 +144,11 @@ export function HeatingUsageCard({ heat }: { heat: ReturnType<typeof useEforsyni
       {Platform.OS !== 'web' ? <View style={s.actions}><Pressable disabled={heat.loading} onPress={() => void heat.refresh()}><Text style={s.link}>Opdater</Text></Pressable><Pressable disabled={heat.loading} onPress={() => { heat.setPassword(''); setEditing(value => !value); }}><Text style={s.link}>{editing ? 'Annuller' : 'Forbind igen'}</Text></Pressable></View> : null}
     </> : null}
     {(!history || editing) && Platform.OS !== 'web' ? <>
-      <TextInput accessibilityLabel="Kundenummer" placeholder="Kundenummer" keyboardType="number-pad" autoCapitalize="none" autoCorrect={false} value={heat.username} onChangeText={heat.setUsername} editable={!heat.loading} style={s.input} />
-      <TextInput accessibilityLabel="Kode fra varmeregningen" placeholder="Kode fra regningen" secureTextEntry autoCapitalize="none" autoCorrect={false} value={heat.password} onChangeText={heat.setPassword} editable={!heat.loading} style={s.input} />
+      <Text style={s.connectIntro}>Forbind din konto hos Sønderborg Varme for at hente dit varmeforbrug. Oplysningerne finder du på din varmeregning.</Text>
+      <Text style={s.inputLabel}>Kundenummer</Text>
+      <TextInput accessibilityLabel="Kundenummer" placeholder="Indtast dit kundenummer" keyboardType="number-pad" autoCapitalize="none" autoCorrect={false} value={heat.username} onChangeText={heat.setUsername} editable={!heat.loading} style={s.input} />
+      <Text style={s.inputLabel}>Kode fra varmeregningen</Text>
+      <TextInput accessibilityLabel="Kode fra varmeregningen" placeholder="Indtast koden fra regningen" secureTextEntry autoCapitalize="none" autoCorrect={false} value={heat.password} onChangeText={heat.setPassword} editable={!heat.loading} style={s.input} />
       <Pressable accessibilityRole="button" disabled={heat.loading || !heat.username || !heat.password} onPress={() => { void heat.login().then(success => { if (success) { setEditing(false); setSelected(''); } }); }} style={[s.button, (heat.loading || !heat.username || !heat.password) && { opacity: 0.5 }]}><Text style={s.buttonText}>Forbind varme</Text></Pressable>
     </> : !history ? <Text style={s.note}>Forbind Sønderborg Varme i mobilappen for at se din gemte historik her.</Text> : null}
     {heat.loading ? <ActivityIndicator color={colors.primary} style={{ marginTop: 12 }} /> : null}
@@ -167,6 +170,8 @@ const s = StyleSheet.create({
   costLabel: { fontFamily: 'DMSans_500Medium', fontSize: 10, color: colors.muted },
   costValue: { fontFamily: 'DMSans_700Bold', fontSize: 20, color: colors.ink, marginTop: 2, letterSpacing: -0.4 },
   costNote: { fontFamily: 'DMSans_400Regular', fontSize: 10, color: colors.muted, marginTop: 8 },
+  connectIntro: { fontFamily: 'DMSans_400Regular', fontSize: 12, lineHeight: 18, color: colors.muted, marginTop: 10 },
+  inputLabel: { fontFamily: 'DMSans_700Bold', fontSize: 11, color: colors.ink, marginTop: 16 },
   input: { borderWidth: 1, borderColor: colors.line, borderRadius: 12, padding: 12, color: colors.ink, marginTop: 12 },
   button: { backgroundColor: colors.primary, borderRadius: 22, alignItems: 'center', padding: 13, marginVertical: 12 },
   buttonText: { color: colors.white, fontFamily: 'DMSans_700Bold' },

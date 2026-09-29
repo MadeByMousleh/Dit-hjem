@@ -11,6 +11,7 @@ export type GridSupplier = {
 
 export const GRID_SUPPLIERS: GridSupplier[] = [
   { id: "n1_c", name: "N1", area: "DK1" },
+  { id: "n1_344", name: "N1 344", area: "DK1" },
   { id: "trefor_el-net_c", name: "TREFOR", area: "DK1" },
   { id: "radius_c", name: "Radius", area: "DK2" },
   { id: "cerius_c", name: "Cerius", area: "DK2" },

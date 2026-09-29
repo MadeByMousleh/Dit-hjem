@@ -18,9 +18,13 @@ vm.runInThisContext(`(function(require,module,exports){${output}\n})`)(name => {
 }, module, module.exports);
 const { PROFILE_STORAGE_KEY, loadProfile, saveProfile } = module.exports;
 
-await saveProfile({ name: 'First user', email: 'first@example.test', address: 'First Street 1' }, 'user-a');
+await saveProfile({ name: 'First user', email: 'first@example.test', address: 'First Street 1', lowPriceAlertThresholdOre: 135, highPriceAlertThresholdOre: 310, consumptionBudgetAlerts: true, consumptionBudgetUnit: 'dkk', consumptionBudgetLimit: 850 }, 'user-a');
 await saveProfile({ name: 'Second user', email: 'second@example.test', address: 'Second Street 2' }, 'user-b');
 assert.equal((await loadProfile('user-a', 'first@example.test')).address, 'First Street 1');
+assert.equal((await loadProfile('user-a', 'first@example.test')).lowPriceAlertThresholdOre, 135);
+assert.equal((await loadProfile('user-a', 'first@example.test')).highPriceAlertThresholdOre, 310);
+assert.equal((await loadProfile('user-a', 'first@example.test')).consumptionBudgetUnit, 'dkk');
+assert.equal((await loadProfile('user-a', 'first@example.test')).consumptionBudgetLimit, 850);
 assert.equal((await loadProfile('user-b', 'second@example.test')).address, 'Second Street 2');
 assert.equal(await loadProfile('user-c', 'third@example.test'), undefined);
 
@@ -28,4 +32,4 @@ values.set(PROFILE_STORAGE_KEY, JSON.stringify({ name: 'Legacy user', email: 'le
 assert.equal((await loadProfile('legacy-user', 'legacy@example.test')).address, 'Old Street 3');
 assert.equal(await loadProfile('different-user', 'different@example.test'), undefined);
 assert.equal(await loadProfile('no-email-user', ''), undefined);
-console.log('PASS: account-scoped profile storage, separate addresses, safe matching of legacy profile.');
+console.log('PASS: account-scoped profile storage, separate addresses, alert thresholds and safe matching of legacy profile.');

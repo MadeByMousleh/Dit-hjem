@@ -6,6 +6,7 @@ import { usageResponse } from "./src/services/household-usage.mjs";
 import { publicAuthConfig } from "./api/auth/config.mjs";
 import { vaultWriteResponse } from "./src/services/vault-write-server.mjs";
 import { MAX_WRITE_BYTES } from "./src/services/vault-signing.mjs";
+import { beginTeslaAuthorization, finishTeslaAuthorization, teslaStatus, teslaVehicles, TeslaError } from "./src/services/tesla-server.mjs";
 
 const port = Number(process.env.EFORSYNING_PORT ?? 8787);
 const baseUrl = process.env.EFORSYNING_BASE_URL ?? "https://eforsyning.dk/";
@@ -673,6 +674,45 @@ export async function handler(request, response) {
     response.end(JSON.stringify(wasteHealth(url.searchParams.get("municipality") ?? "")));
     return;
   }
+  if (request.method === "POST" && request.url === "/api/tesla/authorize") {
+    let body;
+    try { body = await readJson(request); } catch { response.writeHead(400, { "Content-Type": "application/json" }); response.end(JSON.stringify({ error: "Invalid JSON" })); return; }
+    const req = new Request("http://localhost/api/tesla/authorize", { method: "POST", headers: { authorization: request.headers.authorization ?? "" } });
+    const result = await beginTeslaAuthorization(req, body);
+    response.writeHead(result.status, { "Content-Type": "application/json", "Cache-Control": "no-store" });
+    response.end(JSON.stringify(result.body));
+    return;
+  }
+  if (request.url === "/api/tesla/authorize") {
+    response.writeHead(405, { Allow: "POST", "Content-Type": "application/json" });
+    response.end(JSON.stringify({ error: "Method not allowed" }));
+    return;
+  }
+  if (request.method === "GET" && (request.url?.startsWith("/api/tesla/callback") || request.url?.startsWith("/callback"))) {
+    try {
+      const result = await finishTeslaAuthorization(`http://${request.headers.host}${request.url}`);
+      response.writeHead(302, { Location: result.redirect, "Cache-Control": "no-store" });
+      response.end();
+    } catch (error) {
+      response.writeHead(error instanceof TeslaError ? error.status : 503, { "Content-Type": "text/html; charset=utf-8" });
+      response.end(`<h1>Tesla-login mislykkedes</h1><p>${error instanceof Error ? error.message : "Prøv igen"}</p>`);
+    }
+    return;
+  }
+  if (request.method === "GET" && request.url === "/api/tesla/status") {
+    const req = new Request("http://localhost/api/tesla/status", { headers: { authorization: request.headers.authorization ?? "" } });
+    const result = await teslaStatus(req);
+    response.writeHead(result.status, { "Content-Type": "application/json", "Cache-Control": "no-store" });
+    response.end(JSON.stringify(result.body));
+    return;
+  }
+  if (request.method === "GET" && request.url === "/api/tesla/vehicles") {
+    const req = new Request("http://localhost/api/tesla/vehicles", { headers: { authorization: request.headers.authorization ?? "" } });
+    const result = await teslaVehicles(req);
+    response.writeHead(result.status, { "Content-Type": "application/json", "Cache-Control": "no-store" });
+    response.end(JSON.stringify(result.body));
+    return;
+  }
   if (request.method === "GET" && request.url === "/api/tesla/authorize") {
     try {
       const { clientId, clientSecret, redirectUri } = teslaConfig();
@@ -694,7 +734,7 @@ export async function handler(request, response) {
     }
     return;
   }
-  if (request.method === "GET" && request.url?.startsWith("/api/tesla/callback")) {
+  if (request.method === "GET" && (request.url?.startsWith("/api/tesla/callback") || request.url?.startsWith("/callback"))) {
     try {
       const url = new URL(request.url, `http://${request.headers.host}`);
       const code = url.searchParams.get("code");
@@ -709,7 +749,7 @@ export async function handler(request, response) {
       if (!tokenResponse.ok || !tokenPayload.access_token) throw new Error("Tesla-token kunne ikke hentes");
       const session = encryptedTeslaSession({ accessToken: tokenPayload.access_token, refreshToken: tokenPayload.refresh_token, expiresAt: Date.now() + Number(tokenPayload.expires_in ?? 3600) * 1000 }, clientSecret);
       response.writeHead(200, { "Content-Type": "text/html; charset=utf-8", "Set-Cookie": `tesla_session=${encodeURIComponent(session)}; HttpOnly; SameSite=Lax; Max-Age=2592000${process.env.VERCEL ? "; Secure" : ""}; Path=/` });
-      response.end("<!doctype html><title>Tesla forbundet</title><meta name=\"viewport\" content=\"width=device-width\"><body style=\"font-family: sans-serif; padding: 2rem\"><h1>Tesla er forbundet</h1><p>Du kan lukke dette vindue og gå tilbage til MBM.</p></body>");
+      response.end("<!doctype html><title>Tesla forbundet</title><meta name=\"viewport\" content=\"width=device-width\"><body style=\"font-family: sans-serif; padding: 2rem\"><h1>Tesla er forbundet</h1><p>Du kan lukke dette vindue og gå tilbage til Strømblik.</p></body>");
     } catch (error) {
       response.writeHead(400, { "Content-Type": "text/html; charset=utf-8" });
       response.end(`<h1>Tesla-login mislykkedes</h1><p>${error instanceof Error ? error.message : "Prøv igen"}</p>`);
