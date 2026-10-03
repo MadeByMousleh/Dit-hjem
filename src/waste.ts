@@ -1,3 +1,5 @@
+import { API_URL } from "./services/supabase";
+
 export type WasteCategory = "plast-papir" | "farligt-affald" | "madaffald" | "andet";
 
 export type WasteEvent = {
@@ -20,13 +22,13 @@ export function normalizeWasteCategory(title: string): WasteCategory {
 export async function fetchWasteEvents(municipalityCode?: string, postcode?: string, feedUrl?: string, address?: string): Promise<WasteEvent[]> {
   if (!municipalityCode) return [];
   const params = new URLSearchParams({ municipality: municipalityCode, ...(postcode ? { postcode } : {}), ...(feedUrl ? { feedUrl } : {}), ...(address ? { address } : {}) });
-  const response = await fetch(`http://localhost:8787/api/waste/calendar?${params.toString()}`);
+  const response = await fetch(`${API_URL}/api/waste/calendar?${params.toString()}`);
   if (!response.ok) throw new Error("Affaldskalenderen er ikke tilgængelig for denne kommune endnu");
   return (await response.json()) as WasteEvent[];
 }
 
 export async function fetchWasteHealth(municipalityCode?: string): Promise<WasteHealth> {
-  const response = await fetch(`http://localhost:8787/api/waste/health?municipality=${encodeURIComponent(municipalityCode ?? "")}`);
+  const response = await fetch(`${API_URL}/api/waste/health?municipality=${encodeURIComponent(municipalityCode ?? "")}`);
   if (!response.ok) throw new Error("Affaldsstatus kunne ikke hentes");
   return await response.json() as WasteHealth;
 }

@@ -2,6 +2,9 @@ import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
 import vm from 'node:vm';
 import ts from 'typescript';
+import * as legacyHashes from '@noble/hashes/legacy.js';
+import * as hashUtils from '@noble/hashes/utils.js';
+import { createHash } from 'node:crypto';
 
 function load(file, dependencies = {}) {
   const source = readFileSync(new URL(file, import.meta.url), 'utf8');
@@ -9,6 +12,8 @@ function load(file, dependencies = {}) {
   const module = { exports: {} };
   vm.runInThisContext(`(function(require,module,exports){${output}\n})`)((name) => {
     if (name in dependencies) return dependencies[name];
+    if (name === '@noble/hashes/legacy.js') return legacyHashes;
+    if (name === '@noble/hashes/utils.js') return hashUtils;
     if (name === 'react-native') return { Platform: { OS: 'web' } };
     if (name === 'expo-crypto' || name === 'expo-secure-store') return {};
     throw new Error(`Unexpected import: ${name}`);
@@ -113,6 +118,24 @@ try {
   assert.equal(nativeService.needsHeatingEnrichment(vault.data.heating[0]), false);
   await nativeService.syncHeating(vault);
   assert.equal(requests.length, 7, 'A fresh enriched snapshot should keep the six-hour refresh limit');
+  const browserService = load('../src/services/private-heating.ts', {
+    'react-native': { Platform: { OS: 'web' } },
+    'expo-secure-store': { getItemAsync: () => { throw new Error('Browser storage forbidden'); }, setItemAsync: () => { throw new Error('Browser storage forbidden'); } },
+    'expo-crypto': { randomUUID: () => '12345678-1234-1234-1234-123456789012' },
+  });
+  const browserVault = { userId: 'web', householdId: 'web-home', data: {}, mutate: async function(update) { this.data = update(this.data); } };
+  const start = requests.length;
+  await browserService.syncHeating(browserVault, credentials);
+  const md5Hex = value => createHash('md5').update(value).digest('hex');
+  assert.ok(requests.slice(start).some(call => call.path.endsWith('/id/' + md5Hex(md5Hex(credentials.password) + 'challenge'))));
+  assert.equal(await browserService.hasPrivateHeatingConnection(browserVault), true);
+  assert.equal(browserVault.data.heating[0].summary.actualKwh, 400);
+  assert.ok(!JSON.stringify(browserVault.data).includes(credentials.password));
+  await browserService.syncHeating(browserVault, undefined, true);
+  assert.equal(requests.length - start, 14, 'Browser refresh reuses in-memory credentials');
+  const reloaded = { ...browserVault };
+  assert.equal(await browserService.hasPrivateHeatingConnection(reloaded), false);
+  await assert.rejects(browserService.syncHeating(reloaded, undefined, true), /Forbind varme igen/);
 } finally {
   globalThis.fetch = originalFetch;
 }

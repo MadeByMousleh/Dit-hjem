@@ -27,7 +27,7 @@ export async function getTeslaStatus() {
   const response = await teslaFetch('/api/tesla/status');
   const { payload, errorMessage } = await jsonPayload(response);
   if (!response.ok || !payload || typeof payload !== 'object') throw new Error(errorMessage ?? `Tesla-status svarede med ${response.status}.`);
-  return payload as { connected: boolean };
+  return payload as { connected: boolean; virtualKeyPairingUrl?: string };
 }
 
 export async function getTeslaVehicles() {

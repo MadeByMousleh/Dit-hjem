@@ -1,6 +1,9 @@
 import { StatusBar } from "expo-status-bar";
-import { ReactNode } from "react";
-import { Pressable, ScrollView, Text, View } from "react-native";
+import { Feather } from '@expo/vector-icons';
+import { HomeCategories } from '../components/HomeCategories';
+import { useDashboardViewState, type DashboardTab } from '../hooks/useDashboardViewState';
+import { ReactNode, useEffect } from "react";
+import { BackHandler, Pressable, ScrollView, Text, View } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
 import { TeslaDetailsPage } from "../components/TeslaDetailsPage";
 import { ElectricityUsageCard } from "../components/ElectricityUsageCard";
@@ -23,7 +26,7 @@ import type { ChargingWindowAlertStatus } from '../hooks/useChargingWindowAlert'
 import type { ConsumptionBudgetUnit } from '../services/low-price-alert';
 
 type SecondaryTabScreenProps = {
-  activeTab: "home" | "utilities" | "car" | "profile";
+  activeTab: Exclude<DashboardTab, 'dashboard'>;
   now: number;
   isMobile: boolean;
   styles: any;
@@ -78,12 +81,22 @@ type SecondaryTabScreenProps = {
   connectTesla: () => void;
   refreshTesla: () => Promise<void> | void;
   setTeslaCharging: (action: 'start' | 'stop') => Promise<void> | void;
+  pairTeslaVirtualKey: () => Promise<void> | void;
   electricityUsage: ReturnType<typeof useElectricityUsage>;
   renderDeviceCard: (props: any) => ReactNode;
   navigation: ReactNode;
 };
 
 export function SecondaryTabScreen(props: SecondaryTabScreenProps) {
+  const { setActiveTab } = useDashboardViewState();
+  useEffect(() => {
+    if (props.activeTab === 'home' || props.activeTab === 'profile') return;
+    const subscription = BackHandler.addEventListener('hardwareBackPress', () => {
+      setActiveTab('home');
+      return true;
+    });
+    return () => subscription.remove();
+  }, [props.activeTab, setActiveTab]);
   const rememberedScroll = useRememberedScroll(props.activeTab);
   const {
     activeTab,
@@ -141,6 +154,7 @@ export function SecondaryTabScreen(props: SecondaryTabScreenProps) {
     connectTesla,
     refreshTesla,
     setTeslaCharging,
+    pairTeslaVirtualKey,
     electricityUsage,
     renderDeviceCard,
     navigation,
@@ -167,13 +181,15 @@ export function SecondaryTabScreen(props: SecondaryTabScreenProps) {
         <View style={[styles.container, isMobile && styles.containerMobile]}>
           <View style={styles.header}><Text style={styles.brand}>STRØMBLIK</Text></View>
 
-          {activeTab === "home" ? (
+          {activeTab !== 'home' ? <Pressable accessibilityRole="button" accessibilityLabel="Tilbage til Mit hjem" onPress={() => setActiveTab('home')} style={{ flexDirection: 'row', alignItems: 'center', gap: 8, paddingVertical: 14 }}><Feather name="arrow-left" size={18} color={colors.primary} /><Text style={{ fontFamily: 'DMSans_700Bold', color: colors.primary }}>Mit hjem</Text></Pressable> : null}
+          {activeTab === 'home' ? <HomeCategories onSelect={setActiveTab} /> : null}
+          {activeTab === 'electricity' ? <Text style={{ fontFamily: 'Fraunces_600SemiBold', fontSize: 30, color: colors.ink, marginBottom: 16 }}>El</Text> : null}
+          {activeTab === "electricity" ? (
             <>
               {electricityUsage.connected === true ? <MonthlyUsageCard data={electricityUsage.monthlyUsage} currentMonthDays={electricityUsage.currentMonthDays} previousMonthDays={electricityUsage.previousMonthDays} loading={electricityUsage.monthlyLoading} error={electricityUsage.monthlyError} agreements={electricityUsage.agreements.records} gridSupplier={selectedSupplier} /> : null}
               <ElectricityUsageCard {...electricityUsage} prices={prices} gridSupplierName={selectedSupplier.name} gridSupplier={selectedSupplier} />
               <ElectricityDetailsCard meters={electricityUsage.meters} />
               <ElectricityPriceCard key={electricityUsage.auth.householdId} householdId={electricityUsage.auth.householdId} agreements={electricityUsage.agreements} />
-              <FamilyPlanner points={prices} now={now} evModels={evModels} styles={styles} colors={colors} DeviceCard={renderDeviceCard} />
             </>
           ) : activeTab === "utilities" ? (
             <>
@@ -189,12 +205,13 @@ export function SecondaryTabScreen(props: SecondaryTabScreenProps) {
                 connected={teslaConnected}
                 onConnect={connectTesla}
                 onSetCharging={setTeslaCharging}
+                onPairVirtualKey={pairTeslaVirtualKey}
                 points={prices}
                 now={now}
                 evModels={evModels}
               />
             </>
-          ) : null}
+          ) : activeTab === 'appliances' ? <FamilyPlanner points={prices} now={now} evModels={evModels} styles={styles} colors={colors} DeviceCard={renderDeviceCard} /> : null}
 
         </View>
       </ScrollView>

@@ -90,6 +90,31 @@ const phone3 = new EnergyVault(home,user);
 assert.equal(await phone3.unlockRemembered(),true);
 const stranger = new EnergyVault(home,randomUUID());
 assert.equal(await stranger.unlockRemembered(),false);
+// Browser keys survive a closed session and are isolated by account/household.
+const browserKeys = new Map();
+globalThis.localStorage = {
+  getItem: name => browserKeys.get(name) ?? null,
+  setItem: (name, value) => browserKeys.set(name, value),
+};
+deps['react-native'].Platform.OS = 'web';
+const browser = new EnergyVault(home,user);
+await browser.unlock(text, true);
+browser.close();
+const reloadedBrowser = new EnergyVault(home,user);
+assert.equal(await reloadedBrowser.unlockRemembered(),true);
+assert.deepEqual(reloadedBrowser.data,phone2.data);
+assert.equal(await new EnergyVault(home,randomUUID()).unlockRemembered(),false);
+assert.equal(await new EnergyVault(randomUUID(),user).unlockRemembered(),false);
+const browserKeyName = `stromblik.vault.${user}.${home}`;
+browserKeys.set(browserKeyName, 'invalid');
+await assert.rejects(new EnergyVault(home,user).unlockRemembered());
+await reloadedBrowser.remember();
+globalThis.localStorage.setItem = () => { throw new Error('storage blocked'); };
+await assert.rejects(reloadedBrowser.remember(), /storage blocked/);
+assert.deepEqual(reloadedBrowser.data,phone2.data,'Storage failure must not lock valid data');
+reloadedBrowser.close();
+delete globalThis.localStorage;
+deps['react-native'].Platform.OS = 'ios';
 await assert.rejects(stranger.unlock(crypto.recoveryKey(new Uint8Array(randomBytes(32)))));
 const wrongHome = new EnergyVault(randomUUID(),user);
 await assert.rejects(wrongHome.unlock(text));

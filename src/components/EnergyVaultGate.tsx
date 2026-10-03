@@ -14,12 +14,11 @@ export function useEnergyVault() {
 }
 export function EnergyVaultGate({ children }: { children: ReactNode }) {
   const auth = useHouseholdSession();
-  const [epoch, setEpoch] = useState(0);
-  useEffect(() => {
-    const listener = AppState.addEventListener('change', state => { if (state === 'background') setEpoch(value => value + 1); });
-    return () => listener.remove();
-  }, []);
-  return <VaultSession key={`${auth.session!.user.id}:${auth.householdId}:${epoch}`} householdId={auth.householdId} userId={auth.session!.user.id}>{children}</VaultSession>;
+  // Keep the decrypted vault only in this running app process. Moving the app
+  // to the background must not remount and lock it; a full process exit (or an
+  // OS process kill) naturally removes the in-memory key and requires the
+  // SecureStore biometric prompt on the next launch.
+  return <VaultSession key={`${auth.session!.user.id}:${auth.householdId}`} householdId={auth.householdId} userId={auth.session!.user.id}>{children}</VaultSession>;
 }
 function VaultSession({ householdId, userId, children }: { householdId: string; userId: string; children: ReactNode }) {
   const auth = useHouseholdSession();
@@ -40,11 +39,11 @@ function VaultSession({ householdId, userId, children }: { householdId: string; 
     return () => { active = false; };
   }, [vault, attempt]);
   useEffect(() => {
-    if (!exists || Platform.OS === 'web') return;
+    if (!exists) return;
     let active = true;
     let attempted = false;
     const unlock = async () => {
-      if (attempted || AppState.currentState !== 'active') return;
+      if (attempted || (Platform.OS !== 'web' && AppState.currentState !== 'active')) return;
       attempted = true;
       setBusy(true);
       try {
@@ -62,9 +61,12 @@ function VaultSession({ householdId, userId, children }: { householdId: string; 
   }, [exists, vault]);
   useEffect(() => () => vault.close(), [vault]);
   async function rememberPhone() {
-    if (Platform.OS === 'web') return;
     try { await vault.remember(); }
     catch {
+      if (Platform.OS === 'web') {
+        Alert.alert('Browseren kunne ikke huskes', 'Dine data er låst op, men browseren kunne ikke gemme nøglen. Tillad lokal lagring for at undgå at indtaste den igen.');
+        return;
+      }
       Alert.alert('Telefonen kunne ikke huskes', 'Dine data er låst op, men nøglen kunne ikke gemmes sikkert. Kontrollér, at biometri er sat op på telefonen. Behold din gendannelsesnøgle; du skal bruge den ved næste oplåsning.');
     }
   }
@@ -73,7 +75,7 @@ function VaultSession({ householdId, userId, children }: { householdId: string; 
   return <SafeAreaView style={s.page}><ScrollView keyboardShouldPersistTaps="handled" contentContainerStyle={s.container}><View style={s.card}>
     <Text style={s.title}>{exists === false ? 'Beskyt dine eldata' : 'Lås dine eldata op'}</Text>
     <Text style={s.copy}>Din konto giver adgang til backup. Din personlige gendannelsesnøgle låser indholdet op — også på en ny telefon.</Text>
-    {Platform.OS !== 'web' ? <Text style={s.copy}>Denne telefon huskes automatisk med sikker nøglelagring. Næste gang bruger du biometri. Behold din gendannelsesnøgle til en ny telefon.</Text> : null}
+    {Platform.OS !== 'web' ? <Text style={s.copy}>Denne telefon huskes automatisk med sikker nøglelagring. Næste gang bruger du biometri. Behold din gendannelsesnøgle til en ny telefon.</Text> : <Text style={s.copy}>Denne browser husker automatisk din nøgle i localStorage. Brug kun dette på din egen enhed. Behold også en kopi af gendannelsesnøglen.</Text>}
     {exists === null ? <>{!error ? <ActivityIndicator color={colors.primary} /> : null}<Pressable style={s.secondary} onPress={() => { setError(''); setAttempt(value => value + 1); }}><Text>Prøv igen</Text></Pressable></> : exists ? <>
       <TextInput accessibilityLabel="Gendannelsesnøgle" value={input} onChangeText={setInput} secureTextEntry autoCapitalize="none" autoCorrect={false} placeholder="Indtast din gendannelsesnøgle" style={s.input} />
       <Pressable disabled={busy || !input.trim()} style={s.button} onPress={() => void run(async () => { await vault.unlock(input); setInput(''); await rememberPhone(); setReady(true); })}><Text style={s.buttonText}>Lås op og synkroniser</Text></Pressable>

@@ -1,0 +1,14 @@
+{$PROXY_DOMAIN} {
+  encode zstd gzip
+
+  @authorized header X-Tesla-Proxy-Secret {$PROXY_SHARED_SECRET}
+  handle @authorized {
+    reverse_proxy https://tesla-command-proxy:4443 {
+      transport http {
+        tls_insecure_skip_verify
+      }
+    }
+  }
+
+  respond "Unauthorized" 401
+}

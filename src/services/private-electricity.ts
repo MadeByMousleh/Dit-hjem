@@ -6,8 +6,8 @@ import type { ElectricityUsage, UsageSelection, BackgroundUsage } from './elover
 import { usageToday } from '../utils/usagePeriods';
 import { backgroundWindow, estimateBackground } from './background-usage.mjs';
 
-// The long-lived Eloverblik refresh token is kept only in the native secure
-// key store. It is never included in the encrypted vault, AsyncStorage, or a
+// The long-lived Eloverblik refresh token is kept in native SecureStore or
+// browser session memory. It is never included in the encrypted vault, AsyncStorage, or a
 // backend request. The short-lived access token remains in memory.
 const refreshTokens = new WeakMap<EnergyVault, string>();
 const accessTokens = new WeakMap<EnergyVault, string>();
@@ -90,7 +90,6 @@ async function syncMeterDetails(vault: EnergyVault, token: string) {
   }
 }
 export async function connectPrivateMeter(vault: EnergyVault, token: string) {
-  if (Platform.OS === 'web') throw new Error('Direkte Eloverblik-forbindelse kræver mobilappen. Browseren bruger din krypterede historik.');
   if (token.trim().length < 20 || token.length > 10000) throw new Error('Indtast en gyldig Eloverblik-token.');
   const access = await request('/token', token.trim());
   if (typeof access.result !== 'string') throw new Error('Eloverblik afviste token.');
@@ -102,7 +101,7 @@ export async function connectPrivateMeter(vault: EnergyVault, token: string) {
     for (const id of ids) if (!data.meters.some(meter => meter.metering_point_id === id)) data.meters.push({ id, metering_point_id: id });
     return data;
   });
-  await SecureStore.setItemAsync(tokenKey(vault), token.trim(), { keychainAccessible: SecureStore.WHEN_UNLOCKED_THIS_DEVICE_ONLY });
+  if (Platform.OS !== 'web') await SecureStore.setItemAsync(tokenKey(vault), token.trim(), { keychainAccessible: SecureStore.WHEN_UNLOCKED_THIS_DEVICE_ONLY });
   refreshTokens.set(vault, token.trim());
   accessTokens.set(vault, access.result);
   await syncMeterDetails(vault, access.result);
@@ -117,7 +116,7 @@ type Selection = { from: string; to: string; aggregation: string };
 const syncQueues = new WeakMap<EnergyVault, Promise<void>>();
 async function syncUsage(vault: EnergyVault, selections: Selection[]) {
   const today = usageToday();
-  const hasConnection = Platform.OS !== 'web' && await hasPrivateMeterConnection(vault);
+  const hasConnection = await hasPrivateMeterConnection(vault);
   if (!hasConnection && Platform.OS !== 'web' && !vault.data.readings.length) throw new Error('Forbind Eloverblik på denne telefon først, og prøv derefter igen.');
   if (hasConnection) {
     let token: string | null = null;

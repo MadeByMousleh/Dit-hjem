@@ -4,7 +4,7 @@ import type { HeatPeriod } from '../utils/heatingChart';
 import type { TemperaturePeriod } from '../utils/heatingTemperature';
 import { usageToday } from '../utils/usagePeriods';
 
-export type DashboardTab = 'dashboard' | 'home' | 'utilities' | 'car' | 'profile';
+export type DashboardTab = 'dashboard' | 'home' | 'electricity' | 'appliances' | 'utilities' | 'car' | 'profile';
 type ScrollTab = DashboardTab;
 
 function useViewState() {
@@ -15,7 +15,7 @@ function useViewState() {
   const [temperatureDate, setTemperatureDate] = useState('');
   const [electricAggregation, setElectricAggregation] = useState<UsageAggregation>('Day');
   const [electricAnchor, setElectricAnchor] = useState(usageToday);
-  const [scrollPositions, setScrollPositions] = useState<Record<ScrollTab, number>>({ dashboard: 0, home: 0, utilities: 0, car: 0, profile: 0 });
+  const [scrollPositions, setScrollPositions] = useState<Record<ScrollTab, number>>({ dashboard: 0, home: 0, electricity: 0, appliances: 0, utilities: 0, car: 0, profile: 0 });
   const rememberScroll = (tab: ScrollTab, offset: number) => {
     if (Number.isFinite(offset) && offset >= 0) setScrollPositions(previous => ({ ...previous, [tab]: offset }));
   };

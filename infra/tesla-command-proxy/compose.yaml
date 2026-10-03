@@ -1,0 +1,41 @@
+services:
+  caddy:
+    image: caddy:2-alpine
+    restart: unless-stopped
+    environment:
+      PROXY_DOMAIN: ${PROXY_DOMAIN:?Set PROXY_DOMAIN to the public proxy hostname}
+      PROXY_SHARED_SECRET: ${PROXY_SHARED_SECRET:?Set PROXY_SHARED_SECRET to a long random value}
+    ports:
+      - "80:80"
+      - "443:443"
+    volumes:
+      - ./Caddyfile:/etc/caddy/Caddyfile:ro
+      - caddy_data:/data
+      - caddy_config:/config
+    depends_on:
+      - tesla-command-proxy
+
+  tesla-command-proxy:
+    image: tesla/vehicle-command:latest
+    restart: unless-stopped
+    command:
+      - -host
+      - 0.0.0.0
+      - -port
+      - "4443"
+      - -tls-key
+      - /run/secrets/internal-tls-key.pem
+      - -cert
+      - /run/secrets/internal-tls-cert.pem
+      - -key-file
+      - /run/secrets/tesla-private-key.pem
+      - -session-cache
+      - /var/lib/tesla/session-cache.json
+    volumes:
+      - ./secrets:/run/secrets:ro
+      - tesla_session_cache:/var/lib/tesla
+
+volumes:
+  caddy_data:
+  caddy_config:
+  tesla_session_cache:

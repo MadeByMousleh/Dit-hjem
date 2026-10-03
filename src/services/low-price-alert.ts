@@ -17,6 +17,8 @@ const HIGH_ALERT_KIND = 'high-price-alert';
 const CONSUMPTION_ALERT_KIND = 'consumption-budget-alert';
 const CHARGING_ALERT_KIND = 'charging-window-alert';
 const CONSUMPTION_ALERT_KEY = 'stromblik.consumption-budget-alert.v1';
+const PRICE_ALERT_SCHEDULE_KEY = 'stromblik.price-alert-schedule.v1';
+const scheduleQueues = new Map<string, Promise<unknown>>();
 
 export type LowPriceWindow = {
   startsAt: Date;
@@ -33,6 +35,9 @@ export type ConsumptionBudgetProgress = { actual: number; forecast: number; perc
 export type ChargingWindow = { startsAt: Date; endsAt: Date; averageOrePerKwh: number };
 export type ChargingWindowAlertSchedule = 'scheduled' | 'no-window' | 'unsupported';
 type NotificationModule = typeof Notifications;
+type PriceAlertKind = typeof ALERT_KIND | typeof HIGH_ALERT_KIND | typeof CHARGING_ALERT_KIND;
+type ScheduledPriceAlert = { day: string; identifier: string };
+type PriceAlertContent = { title: string; body: string; data: { kind: PriceAlertKind; tab: 'home' | 'car' }; sound: 'default' };
 
 export function localPriceAlertsSupported() {
   return Platform.OS !== 'web' && !isRunningInExpoGo();
@@ -141,6 +146,29 @@ function price(ore: number) {
   return `${(ore / 100).toLocaleString('da-DK', { minimumFractionDigits: 2, maximumFractionDigits: 2 })} kr./kWh`;
 }
 
+// The phone's local calendar day is the boundary users expect for alerts.
+export function priceAlertDay(value: number) {
+  const date = new Date(value);
+  return `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, '0')}-${String(date.getDate()).padStart(2, '0')}`;
+}
+
+function scheduleKey(kind: PriceAlertKind) { return `${PRICE_ALERT_SCHEDULE_KEY}.${kind}`; }
+
+async function serialiseSchedule<T>(kind: PriceAlertKind, action: () => Promise<T>): Promise<T> {
+  const previous = scheduleQueues.get(kind) ?? Promise.resolve();
+  const task = previous.catch(() => undefined).then(action);
+  scheduleQueues.set(kind, task);
+  try { return await task; }
+  finally { if (scheduleQueues.get(kind) === task) scheduleQueues.delete(kind); }
+}
+
+function readScheduledPriceAlert(value: string | null): ScheduledPriceAlert | null {
+  try {
+    const parsed = JSON.parse(value ?? 'null');
+    return typeof parsed?.day === 'string' && typeof parsed.identifier === 'string' ? parsed : null;
+  } catch { return null; }
+}
+
 function notificationIsLowPriceAlert(request: Notifications.NotificationRequest) {
   return request.content.data?.kind === ALERT_KIND;
 }
@@ -151,6 +179,35 @@ function notificationIsHighPriceAlert(request: Notifications.NotificationRequest
 
 function notificationIsChargingWindowAlert(request: Notifications.NotificationRequest) {
   return request.content.data?.kind === CHARGING_ALERT_KIND;
+}
+
+async function cancelScheduledPriceAlerts(notifications: NotificationModule, kind: PriceAlertKind, matches: (request: Notifications.NotificationRequest) => boolean) {
+  await serialiseSchedule(kind, async () => {
+    const requests = await notifications.getAllScheduledNotificationsAsync();
+    await Promise.all(requests.filter(matches).map((request) => notifications.cancelScheduledNotificationAsync(request.identifier)));
+  });
+}
+
+async function schedulePriceAlert(notifications: NotificationModule, kind: PriceAlertKind, triggerAt: number, content: PriceAlertContent) {
+  await serialiseSchedule(kind, async () => {
+    const day = priceAlertDay(triggerAt);
+    const previous = readScheduledPriceAlert(await AsyncStorage.getItem(scheduleKey(kind)));
+    const requests = await notifications.getAllScheduledNotificationsAsync();
+    const sameKind = requests.filter((request) => request.content.data?.kind === kind);
+    const pendingForDay = sameKind.some((request) => request.identifier === previous?.identifier || request.content.data?.alertDay === day);
+
+    // A delivered notification no longer appears in Expo's scheduled list. Its
+    // marker prevents another copy of the same price alert later that day.
+    if (previous?.day === day && !pendingForDay) return;
+
+    await Promise.all(sameKind.map((request) => notifications.cancelScheduledNotificationAsync(request.identifier)));
+    await prepareChannel(notifications);
+    const identifier = await notifications.scheduleNotificationAsync({
+      content: { ...content, data: { ...content.data, alertDay: day } },
+      trigger: { type: notifications.SchedulableTriggerInputTypes.DATE, date: triggerAt, channelId: CHANNEL_ID },
+    });
+    await AsyncStorage.setItem(scheduleKey(kind), JSON.stringify({ day, identifier }));
+  });
 }
 
 async function prepareChannel(notifications: NotificationModule) {
@@ -182,29 +239,22 @@ export const requestPriceAlertPermission = requestLowPriceAlertPermission;
 export async function cancelLowPriceAlerts() {
   const notifications = await notificationModule();
   if (!notifications) return;
-  const requests = await notifications.getAllScheduledNotificationsAsync();
-  await Promise.all(requests.filter(notificationIsLowPriceAlert)
-    .map((request) => notifications.cancelScheduledNotificationAsync(request.identifier)));
+  await cancelScheduledPriceAlerts(notifications, ALERT_KIND, notificationIsLowPriceAlert);
 }
 
 export async function scheduleLowPriceAlert(points: PricePoint[], thresholdOrePerKwh = LOW_PRICE_ALERT_THRESHOLD_ORE): Promise<LowPriceAlertSchedule> {
   const notifications = await notificationModule();
   if (!notifications) return 'unsupported';
   const window = findLowPriceWindow(points, Date.now(), thresholdOrePerKwh);
-  await cancelLowPriceAlerts();
-  if (!window) return 'no-window';
+  if (!window) { await cancelLowPriceAlerts(); return 'no-window'; }
 
-  await prepareChannel(notifications);
   const triggerAt = window.startsAt.getTime() - ALERT_LEAD_MS;
   if (triggerAt <= Date.now()) return 'no-window';
-  await notifications.scheduleNotificationAsync({
-    content: {
+  await schedulePriceAlert(notifications, ALERT_KIND, triggerAt, {
       title: 'Billig strøm på vej',
       body: `Fra kl. ${time(window.startsAt)} til ${time(window.endsAt)} er strømmen ned til ${price(window.lowestOrePerKwh)}.`,
       data: { kind: ALERT_KIND, tab: 'home' },
       sound: 'default',
-    },
-    trigger: { type: notifications.SchedulableTriggerInputTypes.DATE, date: triggerAt, channelId: CHANNEL_ID },
   });
   return 'scheduled';
 }
@@ -212,29 +262,22 @@ export async function scheduleLowPriceAlert(points: PricePoint[], thresholdOrePe
 export async function cancelHighPriceAlerts() {
   const notifications = await notificationModule();
   if (!notifications) return;
-  const requests = await notifications.getAllScheduledNotificationsAsync();
-  await Promise.all(requests.filter(notificationIsHighPriceAlert)
-    .map((request) => notifications.cancelScheduledNotificationAsync(request.identifier)));
+  await cancelScheduledPriceAlerts(notifications, HIGH_ALERT_KIND, notificationIsHighPriceAlert);
 }
 
 export async function scheduleHighPriceAlert(points: PricePoint[], thresholdOrePerKwh = HIGH_PRICE_ALERT_THRESHOLD_ORE): Promise<HighPriceAlertSchedule> {
   const notifications = await notificationModule();
   if (!notifications) return 'unsupported';
   const point = findHighPricePoint(points, Date.now(), thresholdOrePerKwh);
-  await cancelHighPriceAlerts();
-  if (!point) return 'no-rise';
+  if (!point) { await cancelHighPriceAlerts(); return 'no-rise'; }
 
-  await prepareChannel(notifications);
   const triggerAt = point.startsAt.getTime() - HIGH_ALERT_LEAD_MS;
   if (triggerAt <= Date.now()) return 'no-rise';
-  await notifications.scheduleNotificationAsync({
-    content: {
+  await schedulePriceAlert(notifications, HIGH_ALERT_KIND, triggerAt, {
       title: 'Elprisen stiger snart',
       body: `Kl. ${time(point.startsAt)} stiger strømmen til ${price(point.orePerKwh)}. Brug strøm inden da, hvis det passer dig.`,
       data: { kind: HIGH_ALERT_KIND, tab: 'home' },
       sound: 'default',
-    },
-    trigger: { type: notifications.SchedulableTriggerInputTypes.DATE, date: triggerAt, channelId: CHANNEL_ID },
   });
   return 'scheduled';
 }
@@ -242,28 +285,21 @@ export async function scheduleHighPriceAlert(points: PricePoint[], thresholdOreP
 export async function cancelChargingWindowAlerts() {
   const notifications = await notificationModule();
   if (!notifications) return;
-  const requests = await notifications.getAllScheduledNotificationsAsync();
-  await Promise.all(requests.filter(notificationIsChargingWindowAlert)
-    .map((request) => notifications.cancelScheduledNotificationAsync(request.identifier)));
+  await cancelScheduledPriceAlerts(notifications, CHARGING_ALERT_KIND, notificationIsChargingWindowAlert);
 }
 
 export async function scheduleChargingWindowAlert(points: PricePoint[], durationHours = 4, readyByHour = 7): Promise<ChargingWindowAlertSchedule> {
   const notifications = await notificationModule();
   if (!notifications) return 'unsupported';
   const window = findBestChargingWindow(points, Date.now(), durationHours, readyByHour);
-  await cancelChargingWindowAlerts();
-  if (!window) return 'no-window';
+  if (!window) { await cancelChargingWindowAlerts(); return 'no-window'; }
   const triggerAt = window.startsAt.getTime() - ALERT_LEAD_MS;
   if (triggerAt <= Date.now()) return 'no-window';
-  await prepareChannel(notifications);
-  await notifications.scheduleNotificationAsync({
-    content: {
+  await schedulePriceAlert(notifications, CHARGING_ALERT_KIND, triggerAt, {
       title: 'Dit billigste opladningsvindue',
       body: `Oplad fra kl. ${time(window.startsAt)} til ${time(window.endsAt)}. Gennemsnitsprisen er ${price(window.averageOrePerKwh)}.`,
       data: { kind: CHARGING_ALERT_KIND, tab: 'car' },
       sound: 'default',
-    },
-    trigger: { type: notifications.SchedulableTriggerInputTypes.DATE, date: triggerAt, channelId: CHANNEL_ID },
   });
   return 'scheduled';
 }

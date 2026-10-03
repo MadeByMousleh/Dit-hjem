@@ -2,6 +2,7 @@ import { Ionicons } from '@expo/vector-icons';
 import { Pressable, StyleSheet, Text, View } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { colors } from '../styles/theme';
+import type { DashboardTab } from '../hooks/useDashboardViewState';
 
 const tabs = [
   { id: 'dashboard', label: 'Overblik', icon: 'grid-outline', selectedIcon: 'grid' },
@@ -10,14 +11,14 @@ const tabs = [
   { id: 'car', label: 'Bil', icon: 'car-sport-outline', selectedIcon: 'car-sport' },
   { id: 'profile', label: 'Profil', icon: 'person-outline', selectedIcon: 'person' },
 ] as const;
-type Tab = typeof tabs[number]['id'];
+type Tab = DashboardTab;
 
 export function BottomTabs({ activeTab, onSelect }: { activeTab: Tab; onSelect: (tab: Tab) => void }) {
   const insets = useSafeAreaInsets();
   return <View style={[s.surface, { paddingBottom: Math.max(insets.bottom, 8), paddingLeft: Math.max(insets.left, 12), paddingRight: Math.max(insets.right, 12) }]}>
     <View accessibilityRole="tablist" style={s.row}>
       {tabs.map(tab => {
-        const selected = activeTab === tab.id;
+        const selected = activeTab === tab.id || (tab.id === 'home' && (activeTab === 'electricity' || activeTab === 'appliances'));
         return <Pressable key={tab.id} accessibilityRole="tab" accessibilityLabel={tab.label} accessibilityState={{ selected }}
           onPress={() => onSelect(tab.id)} style={({ pressed }) => [s.tab, pressed && s.pressed]}>
           <View style={[s.icon, selected && s.selectedIcon]}>

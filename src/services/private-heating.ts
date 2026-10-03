@@ -1,4 +1,6 @@
 import * as Crypto from 'expo-crypto';
+import { md5 } from '@noble/hashes/legacy.js';
+import { bytesToHex, utf8ToBytes } from '@noble/hashes/utils.js';
 import * as SecureStore from 'expo-secure-store';
 import { Platform } from 'react-native';
 import type { EnergyVault } from './energy-vault';
@@ -14,6 +16,10 @@ export type HeatHistory = { supplier: 'sonderborg-varme'; installation: string; 
 type Credentials = { username: string; password: string };
 const key = (vault: EnergyVault) => `stromblik.heating.${vault.userId}.${vault.householdId}`;
 const queues = new WeakMap<EnergyVault, Promise<void>>();
+const browserCredentials = new WeakMap<EnergyVault, Credentials>();
+const protocolDigest = async (value: string) => Platform.OS === 'web'
+  ? bytesToHex(md5(utf8ToBytes(value)))
+  : Crypto.digestStringAsync(Crypto.CryptoDigestAlgorithm.MD5, value);
 
 function numeric(value: unknown): number | null {
   if (value === null || value === undefined || String(value).trim() === '') return null;
@@ -104,7 +110,6 @@ export function needsHeatingEnrichment(history: HeatHistory | undefined): boolea
 }
 
 async function importHeating(vault: EnergyVault, credentials: Credentials) {
-  if (Platform.OS === 'web') throw new Error('Forbind varme i mobilappen. Browseren viser gemt historik.');
   const username = credentials.username.trim();
   if (!/^\d{1,30}$/.test(username) || !credentials.password || credentials.password.length > 512) throw new Error('Indtast kundenummer og kode fra regningen.');
   const session = Crypto.randomUUID().slice(0,8).toUpperCase();
@@ -124,8 +129,8 @@ async function importHeating(vault: EnergyVault, credentials: Credentials) {
   const challenge = await request(`system/getsecuritytoken/project/app/consumer/${username}`);
   if (typeof challenge.Token !== 'string' || !challenge.Token) throw new Error('Kundenummeret blev ikke godkendt.');
   // MD5 is mandated by this legacy upstream challenge protocol, not used for storage.
-  const digest = await Crypto.digestStringAsync(Crypto.CryptoDigestAlgorithm.MD5, credentials.password);
-  const token = await Crypto.digestStringAsync(Crypto.CryptoDigestAlgorithm.MD5, digest + challenge.Token);
+  const digest = await protocolDigest(credentials.password);
+  const token = await protocolDigest(digest + challenge.Token);
   const login = await request(`system/login/project/app/consumer/${username}/installation/1/id/${token}`);
   if (login.Result !== 1) throw new Error('Kundenummer eller kode blev afvist.');
   const user = await request(`api/getebrugerinfo?id=${token}`);
@@ -173,22 +178,31 @@ async function importHeating(vault: EnergyVault, credentials: Credentials) {
     return data;
   });
   void vault.data;
+  if (Platform.OS === 'web') {
+    browserCredentials.set(vault, { username, password: credentials.password });
+    return;
+  }
   try {
     await SecureStore.setItemAsync(key(vault), JSON.stringify({ username, password: credentials.password }), { keychainAccessible: SecureStore.WHEN_UNLOCKED_THIS_DEVICE_ONLY });
   } catch { throw new Error('Historikken er gemt, men login kunne ikke gemmes sikkert. Forbind igen ved næste opdatering.'); }
 }
+export async function hasPrivateHeatingConnection(vault: EnergyVault) {
+  if (Platform.OS === 'web') return browserCredentials.has(vault);
+  return !!(await SecureStore.getItemAsync(key(vault)));
+}
+
 export async function syncHeating(vault: EnergyVault, credentials?: Credentials, force = false) {
   const existing = queues.get(vault);
   if (existing) return existing;
   const pending = (async () => {
     if (!credentials) {
-      if (Platform.OS === 'web') return;
       const latestHistory = vault.data.heating?.reduce<HeatHistory | undefined>((last, item) => !last || item.fetchedAt > last.fetchedAt ? item : last, undefined);
       if (!force && latestHistory && !needsHeatingEnrichment(latestHistory) && Date.now() - Date.parse(latestHistory.fetchedAt) < 6 * 3600000) return;
-      const stored = await SecureStore.getItemAsync(key(vault));
+      const remembered = Platform.OS === 'web' ? browserCredentials.get(vault) : undefined;
+      const stored = Platform.OS === 'web' ? (remembered ? JSON.stringify(remembered) : null) : await SecureStore.getItemAsync(key(vault));
       void vault.data;
       if (!stored) {
-        if (force) throw new Error('Forbind varme igen på denne telefon for at hente nye målinger.');
+        if (force) throw new Error('Forbind varme igen på denne enhed for at hente nye målinger.');
         return;
       }
       credentials = JSON.parse(stored) as Credentials;

@@ -1,6 +1,7 @@
 # Agent handoff: Dit-hjem / Strømblik
 
 Read [docs/ENVIRONMENTS.md](docs/ENVIRONMENTS.md) before environment, database, auth, or deployment work. Read [supabase/ENCRYPTED-ENERGY.md](supabase/ENCRYPTED-ENERGY.md) before changing electricity storage or cryptography.
+Read [docs/SMARTTHINGS.md](docs/SMARTTHINGS.md) before changing the SmartThings integration.
 
 ## Environment safety
 
@@ -14,6 +15,14 @@ Read [docs/ENVIRONMENTS.md](docs/ENVIRONMENTS.md) before environment, database, 
 - A development API secret was shared in chat. Its rotation is **not confirmed**. Do not recover or reuse it from conversation history; ask the user to rotate privately if still outstanding. The CLI tests use the CLI account login, not that API secret.
 
 ## Current handoff (2026-09-28; verify before acting)
+
+- Local SONFOR waste increment, 2026-10-03: added a Sønderborg (`0540`) RenoWeb adapter to `/api/waste/calendar`. It uses the provider's public app identifier server-side, resolves road → address → containers, deduplicates collections and returns dates/categories through the existing waste UI. `src/waste.ts` now uses the configured/same-origin API URL, so hosted web does not call localhost. Synthetic adapter and live public-provider lookup passed; no real household address was used. No deployment, database or environment changes.
+
+- Browser provider release, 2026-10-03: deployed with explicit user approval to `https://huslyg.dk` and `https://dit-hjem-five.vercel.app`, deployment `dpl_6GkgLMXyfeGZu8guYfcjjcgdST2J`. Compared source hashes with the previous production deployment: only the four approved browser provider runtime files differed; other runtime/API files matched and no runtime files were added. Both homepages and new bundle return 200, include browser connection forms/session notice, and exclude old provider web blockers. Auth config still selects production Supabase; unauthenticated Tesla/SmartThings status returns 401. No database migration, auth/environment change or Git push. Real-account browser provider login/import remains unverified.
+
+- Local browser provider increment, 2026-10-03: enabled electricity token entry and heat login/refresh on web using direct upstream requests and session-memory credentials. Heat uses browser-compatible MD5 for the provider challenge. Synthetic electricity/heat browser flows, vault/crypto/signing suites, TypeScript-only check and Expo web export pass. Provider GET/POST CORS preflights allow the production origin; real-account browser verification and production deployment remain outstanding. No environment, database or backend auth changes.
+
+- Production code checkpoint, 2026-10-03: the current workspace web app/API was deployed with explicit user approval to `https://huslyg.dk` and `https://dit-hjem-five.vercel.app` (deployment `dpl_FLSjfKeLYbdm5qDcGfu1Kqw7PCoG`). Both homepages serve the new bundle; auth config returns the production Supabase project; unauthenticated Tesla/SmartThings status checks reject access. SmartThings endpoints now share `api/smartthings/[action].mjs` to keep the deployment within the 12-function Hobby limit. No database migration, secret/configuration change, or external Tesla proxy deployment was performed. TypeScript and ten local crypto/vault/provider/alert suites passed; `test-consumption.mjs` has one unresolved partial-first-year total failure (null versus 100 kWh). Native connection input changes still require an app rebuild and phone verification; Vercel web remains history-only for electricity/heat connections. SmartThings OAuth, authenticated signed writes and physical-device flows remain unverified.
 
 - All ten repository migrations through `202609280001_tesla_connections.sql` were applied to dev. The first nine rollback-only SQL suites passed, assertions enabled, no fixture users/households/vaults/writers/versions remained. The Tesla migration has local mocked-flow coverage only; it has not been exercised through a deployed dev backend or a physical phone.
 - Production was migrated through `202609280001_tesla_connections.sql` and the matching current worktree was deployed to `https://dit-hjem-five.vercel.app` on 2026-09-28. Safe endpoint checks passed: auth config 200, unauthenticated Tesla status 401, invalid Tesla callback 400. A real Tesla OAuth login, signed vault write and Android physical-device flow have not been verified; do not call those successful without evidence.

@@ -89,13 +89,18 @@ export class EnergyVault {
     } catch (cause) { if (this.key !== key) key.fill(0); throw cause; }
   }
   async unlockRemembered() {
-    if (Platform.OS === 'web') return false;
-    const text = await SecureStore.getItemAsync(this.keyName, { requireAuthentication: true, authenticationPrompt: 'Lås dine eldata op' });
+    const text = Platform.OS === 'web'
+      ? globalThis.localStorage.getItem(this.keyName)
+      : await SecureStore.getItemAsync(this.keyName, { requireAuthentication: true, authenticationPrompt: 'Lås dine eldata op' });
     if (!text) return false;
     await this.unlock(text); return true;
   }
   async remember() {
-    if (!this.key || Platform.OS === 'web') return;
+    if (!this.key) return;
+    if (Platform.OS === 'web') {
+      globalThis.localStorage.setItem(this.keyName, recoveryKey(this.key));
+      return;
+    }
     await SecureStore.setItemAsync(this.keyName, recoveryKey(this.key), { requireAuthentication: true, keychainAccessible: SecureStore.WHEN_UNLOCKED_THIS_DEVICE_ONLY, authenticationPrompt: 'Gem adgang på denne telefon' });
   }
   async enroll(text: string) {

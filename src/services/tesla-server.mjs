@@ -19,6 +19,17 @@ function config(env = process.env) {
   return { clientId, clientSecret, domain, redirectUri: env.TESLA_REDIRECT_URI ?? `https://${domain}/callback` };
 }
 
+function commandProxyConfig(env = process.env) {
+  const sharedSecret = String(env.TESLA_COMMAND_PROXY_SHARED_SECRET ?? '').trim();
+  const rawUrl = String(env.TESLA_COMMAND_PROXY_URL ?? '').trim();
+  if (!rawUrl || !sharedSecret) throw new TeslaError(503, 'Tesla Command Proxy er ikke konfigureret.');
+  try {
+    const url = new URL(rawUrl);
+    if (url.protocol !== 'https:' || url.username || url.password || url.hash) throw new Error();
+    return { baseUrl: url.toString().replace(/\/$/, ''), sharedSecret };
+  } catch { throw new TeslaError(503, 'Tesla Command Proxy-adressen er ugyldig.'); }
+}
+
 function tokenKey(secret) { return createHash('sha256').update(secret).digest(); }
 
 export function encryptTeslaTokens(tokens, secret) {
@@ -149,7 +160,7 @@ export async function teslaStatus(request, dependencies = {}) {
   try {
     const ctx = await userContext(request, dependencies.contextFactory), cfg = config(dependencies.env);
     await connectionForUser(ctx, cfg.clientSecret);
-    return { status: 200, body: { connected: true } };
+    return { status: 200, body: { connected: true, virtualKeyPairingUrl: `https://tesla.com/_ak/${cfg.domain}` } };
   } catch (error) { return { status: error instanceof TeslaError ? error.status : 503, body: { connected: false, error: error instanceof Error ? error.message : 'Tesla-status kunne ikke hentes.' } }; }
 }
 
@@ -189,8 +200,14 @@ export async function teslaChargingCommand(request, body, dependencies = {}) {
     if (!vehiclesResponse.ok) throw new TeslaError(502, `Tesla-køretøjer svarede med ${vehiclesResponse.status}.`);
     if (!vehiclesPayload.response?.some(vehicle => vehicle.vin === vin)) throw new TeslaError(404, 'Bilen findes ikke på din Tesla-konto.');
     const command = action === 'start' ? 'charge_start' : 'charge_stop';
-    const commandResponse = await (dependencies.fetcher ?? fetch)(`${apiBase}/api/1/vehicles/${encodeURIComponent(vin)}/command/${command}`, { method: 'POST', headers });
-    const commandPayload = await commandResponse.json();
+    const proxy = commandProxyConfig(dependencies.env);
+    const commandResponse = await (dependencies.fetcher ?? fetch)(`${proxy.baseUrl}/api/1/vehicles/${encodeURIComponent(vin)}/command/${command}`, {
+      method: 'POST',
+      headers: { ...headers, 'Content-Type': 'application/json', 'X-Tesla-Proxy-Secret': proxy.sharedSecret },
+      body: '{}',
+    });
+    let commandPayload = {};
+    try { commandPayload = await commandResponse.json(); } catch { /* preserve the proxy HTTP status below */ }
     teslaStatus = commandResponse.status;
     if (!commandResponse.ok || commandPayload.response?.result === false) throw new TeslaError(502, teslaMessage(commandPayload, `Tesla kunne ikke ${action === 'start' ? 'starte' : 'stoppe'} opladningen.`));
     await recordTeslaCommand(ctx, { vin, action, outcome: 'accepted', teslaStatus, message: 'Tesla accepterede kommandoen.' });

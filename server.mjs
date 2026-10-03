@@ -31,6 +31,7 @@ const openExperienceHosts = {
 };
 const perfectWasteMunicipalities = new Set(["0201", "0159", "0253", "0270", "0376", "0219", "0615", "0167", "0169", "0173", "0223", "0360", "0259", "0350", "0326", "0250", "0530", "0615", "0621", "0630", "0706", "0730", "0740", "0746", "0760", "0787", "0185"]);
 const providerMunicipalities = {
+  renoweb: new Set(["0540"]),
   affaldonline: new Set(["0420", "0710", "0430", "0316", "0482", "0773", "0840", "0630", "0791", "0492"]),
   vestfor: new Set(["0151", "0190", "0183", "0187", "0163"]),
   provas: new Set(["0510"]),
@@ -43,9 +44,12 @@ const providerMunicipalities = {
   openexplive: new Set(["0607", "0787"]),
   affaldonlineweb: new Set(["0410", "0740"]),
 };
-const providerStatusNames = { affaldonline: "AffaldOnline", vestfor: "Vestforbrænding", provas: "Provas / WasteHero", renodjurs: "RenoDjurs", renosyd: "RenoSyd", wastewatch: "WasteWatch", herning: "Herning", ikastbrande: "Ikast-Brande", kolding: "Infovision", openexplive: "Open Experience Live", affaldonlineweb: "AffaldOnlineWeb" };
+const providerStatusNames = { renoweb: "SONFOR / RenoWeb", affaldonline: "AffaldOnline", vestfor: "Vestforbrænding", provas: "Provas / WasteHero", renodjurs: "RenoDjurs", renosyd: "RenoSyd", wastewatch: "WasteWatch", herning: "Herning", ikastbrande: "Ikast-Brande", kolding: "Infovision", openexplive: "Open Experience Live", affaldonlineweb: "AffaldOnlineWeb" };
 const openLiveConfig = { "0607": "3YWh0MjlpbDh1djNiM25hZA==", "0787": "5NmkzUGpvZlRaMzdqZzBEQw==" };
-const implementedProviderAdapters = new Set(["affaldonline", "vestfor", "provas", "renodjurs", "renosyd", "wastewatch", "herning", "ikastbrande", "kolding", "openexplive", "affaldonlineweb"]);
+const implementedProviderAdapters = new Set(["renoweb", "affaldonline", "vestfor", "provas", "renodjurs", "renosyd", "wastewatch", "herning", "ikastbrande", "kolding", "openexplive", "affaldonlineweb"]);
+// Public app identifier used by the provider's address calendar API. It stays
+// server-side so the browser does not call the third-party API directly.
+const renowebPublicApiKey = Buffer.from("NDc5RDQwRjQtQjNFMS00MDM4LTkxMzAtNzY0NTMxODhDNzRD", "base64").toString("utf8");
 
 function requireConfig(credentials) {
   const missing = [
@@ -404,6 +408,36 @@ async function getRenoDjursEvents(address, postcode) {
   return [...html.matchAll(/<tr[\s\S]*?<td[^>]*>([^<]+)<\/td>[\s\S]*?<td[^>]*>([^<]+)<\/td>/gi)].flatMap((matchRow) => ({ date: matchRow[2].trim(), description: matchRow[1].trim() }));
 }
 
+export async function getRenoWebEvents(address, postcode, request = fetch) {
+  const match = /^(.+?)\s+(\d+[\p{L}]?(?:\s*[-/]\s*\d+[\p{L}]?)?)\s*$/u.exec(address.trim());
+  if (!match) throw new Error("Skriv adresse med vejnavn og husnummer for at finde SONFORs kalender");
+  const [, roadName, houseNumber] = match;
+  const base = "https://servicesgh.renoweb.dk/v1_13/";
+  const query = async (path, parameters) => {
+    const url = new URL(path, base);
+    url.search = new URLSearchParams({ apikey: renowebPublicApiKey, municipalitycode: "540", ...parameters }).toString();
+    const response = await request(url, { headers: { "Accept-Encoding": "gzip" } });
+    if (!response.ok) throw new Error(`SONFOR svarede med ${response.status}`);
+    return response.json();
+  };
+  const roads = await query("GetJSONRoad.aspx", { roadname: roadName });
+  const road = (roads.list ?? []).find((item) => String(item.name ?? "").includes(postcode)) ?? roads.list?.[0];
+  if (!road?.id) throw new Error("Vejen kunne ikke findes hos SONFOR");
+  const addresses = await query("GetJSONAdress.aspx", { roadid: String(road.id), streetBuildingIdentifier: houseNumber.replace(/\s/g, "") });
+  const selected = (addresses.list ?? []).find((item) => String(item.presentationString ?? "").includes(postcode)) ?? addresses.list?.[0];
+  if (!selected?.id) throw new Error("Adressen kunne ikke findes hos SONFOR");
+  const containers = await query("GetJSONContainerList.aspx", { adressId: String(selected.id), fullinfo: "0", supportsSharedEquipment: "0" });
+  const events = new Map();
+  for (const item of containers.list ?? []) {
+    const date = Number.isFinite(Number(item.nextpickupdatetimestamp))
+      ? new Date(Number(item.nextpickupdatetimestamp) * 1000).toISOString().slice(0, 10)
+      : String(item.nextpickupdate ?? "").slice(0, 10);
+    const title = String(item.name ?? "Affald").trim();
+    if (/^\d{4}-\d{2}-\d{2}$/.test(date) && title) events.set(`${date}-${title}`, { date, description: title });
+  }
+  return [...events.values()].sort((a, b) => a.date.localeCompare(b.date) || a.description.localeCompare(b.description));
+}
+
 async function getIkastEvents(address, postcode) {
   const base = "https://skrald.ikast-brande.dk/Adresse";
   const searchResponse = await fetch(`${base}/Typeahead`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ query: address, limit: 30000 }) });
@@ -627,6 +661,10 @@ export async function handler(request, response) {
       }
       if (providerMunicipalities.renodjurs.has(municipality) && address) {
         const events = await getRenoDjursEvents(address, url.searchParams.get("postcode") ?? "");
+        response.writeHead(200, { "Content-Type": "application/json", "Cache-Control": "public, max-age=3600" }); response.end(JSON.stringify(events)); return;
+      }
+      if (providerMunicipalities.renoweb.has(municipality) && address) {
+        const events = await getRenoWebEvents(address, url.searchParams.get("postcode") ?? "");
         response.writeHead(200, { "Content-Type": "application/json", "Cache-Control": "public, max-age=3600" }); response.end(JSON.stringify(events)); return;
       }
       const provider = providerForMunicipality(municipality);

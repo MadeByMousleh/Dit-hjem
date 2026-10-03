@@ -1,5 +1,9 @@
 # Sønderborg Varme: first native integration
 
+Production release, 2026-10-03: browser connection changes deployed with user approval in `dpl_6GkgLMXyfeGZu8guYfcjjcgdST2J` to huslyg.dk and dit-hjem-five.vercel.app. Both sites serve the new browser form bundle; real-account login/import is still unverified.
+
+Browser increment, 2026-10-03: the heat connection form and refresh now also work on web through direct provider requests. Browser credentials are held only in the unlocked vault session's memory; reload, logout or a new vault session requires reconnecting. Native SecureStore behavior is preserved. The provider's required MD5 challenge uses `@noble/hashes` on web because WebCrypto does not support MD5. Synthetic browser login/import/refresh and credential isolation tests pass; real-account browser verification and deployment remain outstanding. Earlier native-only statements below describe the original implementation.
+
 Local implementation, 2026-09-26. Not deployed or verified against a real account or physical phone.
 
 - Entry point: **Vand og varme → Forbind varme**.

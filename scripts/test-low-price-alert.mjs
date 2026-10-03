@@ -6,15 +6,34 @@ import ts from 'typescript';
 const source = readFileSync(new URL('../src/services/low-price-alert.ts', import.meta.url), 'utf8');
 const output = ts.transpileModule(source, { compilerOptions: { module: ts.ModuleKind.CommonJS, target: ts.ScriptTarget.ES2022 } }).outputText;
 const module = { exports: {} };
+const storage = new Map();
+const scheduled = [];
+let notificationId = 0;
+const notifications = {
+  SchedulableTriggerInputTypes: { DATE: 'date' },
+  AndroidImportance: { DEFAULT: 3 },
+  IosAuthorizationStatus: { PROVISIONAL: 3 },
+  getAllScheduledNotificationsAsync: async () => [...scheduled],
+  cancelScheduledNotificationAsync: async (identifier) => {
+    const index = scheduled.findIndex((request) => request.identifier === identifier);
+    if (index >= 0) scheduled.splice(index, 1);
+  },
+  scheduleNotificationAsync: async (request) => {
+    const identifier = `notification-${++notificationId}`;
+    scheduled.push({ ...request, identifier });
+    return identifier;
+  },
+  setNotificationChannelAsync: async () => {},
+};
 vm.runInThisContext(`(function(require,module,exports){${output}\n})`)(name => {
   if (name === 'expo') return { isRunningInExpoGo: () => false };
-  if (name === 'expo-notifications') return {};
-  if (name === '@react-native-async-storage/async-storage') return { default: { getItem: async () => null, setItem: async () => {} } };
-  if (name === 'react-native') return { Platform: { OS: 'web' } };
+  if (name === 'expo-notifications') return notifications;
+  if (name === '@react-native-async-storage/async-storage') return { default: { getItem: async (key) => storage.get(key) ?? null, setItem: async (key, value) => storage.set(key, value) } };
+  if (name === 'react-native') return { Platform: { OS: 'ios' } };
   throw new Error(`Unexpected import ${name}`);
 }, module, module.exports);
 
-const { findLowPriceWindow, findHighPricePoint, findBestChargingWindow, consumptionBudgetProgress } = module.exports;
+const { findLowPriceWindow, findHighPricePoint, findBestChargingWindow, consumptionBudgetProgress, scheduleLowPriceAlert } = module.exports;
 const now = Date.parse('2026-10-01T10:00:00.000Z');
 const point = (hour, ore) => ({ startsAt: new Date(Date.parse(`2026-10-01T${String(hour).padStart(2, '0')}:00:00.000Z`)), totalOrePerKwh: ore, priceDkkMwh: ore * 10, gridAndTaxOrePerKwh: 50 });
 
@@ -54,4 +73,24 @@ assert.equal(budget?.forecast, 330);
 assert.equal(budget?.level, '100');
 assert.equal(consumptionBudgetProgress({ dailyKwh: [8, 8, 8], daysElapsed: 3, daysInMonth: 30, unit: 'dkk', limit: 600, estimatedOrePerKwh: 200 })?.level, '80');
 
-console.log('PASS: price alerts, charging windows and monthly consumption-budget thresholds are calculated correctly.');
+const actualNow = Date.now;
+Date.now = () => now;
+try {
+  // Dashboard renders can overlap while fresh prices arrive. Both requests must
+  // resolve to the same single scheduled notification, not two copies.
+  await Promise.all([
+    scheduleLowPriceAlert([point(11, 100), point(12, 100), point(13, 230), point(14, 230)]),
+    scheduleLowPriceAlert([point(11, 100), point(12, 100), point(13, 230), point(14, 230)]),
+  ]);
+  assert.equal(scheduled.length, 1);
+
+  // Once today's notification was delivered, a dashboard refresh may not send
+  // another low-price notification for that same local calendar day.
+  scheduled.length = 0;
+  await scheduleLowPriceAlert([point(11, 100), point(12, 100), point(13, 230), point(14, 230)]);
+  assert.equal(scheduled.length, 0);
+} finally {
+  Date.now = actualNow;
+}
+
+console.log('PASS: price alerts, charging windows, daily notification deduplication and monthly consumption-budget thresholds are calculated correctly.');

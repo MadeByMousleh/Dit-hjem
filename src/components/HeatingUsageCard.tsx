@@ -141,16 +141,17 @@ export function HeatingUsageCard({ heat }: { heat: ReturnType<typeof useEforsyni
       </ScrollView></View>
       {points.length > 12 ? <Pressable accessibilityRole="button" onPress={() => setOverview(value => !value)} style={[s.detailButton, s.zoom]}><Text style={s.detailButtonText}>{overview ? 'Større søjler' : 'Vis hele perioden'}</Text></Pressable> : null}
 
-      {Platform.OS !== 'web' ? <View style={s.actions}><Pressable disabled={heat.loading} onPress={() => void heat.refresh()}><Text style={s.link}>Opdater</Text></Pressable><Pressable disabled={heat.loading} onPress={() => { heat.setPassword(''); setEditing(value => !value); }}><Text style={s.link}>{editing ? 'Annuller' : 'Forbind igen'}</Text></Pressable></View> : null}
+      <View style={s.actions}><Pressable disabled={heat.loading} onPress={() => void heat.refresh()}><Text style={s.link}>Opdater</Text></Pressable><Pressable disabled={heat.loading} onPress={() => { heat.setPassword(''); setEditing(value => !value); }}><Text style={s.link}>{editing ? 'Annuller' : 'Forbind igen'}</Text></Pressable></View>
     </> : null}
-    {(!history || editing) && Platform.OS !== 'web' ? <>
+    {(!history || heat.connected === false || editing) ? <>
+      {Platform.OS === 'web' ? <Text style={s.note}>Forbindelsen huskes kun, indtil du genindlæser eller forlader siden.</Text> : null}
       <Text style={s.connectIntro}>Forbind din konto hos Sønderborg Varme for at hente dit varmeforbrug. Oplysningerne finder du på din varmeregning.</Text>
       <Text style={s.inputLabel}>Kundenummer</Text>
       <TextInput accessibilityLabel="Kundenummer" placeholder="Indtast dit kundenummer" keyboardType="number-pad" autoCapitalize="none" autoCorrect={false} value={heat.username} onChangeText={heat.setUsername} editable={!heat.loading} style={s.input} />
       <Text style={s.inputLabel}>Kode fra varmeregningen</Text>
       <TextInput accessibilityLabel="Kode fra varmeregningen" placeholder="Indtast koden fra regningen" secureTextEntry autoCapitalize="none" autoCorrect={false} value={heat.password} onChangeText={heat.setPassword} editable={!heat.loading} style={s.input} />
       <Pressable accessibilityRole="button" disabled={heat.loading || !heat.username || !heat.password} onPress={() => { void heat.login().then(success => { if (success) { setEditing(false); setSelected(''); } }); }} style={[s.button, (heat.loading || !heat.username || !heat.password) && { opacity: 0.5 }]}><Text style={s.buttonText}>Forbind varme</Text></Pressable>
-    </> : !history ? <Text style={s.note}>Forbind Sønderborg Varme i mobilappen for at se din gemte historik her.</Text> : null}
+    </> : null}
     {heat.loading ? <ActivityIndicator color={colors.primary} style={{ marginTop: 12 }} /> : null}
     {heat.error ? <Text accessibilityRole="alert" style={s.error}>{heat.error}</Text> : null}
   </View>;
