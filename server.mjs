@@ -17,7 +17,14 @@ const teslaApiUrl = "https://fleet-api.prd.eu.vn.cloud.tesla.com";
 let activeCredentials = null;
 let gridBoundariesPromise;
 let openEvModelsPromise;
-const wasteProviderFeeds = JSON.parse(process.env.WASTE_PROVIDER_FEEDS_JSON ?? process.env.WASTE_FEEDS_JSON ?? "{}");
+function optionalJsonObject(value) {
+  if (!value?.trim()) return {};
+  try {
+    const parsed = JSON.parse(value);
+    return parsed && typeof parsed === "object" && !Array.isArray(parsed) ? parsed : {};
+  } catch { return {}; }
+}
+const wasteProviderFeeds = optionalJsonObject(process.env.WASTE_PROVIDER_FEEDS_JSON || process.env.WASTE_FEEDS_JSON);
 const wasteMunicipalities = {
   kredslob: new Set(["0751"]),
   affaldplus: new Set(["0320", "0370", "0329", "0330", "0340", "0390"]),
