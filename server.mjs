@@ -433,9 +433,13 @@ export async function getRenoWebEvents(address, postcode, request = fetch) {
       ? new Date(Number(item.nextpickupdatetimestamp) * 1000).toISOString().slice(0, 10)
       : String(item.nextpickupdate ?? "").slice(0, 10);
     const title = String(item.name ?? "Affald").trim();
-    if (/^\d{4}-\d{2}-\d{2}$/.test(date) && title) events.set(`${date}-${title}`, { date, description: title });
+    if (/^\d{4}-\d{2}-\d{2}$/.test(date) && title) {
+      const lower = title.toLowerCase();
+      const category = lower.includes("farlig") ? "farligt-affald" : lower.includes("mad") || lower.includes("bio") ? "madaffald" : lower.includes("plast") || lower.includes("papir") || lower.includes("pap") ? "plast-papir" : "andet";
+      events.set(`${date}-${title}`, { id: `${date}-${title}`, date, title, category });
+    }
   }
-  return [...events.values()].sort((a, b) => a.date.localeCompare(b.date) || a.description.localeCompare(b.description));
+  return [...events.values()].sort((a, b) => a.date.localeCompare(b.date) || a.title.localeCompare(b.title));
 }
 
 async function getIkastEvents(address, postcode) {

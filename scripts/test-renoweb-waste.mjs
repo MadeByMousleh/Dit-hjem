@@ -25,8 +25,8 @@ const mockFetch = async (url) => {
 
 const events = await getRenoWebEvents('Example Road 1', '6400', mockFetch);
 assert.deepEqual(events, [
-  { date: '2026-01-01', description: 'Madaffald' },
-  { date: '2026-01-02', description: 'Papir og plast' },
+  { id: '2026-01-01-Madaffald', date: '2026-01-01', title: 'Madaffald', category: 'madaffald' },
+  { id: '2026-01-02-Papir og plast', date: '2026-01-02', title: 'Papir og plast', category: 'plast-papir' },
 ]);
 assert.equal(requests.length, 3);
 assert.equal(requests[0].searchParams.get('roadname'), 'Example Road');
