@@ -1,10 +1,13 @@
 import { createCipheriv, createDecipheriv, createHash, createHmac, randomBytes, randomUUID } from "node:crypto";
 import { createServer } from "node:http";
+import { findAddressSuggestions } from './src/services/address-search.mjs';
 import { readFileSync } from "node:fs";
 import { extname, join, normalize } from "node:path";
-import { usageResponse } from "./src/services/household-usage.mjs";
+import { thirdPartyConnectionResponse } from "./src/services/eloverblik-third-party-server.mjs";
+import { heatingConnectionResponse } from "./src/services/heating-connection-server.mjs";
 import { publicAuthConfig } from "./api/auth/config.mjs";
 import { vaultWriteResponse } from "./src/services/vault-write-server.mjs";
+import { managedVaultKeyResponse } from "./src/services/managed-vault-key-server.mjs";
 import { MAX_WRITE_BYTES } from "./src/services/vault-signing.mjs";
 import { beginTeslaAuthorization, finishTeslaAuthorization, teslaStatus, teslaVehicles, TeslaError } from "./src/services/tesla-server.mjs";
 
@@ -416,7 +419,10 @@ async function getRenoDjursEvents(address, postcode) {
 }
 
 export async function getRenoWebEvents(address, postcode, request = fetch) {
-  const match = /^(.+?)\s+(\d+[\p{L}]?(?:\s*[-/]\s*\d+[\p{L}]?)?)\s*$/u.exec(address.trim());
+  // Address suggestions include postcode/city and may include floor/door.
+  // RenoWeb resolves collections for the building, using road and house number.
+  const buildingAddress = address.split(',')[0].trim();
+  const match = /^(.+?)\s+(\d+[\p{L}]?(?:\s*[-/]\s*\d+[\p{L}]?)?)\s*$/u.exec(buildingAddress);
   if (!match) throw new Error("Skriv adresse med vejnavn og husnummer for at finde SONFORs kalender");
   const [, roadName, houseNumber] = match;
   const base = "https://servicesgh.renoweb.dk/v1_13/";
@@ -562,7 +568,7 @@ export async function handler(request, response) {
     try {
       const body = await readJson(request);
       const req = new Request("http://localhost/api/eloverblik/usage", { method: "POST", headers: { authorization: request.headers.authorization ?? "" } });
-      const result = await usageResponse(req, body);
+      const result = await thirdPartyConnectionResponse(req, body);
       response.writeHead(result.status, { "Content-Type": "application/json" });
       response.end(JSON.stringify(result.body));
     } catch {
@@ -583,7 +589,11 @@ export async function handler(request, response) {
       }
       const body = JSON.parse(Buffer.concat(chunks).toString('utf8'));
       const req = new Request('http://localhost/api/energy/vault', { method: 'POST', headers: { authorization: request.headers.authorization ?? '' } });
-      const result = await vaultWriteResponse(req, body);
+      const result = body?.action === 'managed-key'
+        ? await managedVaultKeyResponse(req, body)
+        : body?.operation === 'heating'
+          ? await heatingConnectionResponse(req, body)
+          : await vaultWriteResponse(req, body);
       response.writeHead(result.status, { 'Content-Type': 'application/json' }); response.end(JSON.stringify(result.body));
     } catch { response.writeHead(400); response.end(); }
     return;
@@ -597,6 +607,15 @@ export async function handler(request, response) {
       response.writeHead(404, { "Content-Type": "text/plain" });
       response.end("Tesla public key is not configured");
     }
+    return;
+  }
+  if (request.method === 'GET' && new URL(request.url ?? '/', `http://${request.headers.host}`).pathname === '/api/address/search') {
+    const query = new URL(request.url, `http://${request.headers.host}`).searchParams.get('q')?.trim() ?? '';
+    if (query.length > 73) { response.writeHead(400, { 'Content-Type': 'application/json' }); response.end(JSON.stringify({ error: 'Adressen er for lang.' })); return; }
+    try {
+      const addresses = query.length < 3 ? [] : await findAddressSuggestions(query);
+      response.writeHead(200, { 'Content-Type': 'application/json' }); response.end(JSON.stringify(addresses));
+    } catch { response.writeHead(502, { 'Content-Type': 'application/json' }); response.end(JSON.stringify({ error: 'Adresser kunne ikke hentes. Prøv igen.' })); }
     return;
   }
   if (request.method === "GET" && request.url?.startsWith("/api/grid/lookup")) {

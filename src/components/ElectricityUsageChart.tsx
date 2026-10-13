@@ -1,4 +1,4 @@
-import { Feather } from '@expo/vector-icons';
+import { AppIcon } from './AppIcon';
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { ActivityIndicator, Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
 import { useElectricityUsage } from '../hooks/useElectricityUsage';
@@ -69,7 +69,7 @@ export function ElectricityUsageChart({ usage, aggregation, anchor, loading, loa
   const dailyCosts = useMemo(() => estimateUsageTotals(points, aggregation, agreements.records, historical.length ? historical : prices), [points, aggregation, agreements.records, historical, prices]);
   const detailed = aggregation !== 'Year';
   const totalCost = selected ? dailyCosts.get(selected.at) : points.length && points.every(point => dailyCosts.has(point.at)) ? points.reduce((sum, point) => sum + dailyCosts.get(point.at)!, 0) : undefined;
-  const slotWidth = overview && chartWidth ? Math.max(7, (chartWidth - 16) / Math.max(1, points.length)) : 21;
+  const slotWidth = overview && chartWidth ? Math.min(21, Math.max(7, (chartWidth - 16) / Math.max(1, points.length))) : 21;
   const chartScrollRef = useRef<ScrollView>(null);
   const selectBar = (index: number, initial = false) => {
     const point = points[index];
@@ -86,9 +86,9 @@ export function ElectricityUsageChart({ usage, aggregation, anchor, loading, loa
   const next = moveUsagePeriod(aggregation, periodAnchor, 1);
   const labelFormatters = useMemo(() => [false, true].map(short => new Intl.DateTimeFormat('da-DK', {
     timeZone: 'Europe/Copenhagen',
-    ...(aggregation === 'Year' ? { year: 'numeric' } : aggregation === 'Month' ? { month: short ? 'short' : 'long' } : aggregation === 'Day' ? { day: 'numeric', ...(short ? {} : { month: 'long' }) } : { hour: '2-digit', ...(short ? {} : { minute: '2-digit' }) }),
+    ...(aggregation === 'Year' ? { year: 'numeric' } : aggregation === 'Month' ? { month: short ? 'short' : 'long' } : aggregation === 'Day' ? { day: 'numeric', ...(short ? {} : { month: 'long' }) } : { hour: '2-digit', minute: '2-digit' }),
   })), [aggregation]);
-  const label = (at: string, short = false) => labelFormatters[short ? 1 : 0]!.format(new Date(at));
+  const label = (at: string, short = false) => labelFormatters[short ? 1 : 0]!.format(new Date(at)).replace('.', aggregation === 'Hour' ? ':' : '.');
   const title = new Intl.DateTimeFormat('da-DK', {
     year: 'numeric',
     ...(aggregation === 'Day' || aggregation === 'Hour' ? { month: 'long' } : {}),
@@ -101,9 +101,9 @@ export function ElectricityUsageChart({ usage, aggregation, anchor, loading, loa
     <View style={s.tabs}>{modes.map(([mode, name]) => <Pressable key={mode} accessibilityRole="button" accessibilityState={{ selected: aggregation === mode }} onPress={() => { setSelectedAt(''); void load(mode, safeAnchor); }} style={[s.tab, aggregation === mode && s.activeTab]}><Text style={[s.tabText, aggregation === mode && s.activeTabText]}>{name}</Text></Pressable>)}</View>
 
     <View style={s.periodRow}>
-      <Pressable accessibilityLabel="Forrige periode" disabled={previous < earliest} onPress={() => void load(aggregation, previous)} style={[s.arrow, previous < earliest && s.disabled]}><Feather name="chevron-left" size={21} color={colors.ink} /></Pressable>
-      <Pressable accessibilityRole="button" accessibilityLabel="Vælg periode" onPress={() => setPicker(true)} style={s.periodButton}><Text style={s.periodText}>{title}</Text><Feather name="calendar" size={16} color={colors.primary} /></Pressable>
-      <Pressable accessibilityLabel="Næste periode" disabled={next > yesterday} onPress={() => void load(aggregation, next)} style={[s.arrow, next > yesterday && s.disabled]}><Feather name="chevron-right" size={21} color={colors.ink} /></Pressable>
+      <Pressable accessibilityLabel="Forrige periode" disabled={previous < earliest} onPress={() => void load(aggregation, previous)} style={[s.arrow, previous < earliest && s.disabled]}><AppIcon name="chevron-left" size={21} color={colors.ink} /></Pressable>
+      <Pressable accessibilityRole="button" accessibilityLabel="Vælg periode" onPress={() => setPicker(true)} style={s.periodButton}><Text style={s.periodText}>{title}</Text><AppIcon name="calendar" size={16} color={colors.primary} /></Pressable>
+      <Pressable accessibilityLabel="Næste periode" disabled={next > yesterday} onPress={() => void load(aggregation, next)} style={[s.arrow, next > yesterday && s.disabled]}><AppIcon name="chevron-right" size={21} color={colors.ink} /></Pressable>
     </View>
     {picker ? <UsageDatePicker aggregation={aggregation} anchor={safeAnchor} maxDate={yesterday} years={years} onClose={() => setPicker(false)} onSelect={date => { setPicker(false); setSelectedAt(''); void load(aggregation, date); }} /> : null}
 
@@ -130,14 +130,14 @@ export function ElectricityUsageChart({ usage, aggregation, anchor, loading, loa
           onScroll={event => barScrub.setScrollX(event.nativeEvent.contentOffset.x)} scrollEventThrottle={16} contentContainerStyle={s.chart}>
           {points.map((point, index) => {
             const selectedPoint = point.at === selectedAt;
-            const labelEvery = Math.max(1, Math.ceil(38 / slotWidth));
-            const showLabel = selectedPoint || (index % labelEvery === 0 && (selectedIndex < 0 || Math.abs(index - selectedIndex) >= labelEvery));
+            const labelEvery = Math.max(1, Math.ceil(44 / slotWidth));
+            const showLabel = index % labelEvery === 0;
             return <Pressable key={point.at} accessibilityRole="button" accessibilityState={{ selected: selectedPoint }} accessibilityLabel={`${label(point.at)}, ${point.kwh === null ? 'mangler data' : `${number(point.kwh)} kWh`}`}
               accessibilityHint="Hold og træk for at vælge andre søjler"
               delayLongPress={300} onLongPress={event => barScrub.begin(index, event.nativeEvent.pageX)}
               onPress={() => { if (!barScrub.shouldIgnorePress()) selectBar(index); }} style={[s.slot, { width: slotWidth }]}>
-              <View style={s.barArea}><View style={[s.bar, { width: slotWidth - 2, height: point.kwh === null ? 3 : Math.max(point.kwh > 0 ? 4 : 0, point.kwh / max * 136), backgroundColor: selectedPoint ? colors.primary : point.kwh === null ? colors.line : '#B9D9BE' }]} /></View>
-              <Text numberOfLines={1} style={[s.tick, selectedPoint && s.selectedTick]}>{showLabel ? label(point.at, true) : ''}</Text>
+              <View style={s.barArea}><View style={[s.bar, { width: slotWidth - 2, height: point.kwh === null ? 3 : Math.max(0, point.kwh ?? 0) / max * 136, backgroundColor: selectedPoint ? colors.primary : point.kwh === null ? colors.line : '#B9D9BE' }]} /></View>
+              <View style={{ height: 21, width: slotWidth, overflow: 'visible' }}>{showLabel ? <Text numberOfLines={1} style={[s.tick, { position: 'absolute', width: 44, left: index === 0 ? 0 : (slotWidth - 44) / 2, textAlign: index === 0 ? 'left' : 'center' }, selectedPoint && s.selectedTick]}>{label(point.at, true)}</Text> : null}</View>
             </Pressable>;
           })}
         </ScrollView>
@@ -149,17 +149,17 @@ export function ElectricityUsageChart({ usage, aggregation, anchor, loading, loa
 }
 
 const s = StyleSheet.create({
-  sectionLabel: { fontFamily: 'DMSans_700Bold', fontSize: 10, letterSpacing: 0.7, color: colors.muted, marginTop: 18, marginBottom: 7 },
+  sectionLabel: { fontFamily: 'Nunito_700Bold', fontSize: 10, letterSpacing: 0.7, color: colors.muted, marginTop: 18, marginBottom: 7 },
   tabs: { flexDirection: 'row', padding: 4, backgroundColor: colors.paper, borderRadius: 16 },
   tab: { flex: 1, alignItems: 'center', justifyContent: 'center', minHeight: 42, borderRadius: 12 },
-  activeTab: { backgroundColor: colors.primary }, tabText: { color: colors.ink, fontFamily: 'DMSans_700Bold', fontSize: 12 }, activeTabText: { color: colors.white },
+  activeTab: { backgroundColor: colors.primary }, tabText: { color: colors.ink, fontFamily: 'Nunito_700Bold', fontSize: 12 }, activeTabText: { color: colors.white },
   periodRow: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', marginVertical: 14 }, arrow: { width: 42, height: 42, borderRadius: 21, backgroundColor: colors.paper, alignItems: 'center', justifyContent: 'center' }, disabled: { opacity: 0.3 },
-  periodButton: { flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 7, paddingHorizontal: 12, minHeight: 42 }, periodText: { color: colors.ink, fontFamily: 'DMSans_700Bold', fontSize: 15, textTransform: 'capitalize' },
-  summary: { flexDirection: 'row', alignItems: 'flex-end', borderTopWidth: 1, borderTopColor: colors.line, paddingTop: 14 }, summaryLabel: { fontFamily: 'DMSans_500Medium', fontSize: 12, color: colors.muted }, value: { fontFamily: 'Fraunces_600SemiBold', fontSize: 32, color: colors.ink, marginTop: 3 },
-  detailButton: { backgroundColor: colors.primarySoft, paddingHorizontal: 10, paddingVertical: 7, borderRadius: 12, marginBottom: 4 }, detailButtonText: { color: colors.primary, fontFamily: 'DMSans_700Bold', fontSize: 11 },
-  costCard: { marginTop: 12, padding: 13, borderRadius: 14, backgroundColor: '#F1F7F1' }, costHeading: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'baseline', gap: 10 }, costTitle: { fontFamily: 'DMSans_700Bold', color: colors.ink, fontSize: 13 }, costValue: { fontFamily: 'Fraunces_600SemiBold', color: colors.ink, fontSize: 21 }, costNote: { fontFamily: 'DMSans_400Regular', color: colors.muted, lineHeight: 17, fontSize: 11, marginTop: 4 },
-  chartHeader: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginTop: 19 }, chartTitle: { fontFamily: 'DMSans_700Bold', color: colors.ink, fontSize: 13 },
-  chart: { alignItems: 'flex-end', paddingTop: 10, paddingBottom: 2, paddingHorizontal: 8 }, slot: { alignItems: 'center' }, barArea: { height: 142, justifyContent: 'flex-end', alignItems: 'center' }, bar: { borderRadius: 5 }, tick: { width: 38, textAlign: 'center', fontSize: 9, color: colors.muted, marginTop: 7 }, selectedTick: { color: colors.primary, fontFamily: 'DMSans_700Bold' },
-  note: { fontFamily: 'DMSans_400Regular', fontSize: 11, lineHeight: 17, color: colors.muted }, warning: { fontFamily: 'DMSans_500Medium', fontSize: 11, lineHeight: 17, color: colors.coral, marginTop: 10 }, footer: { fontFamily: 'DMSans_400Regular', fontSize: 10, lineHeight: 15, color: colors.muted, marginTop: 14 },
-  empty: { minHeight: 130, justifyContent: 'center', alignItems: 'center', color: colors.muted, fontFamily: 'DMSans_400Regular', fontSize: 12 },
+  periodButton: { flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 7, paddingHorizontal: 12, minHeight: 48 }, periodText: { color: colors.ink, fontFamily: 'Nunito_700Bold', fontSize: 15, textTransform: 'capitalize' },
+  summary: { flexDirection: 'row', alignItems: 'flex-end', borderTopWidth: 1, borderTopColor: colors.line, paddingTop: 14 }, summaryLabel: { fontFamily: 'Nunito_500Medium', fontSize: 12, color: colors.muted }, value: { fontFamily: 'Nunito_600SemiBold', fontSize: 32, color: colors.ink, marginTop: 3 },
+  detailButton: { backgroundColor: colors.primarySoft, paddingHorizontal: 10, paddingVertical: 7, borderRadius: 12, marginBottom: 4 }, detailButtonText: { color: colors.primary, fontFamily: 'Nunito_700Bold', fontSize: 11 },
+  costCard: { marginTop: 12, padding: 13, borderRadius: 24, backgroundColor: '#F1F7F1' }, costHeading: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'baseline', gap: 10 }, costTitle: { fontFamily: 'Nunito_700Bold', color: colors.ink, fontSize: 13 }, costValue: { fontFamily: 'Nunito_600SemiBold', color: colors.ink, fontSize: 21 }, costNote: { fontFamily: 'Nunito_400Regular', color: colors.muted, lineHeight: 17, fontSize: 11, marginTop: 4 },
+  chartHeader: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginTop: 19 }, chartTitle: { fontFamily: 'Nunito_700Bold', color: colors.ink, fontSize: 13 },
+  chart: { height: 166, alignItems: 'flex-end', paddingTop: 10, paddingBottom: 2, paddingHorizontal: 8 }, slot: { alignItems: 'center' }, barArea: { height: 142, justifyContent: 'flex-end', alignItems: 'center' }, bar: { borderRadius: 5 }, tick: { width: 38, height: 14, lineHeight: 11, textAlign: 'center', fontSize: 9, color: colors.muted, marginTop: 7 }, selectedTick: { color: colors.primary, fontFamily: 'Nunito_700Bold' },
+  note: { fontFamily: 'Nunito_400Regular', fontSize: 11, lineHeight: 17, color: colors.muted }, warning: { fontFamily: 'Nunito_500Medium', fontSize: 11, lineHeight: 17, color: colors.coral, marginTop: 10 }, footer: { fontFamily: 'Nunito_400Regular', fontSize: 10, lineHeight: 15, color: colors.muted, marginTop: 14 },
+  empty: { minHeight: 130, justifyContent: 'center', alignItems: 'center', color: colors.muted, fontFamily: 'Nunito_400Regular', fontSize: 12 },
 });

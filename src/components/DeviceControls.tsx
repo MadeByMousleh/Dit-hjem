@@ -1,4 +1,4 @@
-import { Feather } from "@expo/vector-icons";
+import { AppIcon } from './AppIcon';
 import { Pressable, Text, TextInput, View } from "react-native";
 import { formatPrice } from "../utils/formatting";
 
@@ -8,11 +8,11 @@ export function Stepper({ label, value, onChange, min, max, step = 10, suffix = 
       <Text style={styles.stepperLabel}>{label}</Text>
       <View style={styles.stepperControls}>
         <Pressable accessibilityLabel={`Sænk ${label}`} disabled={value <= min} onPress={() => onChange(Math.max(min, value - step))} style={styles.stepperButton}>
-          <Feather name="minus" size={15} color={colors.ink} />
+          <AppIcon name="minus" size={15} color={colors.ink} />
         </Pressable>
         <Text style={styles.stepperValue}>{formatPrice(value, digits)}{suffix}</Text>
         <Pressable accessibilityLabel={`Hæv ${label}`} disabled={value >= max} onPress={() => onChange(Math.min(max, value + step))} style={styles.stepperButton}>
-          <Feather name="plus" size={15} color={colors.ink} />
+          <AppIcon name="plus" size={15} color={colors.ink} />
         </Pressable>
       </View>
     </View>

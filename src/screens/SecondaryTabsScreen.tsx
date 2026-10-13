@@ -1,5 +1,5 @@
 import { StatusBar } from "expo-status-bar";
-import { Feather } from '@expo/vector-icons';
+import { AppIcon } from '../components/AppIcon';
 import { HomeCategories } from '../components/HomeCategories';
 import { useDashboardViewState, type DashboardTab } from '../hooks/useDashboardViewState';
 import { ReactNode, useEffect } from "react";
@@ -26,6 +26,8 @@ import type { ChargingWindowAlertStatus } from '../hooks/useChargingWindowAlert'
 import type { ConsumptionBudgetUnit } from '../services/low-price-alert';
 
 type SecondaryTabScreenProps = {
+  wasteContent: ReactNode;
+  wasteReminder: ReturnType<typeof import('../hooks/useWasteReminder').useWasteReminder>;
   activeTab: Exclude<DashboardTab, 'dashboard'>;
   now: number;
   isMobile: boolean;
@@ -160,7 +162,7 @@ export function SecondaryTabScreen(props: SecondaryTabScreenProps) {
     navigation,
   } = props;
 
-  if (activeTab === 'profile') return <ProfilePage profileName={profileName} setProfileName={setProfileName} profileEmail={profileEmail}
+  if (activeTab === 'profile') return <ProfilePage wasteReminder={props.wasteReminder} profileName={profileName} setProfileName={setProfileName} profileEmail={profileEmail}
     profileSaved={profileSaved} profileSaving={profileSaving} profileError={profileError} saveProfile={saveProfile}
     address={address} setAddress={setAddress} addressSelected={addressSelected} addressSuggestions={addressSuggestions}
     chooseAddress={chooseAddress} addressLookupLoading={addressLookupLoading} addressError={addressError}
@@ -181,9 +183,10 @@ export function SecondaryTabScreen(props: SecondaryTabScreenProps) {
         <View style={[styles.container, isMobile && styles.containerMobile]}>
           <View style={styles.header}><Text style={styles.brand}>STRØMBLIK</Text></View>
 
-          {activeTab !== 'home' ? <Pressable accessibilityRole="button" accessibilityLabel="Tilbage til Mit hjem" onPress={() => setActiveTab('home')} style={{ flexDirection: 'row', alignItems: 'center', gap: 8, paddingVertical: 14 }}><Feather name="arrow-left" size={18} color={colors.primary} /><Text style={{ fontFamily: 'DMSans_700Bold', color: colors.primary }}>Mit hjem</Text></Pressable> : null}
+          {activeTab !== 'home' ? <Pressable accessibilityRole="button" accessibilityLabel="Tilbage til Mit hjem" onPress={() => setActiveTab('home')} style={{ flexDirection: 'row', alignItems: 'center', gap: 8, paddingVertical: 14 }}><AppIcon name="arrow-left" size={18} color={colors.primary} /><Text style={{ fontFamily: 'Nunito_700Bold', color: colors.primary }}>Mit hjem</Text></Pressable> : null}
+          {activeTab === 'waste' ? <><Text style={{ fontFamily: 'Nunito_600SemiBold', fontSize: 30, color: colors.ink, marginBottom: 8 }}>Affald</Text><Text style={{ fontFamily: 'Nunito_400Regular', color: colors.muted, marginBottom: 24 }}>Din kalender for de kommende tømninger.</Text>{props.wasteContent}</> : null}
           {activeTab === 'home' ? <HomeCategories onSelect={setActiveTab} /> : null}
-          {activeTab === 'electricity' ? <Text style={{ fontFamily: 'Fraunces_600SemiBold', fontSize: 30, color: colors.ink, marginBottom: 16 }}>El</Text> : null}
+          {activeTab === 'electricity' ? <Text style={{ fontFamily: 'Nunito_600SemiBold', fontSize: 30, color: colors.ink, marginBottom: 16 }}>El</Text> : null}
           {activeTab === "electricity" ? (
             <>
               {electricityUsage.connected === true ? <MonthlyUsageCard data={electricityUsage.monthlyUsage} currentMonthDays={electricityUsage.currentMonthDays} previousMonthDays={electricityUsage.previousMonthDays} loading={electricityUsage.monthlyLoading} error={electricityUsage.monthlyError} agreements={electricityUsage.agreements.records} gridSupplier={selectedSupplier} /> : null}

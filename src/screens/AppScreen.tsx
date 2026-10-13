@@ -1,6 +1,4 @@
-import { useFonts as useDMSans, DMSans_400Regular, DMSans_500Medium, DMSans_700Bold } from "@expo-google-fonts/dm-sans";
-import { Fraunces_600SemiBold, useFonts as useFraunces } from "@expo-google-fonts/fraunces";
-import { Feather, Ionicons } from '@expo/vector-icons';
+import { useFonts, Nunito_400Regular, Nunito_500Medium, Nunito_600SemiBold, Nunito_700Bold } from "@expo-google-fonts/nunito";
 import { ActivityIndicator, View } from "react-native";
 import { SafeAreaProvider } from "react-native-safe-area-context";
 import { DashboardScreen } from "./DashboardScreen";
@@ -9,10 +7,15 @@ import { styles } from "../styles/appStyles";
 import { HouseholdSessionProvider, useHouseholdSession } from '../hooks/useHouseholdSession';
 import { LoginScreen } from './LoginScreen';
 import { EnergyVaultGate } from '../components/EnergyVaultGate';
-import { type ReactNode, useEffect, useRef, useState } from 'react';
+import { type ReactNode, useEffect, useRef } from 'react';
 import { fetchPrices } from '../prices';
 import { DashboardViewStateProvider } from '../hooks/useDashboardViewState';
 import { configureLowPriceAlertPresentation } from '../services/low-price-alert';
+import { AccountSetup } from './AccountSetup';
+import { useState } from 'react';
+
+// Temporary preview override: remove after the onboarding flow has been reviewed.
+const FORCE_ONBOARDING_PREVIEW = true;
 
 function PersistedViewState({ children }: { children: ReactNode }) {
   const auth = useHouseholdSession();
@@ -25,32 +28,28 @@ function PersistedViewState({ children }: { children: ReactNode }) {
 
 function AuthenticatedApp() {
   const auth = useHouseholdSession();
+  const [finishedFor, setFinishedFor] = useState('');
+  useEffect(() => {
+    if (!auth.session) setFinishedFor('');
+  }, [auth.session]);
   if (auth.initializing) return <View style={styles.loadingScreen}><ActivityIndicator color={colors.primary} /></View>;
   if (!auth.session || !auth.householdId) return <LoginScreen />;
-  return <EnergyVaultGate><DashboardScreen key={auth.session.user.id} /></EnergyVaultGate>;
+  const accountKey = `${auth.session.user.id}:${auth.householdId}:${auth.session.user.last_sign_in_at ?? ''}`;
+  const optedOut = auth.session.user.user_metadata?.onboarding_do_not_show_again === true;
+  const needsSetup = auth.session.user.user_metadata?.onboarding_version !== 2;
+  const showSetup = finishedFor !== accountKey && (needsSetup || (FORCE_ONBOARDING_PREVIEW && !optedOut));
+  return <EnergyVaultGate>{showSetup ? <AccountSetup previewMode={FORCE_ONBOARDING_PREVIEW} onFinish={() => setFinishedFor(accountKey)} /> : <DashboardScreen key={auth.session.user.id} />}</EnergyVaultGate>;
 }
 
 export default function AppScreen() {
-  const [iconsLoaded, setIconsLoaded] = useState(false);
   useEffect(() => {
     // Warm public default-area prices while fonts, Auth and vault unlock run.
     void fetchPrices('DK1', 'n1_c').catch(() => {});
     void configureLowPriceAlertPresentation();
   }, []);
-  useEffect(() => {
-    let active = true;
-    // BottomTabs uses Ionicons while the rest of the shell uses Feather. Loading
-    // both before Auth renders avoids a new account reaching the tabs before its
-    // icon font has arrived.
-    void Promise.all([Ionicons.loadFont(), Feather.loadFont()])
-      .catch(() => { /* The icon components retain their own fallback behavior. */ })
-      .finally(() => { if (active) setIconsLoaded(true); });
-    return () => { active = false; };
-  }, []);
-  const [dmLoaded] = useDMSans({ DMSans_400Regular, DMSans_500Medium, DMSans_700Bold });
-  const [frauncesLoaded] = useFraunces({ Fraunces_600SemiBold });
+  const [fontsLoaded] = useFonts({ Nunito_400Regular, Nunito_500Medium, Nunito_600SemiBold, Nunito_700Bold });
 
-  if (!dmLoaded || !frauncesLoaded || !iconsLoaded) {
+  if (!fontsLoaded) {
     return <View style={styles.loadingScreen}><ActivityIndicator color={colors.primary} /></View>;
   }
 

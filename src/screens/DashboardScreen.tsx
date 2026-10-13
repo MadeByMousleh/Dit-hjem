@@ -1,4 +1,4 @@
-import { Feather } from "@expo/vector-icons";
+import { AppIcon } from '../components/AppIcon';
 import { StatusBar } from "expo-status-bar";
 import {
   ActivityIndicator,
@@ -16,6 +16,7 @@ import { FamilyPlanner as ExtractedFamilyPlanner } from "../components/FamilyPla
 import { DevicePlanCard } from "../components/DevicePlanCard";
 import { PriceChart } from "../components/PriceChart";
 import { BottomTabs } from "../components/BottomTabs";
+import { useWasteReminder } from '../hooks/useWasteReminder';
 import { WasteCollectionCard } from "../components/WasteCollectionCard";
 import { SecondaryTabScreen } from "./SecondaryTabsScreen";
 import { useTeslaConnection } from "../hooks/useTeslaConnection";
@@ -96,6 +97,8 @@ function Dashboard() {
 
   const { events: wasteEvents, error: wasteError, health: wasteHealth } = useWasteCalendar({ municipality: addressMunicipality, postcode: addressPostcode, calendarUrl: wasteCalendarUrl, address });
 
+  const wasteReminder = useWasteReminder(wasteEvents);
+
   const navigation = <BottomTabs activeTab={activeTab} onSelect={setActiveTab} />;
 
   const changeLowPriceAlerts = async (enabled: boolean) => {
@@ -118,7 +121,7 @@ function Dashboard() {
     await setMonthlyEnergySummary(enabled, monthlyEnergySummaryHour);
   };
 
-  if (activeTab !== "dashboard") return <SecondaryTabScreen key={activeTab} activeTab={activeTab} now={now} isMobile={isMobile} styles={styles} colors={colors} profileName={profileName} setProfileName={setProfileName} profileEmail={profileEmail} saveProfile={saveProfile} profileSaved={profileSaved} profileSaving={profileSaving} profileError={profileError} address={address} setAddress={setAddress} addressSelected={addressSelected} addressSuggestions={addressSuggestions} chooseAddress={chooseAddress} addressLookupLoading={addressLookupLoading} addressError={addressError} selectedSupplier={selectedSupplier} lowPriceAlerts={lowPriceAlerts} setLowPriceAlerts={changeLowPriceAlerts} lowPriceAlertStatus={lowPriceAlertStatus} lowPriceAlertThresholdOre={lowPriceAlertThresholdOre} setLowPriceAlertThresholdOre={setLowPriceAlertThresholdOre} highPriceAlerts={highPriceAlerts} setHighPriceAlerts={changeHighPriceAlerts} highPriceAlertStatus={highPriceAlertStatus} highPriceAlertThresholdOre={highPriceAlertThresholdOre} setHighPriceAlertThresholdOre={setHighPriceAlertThresholdOre} consumptionBudgetAlerts={consumptionBudgetAlerts} setConsumptionBudgetAlerts={changeConsumptionBudgetAlerts} consumptionBudgetAlertStatus={consumptionBudgetAlertStatus} consumptionBudgetUnit={consumptionBudgetUnit} consumptionBudgetLimit={consumptionBudgetLimit} setConsumptionBudget={setConsumptionBudget} chargingWindowAlerts={chargingWindowAlerts} setChargingWindowAlerts={changeChargingWindowAlerts} chargingWindowAlertStatus={chargingWindowAlertStatus} chargingDurationHours={chargingDurationHours} chargingReadyByHour={chargingReadyByHour} setChargingWindow={setChargingWindow} monthlyEnergySummaryAlerts={monthlyEnergySummaryAlerts} setMonthlyEnergySummaryAlerts={changeMonthlyEnergySummaryAlerts} monthlyEnergySummaryHour={monthlyEnergySummaryHour} setMonthlyEnergySummary={setMonthlyEnergySummary} prices={prices} evModels={evModels} teslaConnected={tesla.connected} teslaVehicle={tesla.vehicle} teslaRefreshing={tesla.refreshing} teslaChargingCommandPending={tesla.chargingCommandPending} connectTesla={tesla.connect} refreshTesla={tesla.refresh} setTeslaCharging={tesla.setCharging} pairTeslaVirtualKey={tesla.pairVirtualKey} electricityUsage={electricityUsage} renderDeviceCard={renderDeviceCard} navigation={navigation} />;
+  if (activeTab !== "dashboard") return <SecondaryTabScreen key={activeTab} activeTab={activeTab} wasteReminder={wasteReminder} wasteContent={<WasteCollectionCard events={wasteEvents} error={wasteError} wasteHealth={wasteHealth} onOpenProfile={() => setActiveTab('profile')} />} now={now} isMobile={isMobile} styles={styles} colors={colors} profileName={profileName} setProfileName={setProfileName} profileEmail={profileEmail} saveProfile={saveProfile} profileSaved={profileSaved} profileSaving={profileSaving} profileError={profileError} address={address} setAddress={setAddress} addressSelected={addressSelected} addressSuggestions={addressSuggestions} chooseAddress={chooseAddress} addressLookupLoading={addressLookupLoading} addressError={addressError} selectedSupplier={selectedSupplier} lowPriceAlerts={lowPriceAlerts} setLowPriceAlerts={changeLowPriceAlerts} lowPriceAlertStatus={lowPriceAlertStatus} lowPriceAlertThresholdOre={lowPriceAlertThresholdOre} setLowPriceAlertThresholdOre={setLowPriceAlertThresholdOre} highPriceAlerts={highPriceAlerts} setHighPriceAlerts={changeHighPriceAlerts} highPriceAlertStatus={highPriceAlertStatus} highPriceAlertThresholdOre={highPriceAlertThresholdOre} setHighPriceAlertThresholdOre={setHighPriceAlertThresholdOre} consumptionBudgetAlerts={consumptionBudgetAlerts} setConsumptionBudgetAlerts={changeConsumptionBudgetAlerts} consumptionBudgetAlertStatus={consumptionBudgetAlertStatus} consumptionBudgetUnit={consumptionBudgetUnit} consumptionBudgetLimit={consumptionBudgetLimit} setConsumptionBudget={setConsumptionBudget} chargingWindowAlerts={chargingWindowAlerts} setChargingWindowAlerts={changeChargingWindowAlerts} chargingWindowAlertStatus={chargingWindowAlertStatus} chargingDurationHours={chargingDurationHours} chargingReadyByHour={chargingReadyByHour} setChargingWindow={setChargingWindow} monthlyEnergySummaryAlerts={monthlyEnergySummaryAlerts} setMonthlyEnergySummaryAlerts={changeMonthlyEnergySummaryAlerts} monthlyEnergySummaryHour={monthlyEnergySummaryHour} setMonthlyEnergySummary={setMonthlyEnergySummary} prices={prices} evModels={evModels} teslaConnected={tesla.connected} teslaVehicle={tesla.vehicle} teslaRefreshing={tesla.refreshing} teslaChargingCommandPending={tesla.chargingCommandPending} connectTesla={tesla.connect} refreshTesla={tesla.refresh} setTeslaCharging={tesla.setCharging} pairTeslaVirtualKey={tesla.pairVirtualKey} electricityUsage={electricityUsage} renderDeviceCard={renderDeviceCard} navigation={navigation} />;
 
   return (
     <SafeAreaView style={styles.safeArea} edges={["top"]}>
@@ -140,10 +143,12 @@ function Dashboard() {
 
           {isSample ? (
             <View style={styles.notice}>
-              <Feather name="wifi-off" size={16} color={colors.coral} />
+              <AppIcon name="wifi-off" size={16} color={colors.coral} />
               <Text style={styles.noticeText}>{loading ? 'Henter priser: eksempelpriser vises imens' : 'Priser kunne ikke hentes: eksempelpriser vises'}</Text>
             </View>
           ) : null}
+
+
 
           <View style={[styles.trendPanel, isMobile && styles.trendPanelMobile]}>
             <View style={styles.sectionHeadingRow}>
@@ -151,7 +156,7 @@ function Dashboard() {
                 <Text style={styles.eyebrow}>TIMEPRISER · OP TIL 7 DAGE</Text>
                 <Text style={styles.sectionTitle}>Prisens bevægelse</Text>
               </View>
-              {loading ? <ActivityIndicator color={colors.primary} size="small" /> : <Feather name="trending-up" size={22} color={colors.coral} />}
+              {loading ? <ActivityIndicator color={colors.primary} size="small" /> : <AppIcon name="trending-up" size={22} color={colors.coral} />}
             </View>
             <PriceChart points={prices} now={now} onScrubChange={setChartScrubbing} />
           </View>
@@ -175,7 +180,7 @@ function Dashboard() {
                 ))}
               </View>
             ) : <Text style={styles.dashboardSummaryText}>Vælg “Vis på overblik” på en enhed i Mit hjem for hurtig adgang her.</Text>}
-            <Pressable onPress={() => setActiveTab("home")} style={styles.dashboardSummaryButton}><Text style={styles.dashboardSummaryButtonText}>Åbn Mit hjem</Text><Feather name="arrow-right" size={15} color={colors.white} /></Pressable>
+            <Pressable onPress={() => setActiveTab("home")} style={styles.dashboardSummaryButton}><Text style={styles.dashboardSummaryButtonText}>Åbn Mit hjem</Text><AppIcon name="arrow-right" size={15} color={colors.white} /></Pressable>
           </View>
 
 

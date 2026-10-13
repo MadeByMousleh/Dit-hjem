@@ -1,4 +1,4 @@
-import { Ionicons } from '@expo/vector-icons';
+import { AppIcon } from './AppIcon';
 import { Pressable, StyleSheet, Text, View } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { colors } from '../styles/theme';
@@ -18,11 +18,11 @@ export function BottomTabs({ activeTab, onSelect }: { activeTab: Tab; onSelect: 
   return <View style={[s.surface, { paddingBottom: Math.max(insets.bottom, 8), paddingLeft: Math.max(insets.left, 12), paddingRight: Math.max(insets.right, 12) }]}>
     <View accessibilityRole="tablist" style={s.row}>
       {tabs.map(tab => {
-        const selected = activeTab === tab.id || (tab.id === 'home' && (activeTab === 'electricity' || activeTab === 'appliances'));
+        const selected = activeTab === tab.id || (tab.id === 'home' && (activeTab === 'electricity' || activeTab === 'appliances' || activeTab === 'waste'));
         return <Pressable key={tab.id} accessibilityRole="tab" accessibilityLabel={tab.label} accessibilityState={{ selected }}
           onPress={() => onSelect(tab.id)} style={({ pressed }) => [s.tab, pressed && s.pressed]}>
           <View style={[s.icon, selected && s.selectedIcon]}>
-            <Ionicons name={selected ? tab.selectedIcon : tab.icon} size={23} color={selected ? colors.primary : colors.muted} />
+            <AppIcon name={selected ? tab.selectedIcon : tab.icon} size={23} color={selected ? colors.primary : colors.muted} />
           </View>
           <Text numberOfLines={2} style={[s.label, selected && s.selectedLabel]}>{tab.label}</Text>
         </Pressable>;
@@ -38,6 +38,6 @@ const s = StyleSheet.create({
   pressed: { backgroundColor: colors.paper, opacity: 0.75 },
   icon: { width: 48, height: 32, borderRadius: 18, alignItems: 'center', justifyContent: 'center' },
   selectedIcon: { backgroundColor: colors.primarySoft },
-  label: { fontFamily: 'DMSans_500Medium', fontSize: 10, lineHeight: 12, textAlign: 'center', color: colors.muted },
-  selectedLabel: { fontFamily: 'DMSans_700Bold', color: colors.primary },
+  label: { fontFamily: 'Nunito_500Medium', fontSize: 10, lineHeight: 12, textAlign: 'center', color: colors.muted },
+  selectedLabel: { fontFamily: 'Nunito_700Bold', color: colors.primary },
 });

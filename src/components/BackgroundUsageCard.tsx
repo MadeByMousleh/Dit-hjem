@@ -29,9 +29,9 @@ export function BackgroundUsageCard({ data, loading, error, onRefresh }: Props) 
 }
 const s = StyleSheet.create({
   card:{backgroundColor:colors.paper,borderRadius:16,padding:16,marginTop:16},heading:{flexDirection:'row',alignItems:'center',justifyContent:'space-between',gap:8,flexWrap:'wrap'},
-  title:{fontFamily:'DMSans_700Bold',fontSize:15,color:colors.ink},badge:{fontFamily:'DMSans_700Bold',fontSize:10,color:colors.primary},
-  value:{fontFamily:'Fraunces_600SemiBold',fontSize:30,color:colors.ink,marginVertical:8},detail:{fontFamily:'DMSans_500Medium',fontSize:13,color:colors.ink,lineHeight:20,marginVertical:5},
-  note:{fontFamily:'DMSans_400Regular',fontSize:12,lineHeight:18,color:colors.muted,marginTop:7},label:{fontFamily:'DMSans_700Bold',fontSize:13,color:colors.ink,marginTop:15},
+  title:{fontFamily:'Nunito_700Bold',fontSize:15,color:colors.ink},badge:{fontFamily:'Nunito_700Bold',fontSize:10,color:colors.primary},
+  value:{fontFamily:'Nunito_600SemiBold',fontSize:30,color:colors.ink,marginVertical:8},detail:{fontFamily:'Nunito_500Medium',fontSize:13,color:colors.ink,lineHeight:20,marginVertical:5},
+  note:{fontFamily:'Nunito_400Regular',fontSize:12,lineHeight:18,color:colors.muted,marginTop:7},label:{fontFamily:'Nunito_700Bold',fontSize:13,color:colors.ink,marginTop:15},
   input:{minHeight:44,borderWidth:1,borderColor:colors.line,borderRadius:10,paddingHorizontal:12,marginTop:8,color:colors.ink,backgroundColor:colors.white},
-  button:{alignSelf:'flex-start',paddingVertical:10,marginTop:8},buttonText:{fontFamily:'DMSans_700Bold',fontSize:12,color:colors.primary},warning:{fontSize:12,color:colors.coral,lineHeight:18,marginTop:8},
+  button:{alignSelf:'flex-start',paddingVertical:10,marginTop:8},buttonText:{fontFamily:'Nunito_700Bold',fontSize:12,color:colors.primary},warning:{fontSize:12,color:colors.coral,lineHeight:18,marginTop:8},
 });

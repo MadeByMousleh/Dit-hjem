@@ -4,9 +4,9 @@ import { ElectricityUsage, UsageSelection } from "../services/eloverblik";
 import { usagePeriod, usageToday } from "../utils/usagePeriods";
 import { useElectricityAgreements } from './useElectricityAgreements';
 import { useEnergyVault } from '../components/EnergyVaultGate';
-import { Platform } from 'react-native';
 import { useDashboardViewState } from './useDashboardViewState';
-import { cachedPrivateUsage, hasPrivateMeterConnection, privateUsage, privateUsageBatch } from '../services/private-electricity';
+import { cachedPrivateUsage, privateUsage, privateUsageBatch } from '../services/private-electricity';
+import { useMeterConnection } from './useMeterConnection';
 
 const monthStart = (offset: number) => {
   const date = new Date(`${usageToday().slice(0, 7)}-01T12:00:00Z`);
@@ -24,7 +24,7 @@ export function useElectricityUsage(active = true, now = Date.now()) {
   const [usage, setUsage] = useState<ElectricityUsage | null>(null);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState("");
-  const [connected, setConnected] = useState<boolean | null>(null);
+  const { connected, error: connectionError, refresh: connectionReady } = useMeterConnection(vault, active);
   const requestId = useRef(0);
   const summaryRequest = useRef(0);
   const [monthlyUsage, setMonthlyUsage] = useState<ElectricityUsage | null>(null);
@@ -79,15 +79,6 @@ export function useElectricityUsage(active = true, now = Date.now()) {
   }, []);
 
   useEffect(() => {
-    let current = true;
-    setConnected(null);
-    void (Platform.OS === 'web' ? Promise.resolve(vault.data.readings.length > 0) : hasPrivateMeterConnection(vault))
-      .then(value => { if (current) setConnected(value); })
-      .catch(() => { if (current) setConnected(false); });
-    return () => { current = false; };
-  }, [vault]);
-
-  useEffect(() => {
     if (!active || !connected || !auth.householdId) return;
     const summaryId = ++summaryRequest.current;
     const daysId = ++previousDaysRequest.current;
@@ -132,7 +123,5 @@ export function useElectricityUsage(active = true, now = Date.now()) {
   // Run once when the home tab opens or the connection changes.
   }, [active, connected, auth.householdId, vault, localDay]);
 
-  const connectionReady = () => setConnected(true);
-
-  return { auth, agreements, meters: vault.data.meters, availableYears, usage, loading, error, load, disconnect, aggregation, anchor, connected, connectionReady, monthlyUsage, monthlyLoading, monthlyError, loadMonthly, currentMonthDays, previousMonthDays };
+  return { auth, agreements, meters: vault.data.meters, availableYears, usage, loading, error, connectionError, load, disconnect, aggregation, anchor, connected, connectionReady, monthlyUsage, monthlyLoading, monthlyError, loadMonthly, currentMonthDays, previousMonthDays };
 }

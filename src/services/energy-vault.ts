@@ -31,6 +31,10 @@ const validate = (value: VaultData): VaultData => {
 };
 export { parseRecoveryKey, recoveryKey };
 export const generateKey = () => Crypto.getRandomBytesAsync(32);
+const keyHex = (key: Uint8Array) => Array.from(key, value => value.toString(16).padStart(2, '0')).join('');
+class ManagedKeyError extends Error {
+  constructor(message: string, readonly status: number) { super(message); }
+}
 export class EnergyVault {
   private key: Uint8Array | null = null;
   private revision = 0;
@@ -74,11 +78,47 @@ export class EnergyVault {
       return row;
     } finally { clearTimeout(timeout); }
   }
-  async unlock(text: string, remember = false) {
-    const key = parseRecoveryKey(text);
+  private async managedKey(operation: 'get' | 'register', key?: Uint8Array): Promise<string | null> {
+    const db = await getSupabase();
+    const { data, error } = await db.auth.getSession();
+    if (error || !data.session || data.session.user.id !== this.userId) throw new Error('Log ind igen med den rigtige konto.');
+    if (this.closed) throw new Error('Lagringen er låst.');
+    const controller = new AbortController();
+    const timeout = setTimeout(() => controller.abort(), 30000);
+    try {
+    const response = await fetch(`${API_URL}/api/energy/vault`, {
+      method: 'POST', headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${data.session.access_token}` },
+      signal: controller.signal,
+      body: JSON.stringify({ action: 'managed-key', operation, householdId: this.householdId, ...(key ? { key: keyHex(key) } : {}) }),
+    });
+    const result = await response.json().catch(() => { throw new Error('Forbindelsen til sikker lagring svarede ikke korrekt. Prøv igen.'); });
+    if (!response.ok) throw new ManagedKeyError(typeof result.error === 'string' ? result.error : 'Automatisk sikker lagring kunne ikke gennemføres.', response.status);
+    if (this.closed) throw new Error('Lagringen er låst.');
+    if (operation === 'get') {
+      if (result.key === null) return null;
+      if (typeof result.key !== 'string' || !/^[a-f0-9]{64}$/.test(result.key)) throw new Error('Den sikre nøgle kunne ikke valideres.');
+      return result.key;
+    }
+    if (result.registered !== true) throw new Error('Sikker lagring kunne ikke bekræftes. Prøv igen.');
+    return null;
+    } finally { clearTimeout(timeout); }
+  }
+  private async forgetLegacyRemembered() {
+    try {
+      if (Platform.OS === 'web') globalThis.localStorage.removeItem(this.keyName);
+      else await SecureStore.deleteItemAsync(this.keyName);
+    } catch { /* Migration is complete even if an obsolete device cache remains. */ }
+  }
+  private async unlockKey(key: Uint8Array, remember = false) {
     try {
       const previous = await AsyncStorage.getItem(this.cacheName);
-      if (previous) { const cached = JSON.parse(previous) as VaultRow; validate(openVault(cached.envelope,key,this.householdId,cached.revision)); this.revision = cached.revision; }
+      if (previous) {
+        try {
+          const cached = JSON.parse(previous) as VaultRow;
+          validate(openVault(cached.envelope, key, this.householdId, cached.revision));
+          this.revision = Math.max(this.revision, cached.revision);
+        } catch { /* A damaged local cache must not prevent opening a valid cloud copy. */ }
+      }
       let row: VaultRow | null;
       try { row = await this.remote(); }
       catch (cause) { const cached = await AsyncStorage.getItem(this.cacheName); if (!cached) throw cause; row = JSON.parse(cached); }
@@ -87,6 +127,10 @@ export class EnergyVault {
       await this.cache(row);
       if (remember) await this.remember();
     } catch (cause) { if (this.key !== key) key.fill(0); throw cause; }
+  }
+  async unlock(text: string, remember = false) {
+    const key = parseRecoveryKey(text);
+    await this.unlockKey(key, remember);
   }
   async unlockRemembered() {
     const text = Platform.OS === 'web'
@@ -103,10 +147,62 @@ export class EnergyVault {
     }
     await SecureStore.setItemAsync(this.keyName, recoveryKey(this.key), { requireAuthentication: true, keychainAccessible: SecureStore.WHEN_UNLOCKED_THIS_DEVICE_ONLY, authenticationPrompt: 'Gem adgang på denne telefon' });
   }
+  // Normal sign-in path. Existing users with a locally remembered old key are
+  // migrated without showing it; a missing historic key remains intentionally
+  // recoverable only through the one-time compatibility screen.
+  async unlockAutomatically(): Promise<'ready' | 'migration-required'> {
+    const managed = await this.managedKey('get');
+    if (managed) {
+      const key = new Uint8Array(managed.match(/.{2}/g)!.map(byte => parseInt(byte, 16)));
+      if (await this.exists()) await this.unlockKey(key);
+      else await this.enrollKey(key);
+      return 'ready';
+    }
+    if (await this.exists()) {
+      let remembered = false;
+      try {
+        remembered = await this.unlockRemembered();
+      } catch { /* A stale remembered key must not silently create a replacement. */ }
+      if (remembered) {
+        // A server outage is retryable, not evidence that the user lost their key.
+        await this.managedKey('register', this.key!);
+        await this.forgetLegacyRemembered();
+        return 'ready';
+      }
+      return 'migration-required';
+    }
+    const key = await generateKey();
+    try {
+      try { await this.managedKey('register', key); }
+      catch (cause) {
+        // Another device may have registered the household's first key.
+        if (cause instanceof ManagedKeyError && cause.status === 409) {
+          key.fill(0);
+          const registered = await this.managedKey('get');
+          if (!registered) throw cause;
+          const sharedKey = new Uint8Array(registered.match(/.{2}/g)!.map(byte => parseInt(byte, 16)));
+          await this.enrollKey(sharedKey);
+          return 'ready';
+        }
+        throw cause;
+      }
+      await this.enrollKey(key);
+      return 'ready';
+    } catch (cause) { if (this.key !== key) key.fill(0); throw cause; }
+  }
+  async completeLegacyMigration(text: string) {
+    const key = parseRecoveryKey(text);
+    await this.unlockKey(key);
+    await this.managedKey('register', this.key!);
+    await this.forgetLegacyRemembered();
+  }
   async enroll(text: string) {
     const key = parseRecoveryKey(text);
+    return await this.enrollKey(key);
+  }
+  async enrollKey(key: Uint8Array) {
     try {
-      if (await this.remote()) throw new Error('En backup findes allerede. Brug dens gendannelsesnøgle.');
+      if (await this.remote()) { await this.unlockKey(key); return; }
       const db = await getSupabase();
       const exported = await db.rpc('export_energy_for_encryption', { p_household: this.householdId });
       if (exported.error) throw new Error('Eksisterende data kunne ikke kopieres. Intet er slettet.');
@@ -115,7 +211,15 @@ export class EnergyVault {
       payload.readings = payload.readings.map(row => ({ ...row, starts_at: new Date(row.starts_at).toISOString(), ends_at: new Date(row.ends_at).toISOString() }));
       const envelope = sealVault(payload, key, await Crypto.getRandomBytesAsync(24), this.householdId, 1);
       if (envelope.ciphertext.length > 64 * 1024 * 1024) throw new Error('Historikken er for stor til én backup. Intet er slettet.');
-      await this.saveSigned(envelope, key, 0, exported.data.digest);
+      try { await this.saveSigned(envelope, key, 0, exported.data.digest); }
+      catch (cause) {
+        // Another session using the same managed key can finish enrollment first.
+        const concurrent = await this.remote().catch(() => null);
+        if (!concurrent) throw cause;
+        this.accept(concurrent, key); this.key = key;
+        await this.cache(concurrent);
+        return;
+      }
       const verified = await this.remote();
       if (!verified) throw new Error('Backup kunne ikke verificeres. Gem din gendannelsesnøgle og prøv oplåsning.');
       this.accept(verified, key); this.key = key;

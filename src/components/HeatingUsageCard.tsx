@@ -1,4 +1,4 @@
-import { Feather } from '@expo/vector-icons';
+import { AppIcon } from './AppIcon';
 import { useMemo, useRef, useState } from 'react';
 import { ActivityIndicator, Platform, Pressable, ScrollView, StyleSheet, Text, TextInput, View } from 'react-native';
 import Svg, { Circle, Line, Path, Rect } from 'react-native-svg';
@@ -93,9 +93,9 @@ export function HeatingUsageCard({ heat }: { heat: ReturnType<typeof useEforsyni
       <View style={s.tabs}>{modes.map(([mode, name]) => <Pressable key={mode} accessibilityRole="button" accessibilityState={{ selected: period === mode }} onPress={() => { setPeriod(mode); setSelected(''); }} style={[s.tab, period === mode && s.activeTab]}><Text style={[s.tabText, period === mode && s.activeTabText]}>{name}</Text></Pressable>)}</View>
 
       <View style={s.periodRow}>
-        <Pressable accessibilityRole="button" accessibilityLabel="Forrige periode" disabled={!previous} onPress={() => moveDate(-1)} style={[s.arrow, !previous && s.disabled]}><Feather name="chevron-left" size={21} color={colors.ink} /></Pressable>
-        {period === 'year' ? <Text style={s.periodText}>{title}</Text> : <Pressable accessibilityRole="button" accessibilityLabel="Vælg periode" onPress={() => setPicker(true)} style={s.periodButton}><Text style={s.periodText}>{title}</Text><Feather name="calendar" size={16} color={colors.primary} /></Pressable>}
-        <Pressable accessibilityRole="button" accessibilityLabel="Næste periode" disabled={!next} onPress={() => moveDate(1)} style={[s.arrow, !next && s.disabled]}><Feather name="chevron-right" size={21} color={colors.ink} /></Pressable>
+        <Pressable accessibilityRole="button" accessibilityLabel="Forrige periode" disabled={!previous} onPress={() => moveDate(-1)} style={[s.arrow, !previous && s.disabled]}><AppIcon name="chevron-left" size={21} color={colors.ink} /></Pressable>
+        {period === 'year' ? <Text style={s.periodText}>{title}</Text> : <Pressable accessibilityRole="button" accessibilityLabel="Vælg periode" onPress={() => setPicker(true)} style={s.periodButton}><Text style={s.periodText}>{title}</Text><AppIcon name="calendar" size={16} color={colors.primary} /></Pressable>}
+        <Pressable accessibilityRole="button" accessibilityLabel="Næste periode" disabled={!next} onPress={() => moveDate(1)} style={[s.arrow, !next && s.disabled]}><AppIcon name="chevron-right" size={21} color={colors.ink} /></Pressable>
       </View>
       {picker && period !== 'year' ? <UsageDatePicker aggregation={period === 'month' ? 'Month' : 'Day'} anchor={anchor} years={years} maxDate={latest ?? anchor} onClose={() => setPicker(false)} onSelect={value => { setPicker(false); setDate(value); setSelected(''); }} /> : null}
 
@@ -124,7 +124,7 @@ export function HeatingUsageCard({ heat }: { heat: ReturnType<typeof useEforsyni
             <Line x1={0} x2={chartWidth} y1={chartHeight} y2={chartHeight} stroke={colors.line} />
             {points.map((point, index) => point.actual === null
               ? <Rect key={point.date} x={slotWidth * (index + 0.5) - barWidth / 2} y={chartHeight - 3} width={barWidth} height={3} rx={1.5} fill={colors.line} />
-              : <Rect key={point.date} x={slotWidth * (index + 0.5) - barWidth / 2} y={point.actual > 0 ? Math.min(y(point.actual), chartHeight - 4) : chartHeight} width={barWidth} height={point.actual > 0 ? Math.max(4, chartHeight - y(point.actual)) : 0} rx={5} fill={point.date === selected ? colors.primary : '#B9D9BE'} />)}
+              : <Rect key={point.date} x={slotWidth * (index + 0.5) - barWidth / 2} y={point.actual > 0 ? y(point.actual) : chartHeight} width={barWidth} height={point.actual > 0 ? chartHeight - y(point.actual) : 0} rx={5} fill={point.date === selected ? colors.primary : '#B9D9BE'} />)}
             <Path d={path} stroke="#C2410C" strokeWidth={3} strokeLinecap="round" strokeLinejoin="round" fill="none" />
             {points.map((point, index) => point.expected === null ? null : <Circle key={point.date} cx={slotWidth * (index + 0.5)} cy={y(point.expected)} r={overview ? 2.5 : 3.5} fill="#C2410C" stroke={colors.white} strokeWidth={1} />)}
           </Svg>
@@ -158,51 +158,51 @@ export function HeatingUsageCard({ heat }: { heat: ReturnType<typeof useEforsyni
 }
 
 const s = StyleSheet.create({
-  card: { padding: 20, marginBottom: 18, borderRadius: 20, backgroundColor: colors.white },
-  title: { fontFamily: 'DMSans_700Bold', fontSize: 17, color: colors.ink, letterSpacing: -0.2 },
-  total: { fontFamily: 'DMSans_700Bold', fontSize: 31, color: colors.ink, marginTop: 3, letterSpacing: -0.8 },
-  note: { fontFamily: 'DMSans_400Regular', fontSize: 11, color: colors.muted, marginTop: 8, lineHeight: 16 },
-  costCard: { marginTop: 14, borderRadius: 16, backgroundColor: colors.primarySoft, padding: 13 },
+  card: { padding: 24, marginBottom: 24, borderRadius: 24, backgroundColor: colors.white },
+  title: { fontFamily: 'Nunito_700Bold', fontSize: 17, color: colors.ink, letterSpacing: -0.2 },
+  total: { fontFamily: 'Nunito_700Bold', fontSize: 31, color: colors.ink, marginTop: 3, letterSpacing: -0.8 },
+  note: { fontFamily: 'Nunito_400Regular', fontSize: 11, color: colors.muted, marginTop: 8, lineHeight: 16 },
+  costCard: { marginTop: 14, borderRadius: 24, backgroundColor: colors.primarySoft, padding: 13 },
   costHeading: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', gap: 8 },
-  costTitle: { flex: 1, fontFamily: 'DMSans_700Bold', fontSize: 12, color: colors.ink },
-  costRate: { fontFamily: 'DMSans_700Bold', fontSize: 11, color: colors.primary },
+  costTitle: { flex: 1, fontFamily: 'Nunito_700Bold', fontSize: 12, color: colors.ink },
+  costRate: { fontFamily: 'Nunito_700Bold', fontSize: 11, color: colors.primary },
   costRow: { flexDirection: 'row', gap: 10, marginTop: 11 },
   costMetric: { flex: 1 },
-  costLabel: { fontFamily: 'DMSans_500Medium', fontSize: 10, color: colors.muted },
-  costValue: { fontFamily: 'DMSans_700Bold', fontSize: 20, color: colors.ink, marginTop: 2, letterSpacing: -0.4 },
-  costNote: { fontFamily: 'DMSans_400Regular', fontSize: 10, color: colors.muted, marginTop: 8 },
-  connectIntro: { fontFamily: 'DMSans_400Regular', fontSize: 12, lineHeight: 18, color: colors.muted, marginTop: 10 },
-  inputLabel: { fontFamily: 'DMSans_700Bold', fontSize: 11, color: colors.ink, marginTop: 16 },
+  costLabel: { fontFamily: 'Nunito_500Medium', fontSize: 10, color: colors.muted },
+  costValue: { fontFamily: 'Nunito_700Bold', fontSize: 20, color: colors.ink, marginTop: 2, letterSpacing: -0.4 },
+  costNote: { fontFamily: 'Nunito_400Regular', fontSize: 10, color: colors.muted, marginTop: 8 },
+  connectIntro: { fontFamily: 'Nunito_400Regular', fontSize: 12, lineHeight: 18, color: colors.muted, marginTop: 10 },
+  inputLabel: { fontFamily: 'Nunito_700Bold', fontSize: 11, color: colors.ink, marginTop: 16 },
   input: { borderWidth: 1, borderColor: colors.line, borderRadius: 12, padding: 12, color: colors.ink, marginTop: 12 },
   button: { backgroundColor: colors.primary, borderRadius: 22, alignItems: 'center', padding: 13, marginVertical: 12 },
-  buttonText: { color: colors.white, fontFamily: 'DMSans_700Bold' },
+  buttonText: { color: colors.white, fontFamily: 'Nunito_700Bold' },
   tabs: { flexDirection: 'row', padding: 4, backgroundColor: colors.paper, borderRadius: 16, marginTop: 18 },
   tab: { flex: 1, alignItems: 'center', justifyContent: 'center', minHeight: 42, borderRadius: 12 },
   activeTab: { backgroundColor: colors.primary },
-  tabText: { color: colors.ink, fontFamily: 'DMSans_700Bold', fontSize: 12 },
+  tabText: { color: colors.ink, fontFamily: 'Nunito_700Bold', fontSize: 12 },
   activeTabText: { color: colors.white },
   periodRow: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', marginVertical: 14 },
   arrow: { width: 42, height: 42, borderRadius: 21, backgroundColor: colors.paper, alignItems: 'center', justifyContent: 'center' },
   disabled: { opacity: 0.3 },
-  periodButton: { flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 7, paddingHorizontal: 12, minHeight: 42 },
-  periodText: { color: colors.ink, fontFamily: 'DMSans_700Bold', fontSize: 15, textTransform: 'capitalize' },
+  periodButton: { flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 7, paddingHorizontal: 12, minHeight: 48 },
+  periodText: { color: colors.ink, fontFamily: 'Nunito_700Bold', fontSize: 15, textTransform: 'capitalize' },
   summary: { flexDirection: 'row', alignItems: 'flex-end', borderTopWidth: 1, borderTopColor: colors.line, paddingTop: 14 },
-  summaryLabel: { fontFamily: 'DMSans_500Medium', fontSize: 12, color: colors.muted },
+  summaryLabel: { fontFamily: 'Nunito_500Medium', fontSize: 12, color: colors.muted },
   detailButton: { backgroundColor: colors.primarySoft, paddingHorizontal: 10, paddingVertical: 7, borderRadius: 12, marginBottom: 4 },
-  detailButtonText: { color: colors.primary, fontFamily: 'DMSans_700Bold', fontSize: 11 },
-  chartScale: { fontFamily: 'DMSans_400Regular', fontSize: 11, lineHeight: 17, color: colors.muted, textAlign: 'right', marginTop: 19 },
+  detailButtonText: { color: colors.primary, fontFamily: 'Nunito_700Bold', fontSize: 11 },
+  chartScale: { fontFamily: 'Nunito_400Regular', fontSize: 11, lineHeight: 17, color: colors.muted, textAlign: 'right', marginTop: 19 },
   chart: { alignItems: 'flex-end', paddingTop: 10, paddingBottom: 2, paddingHorizontal: 8 },
   slotRow: { flexDirection: 'row', position: 'absolute', top: 0, left: 0 },
   slot: { height: 166, justifyContent: 'flex-end', alignItems: 'center' },
   tick: { width: 38, textAlign: 'center', fontSize: 9, color: colors.muted, marginTop: 7 },
-  selectedTick: { color: colors.primary, fontFamily: 'DMSans_700Bold' },
+  selectedTick: { color: colors.primary, fontFamily: 'Nunito_700Bold' },
   legend: { flexDirection: 'row', alignItems: 'center', gap: 12, marginTop: 10 },
   legendItem: { flexDirection: 'row', alignItems: 'center', gap: 5 },
-  legendText: { fontFamily: 'DMSans_500Medium', fontSize: 11, color: colors.muted },
+  legendText: { fontFamily: 'Nunito_500Medium', fontSize: 11, color: colors.muted },
   actualKey: { width: 12, height: 12, borderRadius: 3, backgroundColor: '#B9D9BE' },
   expectedKey: { width: 16, borderTopWidth: 3, borderColor: '#C2410C', borderRadius: 2 },
   zoom: { alignSelf: 'flex-end', marginTop: 10 },
   actions: { flexDirection: 'row', gap: 20, marginTop: 14 },
-  link: { color: colors.primary, fontFamily: 'DMSans_700Bold', fontSize: 12 },
+  link: { color: colors.primary, fontFamily: 'Nunito_700Bold', fontSize: 12 },
   error: { color: colors.coral, marginTop: 12, fontSize: 12 },
 });

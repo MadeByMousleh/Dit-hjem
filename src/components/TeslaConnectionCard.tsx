@@ -1,4 +1,4 @@
-import { Feather } from "@expo/vector-icons";
+import { AppIcon } from './AppIcon';
 import { Pressable, StyleSheet, Text, View } from "react-native";
 import { EvModel } from "../evData";
 import { PricePoint } from "../prices";
@@ -42,14 +42,14 @@ export function TeslaConnectionCard({ connected, vehicle, points, now, evModels,
   return (
     <View style={styles.card}>
       <View style={styles.header}>
-        <View style={styles.icon}><Feather name="zap" size={20} color={colors.ink} /></View>
+        <View style={styles.icon}><AppIcon name="zap" size={20} color={colors.ink} /></View>
         <View style={styles.copy}>
           <Text style={styles.title}>{connected ? vehicle?.name ?? "Tesla er forbundet" : "Tilføj din Tesla"}</Text>
           <Text style={styles.description}>{connected ? [vehicle?.model, vehicle?.exteriorColor ? vehicle.exteriorColor.replace(/([a-z])([A-Z])/g, "$1 $2") : null].filter(Boolean).join(" · ") || "Live bilstatus" : "Forbind din bil for at bruge det aktuelle batteriniveau i ladeplanen."}</Text>
         </View>
         <View style={styles.actions}>
           <Pressable accessibilityLabel={showOnDashboard ? "Skjul Tesla fra overblik" : "Vis Tesla på overblik"} onPress={onToggleDashboard} style={[styles.visibilityButton, showOnDashboard && styles.visibilityButtonActive]}>
-            <Feather name="eye" size={15} color={showOnDashboard ? colors.primary : colors.muted} />
+            <AppIcon name="eye" size={15} color={showOnDashboard ? colors.primary : colors.muted} />
           </Pressable>
           <View style={[styles.statusDot, connected && styles.statusDotConnected]} />
         </View>
@@ -64,12 +64,12 @@ export function TeslaConnectionCard({ connected, vehicle, points, now, evModels,
         </View>
       ) : null}
       <Pressable accessibilityLabel={connected ? "Opdater Tesla-status" : "Forbind Tesla"} onPress={connected ? onRefresh : onConnect} style={styles.connectButton}>
-        <Feather name={connected ? "refresh-cw" : "external-link"} size={15} color={colors.white} />
+        <AppIcon name={connected ? "refresh-cw" : "external-link"} size={15} color={colors.white} />
         <Text style={styles.connectButtonText}>{connected ? (refreshing ? "Henter status..." : "Opdater status") : "Forbind Tesla"}</Text>
       </Pressable>
       {onOpenDetails ? (
         <Pressable accessibilityLabel="Åbn Tesla-side" onPress={onOpenDetails} style={styles.detailsButton}>
-          <Feather name="arrow-right-circle" size={15} color={colors.ink} />
+          <AppIcon name="arrow-right-circle" size={15} color={colors.ink} />
           <Text style={styles.detailsButtonText}>Åbn Tesla-side</Text>
         </Pressable>
       ) : null}
@@ -78,12 +78,12 @@ export function TeslaConnectionCard({ connected, vehicle, points, now, evModels,
 }
 
 const styles = StyleSheet.create({
-  card: { marginTop: 18, padding: 15, borderRadius: 16, backgroundColor: colors.surface, borderWidth: 1, borderColor: colors.line },
+  card: { marginTop: 18, padding: 24, borderRadius: 24, backgroundColor: colors.surface, borderWidth: 1, borderColor: colors.line },
   header: { flexDirection: "row", alignItems: "center", gap: 11 },
   icon: { width: 40, height: 40, borderRadius: 20, alignItems: "center", justifyContent: "center", backgroundColor: colors.white },
   copy: { flex: 1 },
-  title: { fontFamily: "DMSans_700Bold", fontSize: 14, color: colors.ink },
-  description: { fontFamily: "DMSans_400Regular", fontSize: 11, lineHeight: 16, color: colors.muted, marginTop: 3 },
+  title: { fontFamily: "Nunito_700Bold", fontSize: 14, color: colors.ink },
+  description: { fontFamily: "Nunito_400Regular", fontSize: 11, lineHeight: 16, color: colors.muted, marginTop: 3 },
   actions: { alignItems: "center", gap: 8 },
   visibilityButton: { width: 30, height: 30, alignItems: "center", justifyContent: "center", borderRadius: 15, backgroundColor: "rgba(255,255,255,0.7)" },
   visibilityButtonActive: { backgroundColor: colors.white },
@@ -92,11 +92,11 @@ const styles = StyleSheet.create({
   stats: { flexDirection: "row", flexWrap: "wrap", gap: 8, marginTop: 15, paddingTop: 13, borderTopWidth: 1, borderTopColor: colors.line },
   primaryStat: { minWidth: 92, flex: 1, paddingRight: 8 },
   stat: { minWidth: 92, flex: 1, paddingRight: 8 },
-  batteryNumber: { fontFamily: "Fraunces_600SemiBold", fontSize: 28, color: colors.ink },
-  value: { minHeight: 34, fontFamily: "DMSans_700Bold", fontSize: 13, color: colors.ink },
-  label: { fontFamily: "DMSans_700Bold", fontSize: 8, color: colors.muted, marginTop: 3 },
-  connectButton: { minHeight: 36, marginTop: 13, flexDirection: "row", alignItems: "center", justifyContent: "center", gap: 7, borderRadius: 18, backgroundColor: colors.ink },
-  connectButtonText: { fontFamily: "DMSans_700Bold", fontSize: 11, color: colors.white },
+  batteryNumber: { fontFamily: "Nunito_600SemiBold", fontSize: 28, color: colors.ink },
+  value: { minHeight: 34, fontFamily: "Nunito_700Bold", fontSize: 13, color: colors.ink },
+  label: { fontFamily: "Nunito_700Bold", fontSize: 8, color: colors.muted, marginTop: 3 },
+  connectButton: { minHeight: 48, marginTop: 13, flexDirection: "row", alignItems: "center", justifyContent: "center", gap: 7, borderRadius: 18, backgroundColor: colors.ink },
+  connectButtonText: { fontFamily: "Nunito_700Bold", fontSize: 11, color: colors.white },
   detailsButton: { minHeight: 34, marginTop: 8, flexDirection: "row", alignItems: "center", justifyContent: "center", gap: 7, borderRadius: 17, borderWidth: 1, borderColor: colors.line, backgroundColor: "rgba(255,255,255,0.7)" },
-  detailsButtonText: { fontFamily: "DMSans_700Bold", fontSize: 11, color: colors.ink },
+  detailsButtonText: { fontFamily: "Nunito_700Bold", fontSize: 11, color: colors.ink },
 });

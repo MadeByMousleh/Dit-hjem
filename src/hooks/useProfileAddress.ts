@@ -75,13 +75,27 @@ export function useProfileAddress({ refreshKey, gridSuppliers, setSelectedSuppli
 
   useEffect(() => {
     let active = true;
-    loadProfile(userId, accountEmail).then((profile) => {
-      if (!active) return;
+    const version = lookupVersion.current;
+    loadProfile(userId, accountEmail).then(async (profile) => {
+      // Older saved addresses can lack the municipality needed by the calendar.
+      if (profile?.address && (!profile.municipalityCode || !profile.postcode)) {
+        try {
+          const suggestions = await searchAddresses(profile.address);
+          const normalized = profile.address.trim().toLocaleLowerCase('da-DK');
+          const match = suggestions.find(item => !item.searchText && item.text.trim().toLocaleLowerCase('da-DK') === normalized);
+          if (match?.municipalityCode && match.postcode && active && version === lookupVersion.current) {
+            profile = { ...profile, municipalityCode: match.municipalityCode, postcode: match.postcode };
+            await saveStoredProfile(profile, userId);
+          }
+        } catch { /* Keep the saved address available for reselection. */ }
+      }
+      if (!active || version !== lookupVersion.current) return;
       setProfileName(profile?.name || accountName);
       setAddress(profile?.address ?? "");
       setAddressSelected(!!profile?.address);
       setAddressMunicipality(profile?.municipalityCode);
       setAddressPostcode(profile?.postcode);
+      if (profile?.gridSupplierId) setSelectedSupplierId(profile.gridSupplierId);
       setWasteCalendarUrl(profile?.wasteCalendarUrl ?? "");
       setWasteShowOnDashboard(profile?.wasteShowOnDashboard ?? false);
       setLowPriceAlertsState(profile?.lowPriceAlerts ?? false);
@@ -108,6 +122,10 @@ export function useProfileAddress({ refreshKey, gridSuppliers, setSelectedSuppli
 
   const saveProfile = useCallback(async () => {
     if (!userId) return;
+    if (address.trim() && (!addressSelected || !addressMunicipality || !addressPostcode)) {
+      setProfileError("Vælg din fulde adresse fra forslagene, så kommune og affaldskalender kan findes.");
+      return;
+    }
     setProfileSaving(true); setProfileError("");
     try {
       const existing = await loadProfile(userId, accountEmail);
@@ -244,6 +262,16 @@ export function useProfileAddress({ refreshKey, gridSuppliers, setSelectedSuppli
   }, [address, addressSelected]);
 
   const chooseAddress = useCallback(async (suggestion: AddressSuggestion) => {
+    if (suggestion.searchText) {
+      setAddress(suggestion.searchText);
+      setAddressSuggestions([]);
+      setAddressError(suggestion.refinement === 'unit' ? 'Tilføj etage og dør for at vælge din præcise bolig.' : 'Tilføj husnummer for at vælge din adresse.');
+      return;
+    }
+    if (suggestion.x === undefined || suggestion.y === undefined) {
+      setAddressError('Adressen mangler placering. Prøv igen.');
+      return;
+    }
     const version = ++lookupVersion.current;
     setAddressError("");
     setAddress(suggestion.text);
@@ -252,10 +280,16 @@ export function useProfileAddress({ refreshKey, gridSuppliers, setSelectedSuppli
     setAddressPostcode(suggestion.postcode);
     setAddressSuggestions([]);
     setAddressLookupLoading(true);
-    try { await saveStoredProfile({
+    try { const existing = await loadProfile(userId, accountEmail); await saveStoredProfile({
+      ...existing,
       name: profileName,
       email: accountEmail,
       address: suggestion.text,
+      addressId: suggestion.id,
+      addressX: suggestion.x,
+      addressY: suggestion.y,
+      gridSupplierId: undefined,
+      gridSupplierName: undefined,
       municipalityCode: suggestion.municipalityCode,
       postcode: suggestion.postcode,
       wasteCalendarUrl,
@@ -292,7 +326,11 @@ export function useProfileAddress({ refreshKey, gridSuppliers, setSelectedSuppli
         });
       });
 
-      if (match) setSelectedSupplierId(match.id);
+      if (match) {
+        setSelectedSupplierId(match.id);
+        const saved = await loadProfile(userId, accountEmail);
+        if (version === lookupVersion.current) await saveStoredProfile({ ...saved, gridSupplierId: match.id, gridSupplierName: result.name }, userId);
+      }
       else setAddressError(`${result.name} blev fundet, men findes ikke i prislisten endnu.`);
     } catch (error) {
       if (version === lookupVersion.current) setAddressError(error instanceof Error ? error.message : "Netselskabet kunne ikke findes");

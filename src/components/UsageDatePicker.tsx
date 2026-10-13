@@ -40,8 +40,8 @@ export function UsageDatePicker({ aggregation, anchor, years, maxDate, onSelect,
 const s=StyleSheet.create({
   backdrop:{flex:1,backgroundColor:'rgba(0,0,0,0.35)',alignItems:'center',justifyContent:'center',padding:20},
   dialog:{width:'100%',maxWidth:420,padding:20,borderRadius:20,backgroundColor:colors.white},
-  heading:{flexDirection:'row',alignItems:'center',justifyContent:'space-between'},title:{fontSize:18,fontFamily:'DMSans_700Bold',color:colors.ink},
+  heading:{flexDirection:'row',alignItems:'center',justifyContent:'space-between'},title:{fontSize:18,fontFamily:'Nunito_700Bold',color:colors.ink},
   grid:{flexDirection:'row',flexWrap:'wrap',marginTop:16},cell:{padding:12,borderRadius:10,minWidth:60,alignItems:'center'},
   month:{width:'25%',paddingVertical:12,alignItems:'center',borderRadius:10},day:{width:'14.2857%',height:44,alignItems:'center',justifyContent:'center',borderRadius:10},
-  text:{fontFamily:'DMSans_500Medium',color:colors.ink},active:{backgroundColor:colors.primarySoft},disabled:{opacity:0.3},
+  text:{fontFamily:'Nunito_500Medium',color:colors.ink},active:{backgroundColor:colors.primarySoft},disabled:{opacity:0.3},
 });

@@ -1,0 +1,103 @@
+import { createHash, randomUUID } from 'node:crypto';
+
+const baseUrl = 'https://api.eloverblik.dk/thirdpartyapi/api';
+const accessTokens = new Map();
+
+export class ThirdPartyError extends Error {
+  constructor(status, message) { super(message); this.status = status; }
+}
+
+function configuredRefreshToken(env = process.env) {
+  const token = env.ELOVERBLIK_THIRD_PARTY_API_TOKEN?.trim();
+  if (!token || token.length < 20) throw new ThirdPartyError(503, 'Eloverblik-tredjepartsadgang er ikke konfigureret.');
+  return token;
+}
+
+async function request(path, token, options = {}, dependencies = {}) {
+  const fetcher = dependencies.fetcher ?? fetch;
+  let response;
+  try { response = await fetcher(baseUrl + path, {
+    ...options,
+    headers: {
+      Accept: 'application/json',
+      'api-version': '1.0',
+      Authorization: `Bearer ${token}`,
+      'X-User-Correlation-ID': dependencies.correlationId ?? randomUUID(),
+      ...(options.headers ?? {}),
+    },
+    signal: options.signal ?? AbortSignal.timeout(15_000),
+    redirect: 'error',
+  }); } catch { throw new ThirdPartyError(502, 'Forbindelsen til Eloverblik mislykkedes. Prøv igen.'); }
+  if (response.status === 401 || response.status === 403) throw new ThirdPartyError(502, 'Eloverblik afviste tredjepartsforbindelsen.');
+  if (response.status === 429 || response.status === 503) throw new ThirdPartyError(503, 'Eloverblik er midlertidigt optaget. Prøv igen om et øjeblik.');
+  if (!response.ok) throw new ThirdPartyError(502, 'Eloverblik kunne ikke hente data lige nu.');
+  try { return await response.json(); }
+  catch { throw new ThirdPartyError(502, 'Eloverblik returnerede et ugyldigt svar.'); }
+}
+
+export async function dataAccessToken(env = process.env, dependencies = {}) {
+  const refreshToken = configuredRefreshToken(env);
+  const key = createHash('sha256').update(refreshToken).digest('hex');
+  const cached = accessTokens.get(key);
+  if (cached?.expiresAt > Date.now()) return cached.promise;
+  if (accessTokens.size > 10) accessTokens.clear();
+  const promise = request('/token', refreshToken, {}, dependencies)
+    .then(payload => {
+      if (typeof payload?.result !== 'string' || !payload.result) throw new ThirdPartyError(502, 'Eloverblik udstedte ikke et adgangstoken.');
+      return payload.result;
+    })
+    .catch(error => { accessTokens.delete(key); throw error; });
+  accessTokens.set(key, { promise, expiresAt: Date.now() + 23 * 60 * 60 * 1000 });
+  return promise;
+}
+
+export function authorizationRecord(value) {
+  // Public API id is a UUID string. The portal's visible number is NOT this id.
+  const authorizationId = typeof value?.id === 'string' ? value.id.trim() : '';
+  const customerKey = typeof value?.customerKey === 'string' && value.customerKey ? value.customerKey : null;
+  if (!authorizationId) return null;
+  return {
+    authorizationId,
+    customerKey,
+    from: typeof value.validFrom === 'string' ? value.validFrom : null,
+    to: typeof value.validTo === 'string' ? value.validTo : null,
+  };
+}
+
+export async function activeAuthorizations(env = process.env, dependencies = {}) {
+  const token = await dataAccessToken(env, dependencies);
+  const payload = await request('/authorization/authorizations', token, {}, dependencies);
+  if (!Array.isArray(payload?.result)) throw new ThirdPartyError(502, 'Eloverblik returnerede et ukendt fuldmagtsformat.');
+  return payload.result.map(authorizationRecord).filter(Boolean);
+}
+
+export async function authorizationForCustomerKey(customerKey, env = process.env, dependencies = {}) {
+  if (typeof customerKey !== 'string' || !/^[A-Za-z0-9_-]{16,160}$/.test(customerKey)) throw new ThirdPartyError(400, 'Forbindelsen har en ugyldig kundenøgle.');
+  const matches = (await activeAuthorizations(env, dependencies)).filter(item => item.customerKey === customerKey);
+  if (matches.length > 1) throw new ThirdPartyError(409, 'Flere fuldmagter matcher forbindelsen. Start en ny forbindelse.');
+  return matches[0] ?? null;
+}
+
+export async function meteringPointsForAuthorization(authorizationId, env = process.env, dependencies = {}) {
+  if (typeof authorizationId !== 'string' || !/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(authorizationId)) {
+    throw new ThirdPartyError(400, 'Eloverblik-forbindelsen er ugyldig.');
+  }
+  const accessToken = await dataAccessToken(env, dependencies);
+  const payload = await request(`/authorization/authorization/meteringpoints/authorizationId/${encodeURIComponent(authorizationId)}`, accessToken, {}, dependencies);
+  const items = Array.isArray(payload?.result) ? payload.result : [];
+  return [...new Set(items.map(item => String(item?.meteringPointId ?? item?.id ?? '').trim()).filter(id => /^\d{18}$/.test(id)))];
+}
+
+export async function meteringPointReadings(authorizationId, meteringPointId, from, to, aggregation, env = process.env, dependencies = {}) {
+  if (!/^\d{18}$/.test(String(meteringPointId)) || !/^\d{4}-\d{2}-\d{2}$/.test(String(from)) || !/^\d{4}-\d{2}-\d{2}$/.test(String(to)) || !['Quarter', 'Hour', 'Day', 'Month', 'Year'].includes(aggregation)) {
+    throw new ThirdPartyError(400, 'Ugyldig forespørgsel til Eloverblik.');
+  }
+  const allowed = await meteringPointsForAuthorization(authorizationId, env, dependencies);
+  if (!allowed.includes(meteringPointId)) throw new ThirdPartyError(403, 'Måleren er ikke omfattet af din fuldmagt.');
+  const accessToken = await dataAccessToken(env, dependencies);
+  return await request(`/meterdata/gettimeseries/${from}/${to}/${aggregation}`, accessToken, {
+    method: 'POST', body: JSON.stringify({ meteringPoints: { meteringPoint: [meteringPointId] } }),
+  }, dependencies);
+}
+
+export const __testing = { clearCache: () => accessTokens.clear() };

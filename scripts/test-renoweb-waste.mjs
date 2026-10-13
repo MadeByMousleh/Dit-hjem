@@ -34,5 +34,11 @@ assert.equal(requests[1].searchParams.get('roadid'), '10');
 assert.equal(requests[1].searchParams.get('streetBuildingIdentifier'), '1');
 assert.equal(requests[2].searchParams.get('adressId'), '20');
 assert.equal(requests.every(request => request.searchParams.get('municipalitycode') === '540'), true);
+for (const address of ['Example Road 1, 6400 Sønderborg', 'Example Road 1, 2. tv., 6400 Sønderborg']) {
+  requests.length = 0;
+  assert.deepEqual(await getRenoWebEvents(address, '6400', mockFetch), events);
+  assert.equal(requests[0].searchParams.get('roadname'), 'Example Road');
+  assert.equal(requests[1].searchParams.get('streetBuildingIdentifier'), '1');
+}
 await assert.rejects(getRenoWebEvents('Example Road', '6400', mockFetch), /vejnavn og husnummer/);
 console.log('PASS: SONFOR RenoWeb road/address/container lookup, date parsing and duplicate removal.');

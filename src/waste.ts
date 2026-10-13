@@ -23,7 +23,10 @@ export async function fetchWasteEvents(municipalityCode?: string, postcode?: str
   if (!municipalityCode) return [];
   const params = new URLSearchParams({ municipality: municipalityCode, ...(postcode ? { postcode } : {}), ...(feedUrl ? { feedUrl } : {}), ...(address ? { address } : {}) });
   const response = await fetch(`${API_URL}/api/waste/calendar?${params.toString()}`);
-  if (!response.ok) throw new Error("Affaldskalenderen er ikke tilgængelig for denne kommune endnu");
+  if (!response.ok) {
+    const detail = await response.json().catch(() => null) as { error?: string } | null;
+    throw new Error(typeof detail?.error === "string" ? detail.error : "Affaldskalenderen kunne ikke hentes. Prøv igen.");
+  }
   return (await response.json()) as WasteEvent[];
 }
 

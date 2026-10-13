@@ -1,4 +1,4 @@
-import { Feather } from "@expo/vector-icons";
+import { AppIcon } from './AppIcon';
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { PanResponder, Pressable, ScrollView, Text, View } from "react-native";
 import { PricePoint } from "../prices";
@@ -54,7 +54,7 @@ export function PriceChart({ points, now, onScrubChange }: { points: PricePoint[
   const stride = barWidth + gap;
 
   const selected = hourly[Math.min(selectedIndex, hourly.length - 1)];
-  const maxPrice = Math.max(...hourly.map((item) => item.price), 2.25);
+  const maxPrice = Math.max(0.001, ...hourly.map((item) => Math.max(0, item.price)));
   const selectedDayDate = selected?.startsAt ?? new Date(`${selectedDay}T12:00:00`);
   const isForecastDay = selectedDayIndex > 1;
 
@@ -198,7 +198,7 @@ export function PriceChart({ points, now, onScrubChange }: { points: PricePoint[
           onPress={() => changeDay(selectedDayIndex - 1)}
           style={[styles.dayArrow, selectedDayIndex === 0 && styles.dayArrowDisabled]}
         >
-          <Feather name="chevron-left" size={20} color={colors.ink} />
+          <AppIcon name="chevron-left" size={20} color={colors.ink} />
         </Pressable>
         <View style={styles.dayNavigatorTitle}>
           <Text style={styles.dayNavigatorDate}>{dkDay.format(selectedDayDate)}</Text>
@@ -210,7 +210,7 @@ export function PriceChart({ points, now, onScrubChange }: { points: PricePoint[
           onPress={() => changeDay(selectedDayIndex + 1)}
           style={[styles.dayArrow, selectedDayIndex >= availableDays.length - 1 && styles.dayArrowDisabled]}
         >
-          <Feather name="chevron-right" size={20} color={colors.ink} />
+          <AppIcon name="chevron-right" size={20} color={colors.ink} />
         </Pressable>
       </View>
       <View style={styles.chartSelection}>
@@ -257,7 +257,7 @@ export function PriceChart({ points, now, onScrubChange }: { points: PricePoint[
             const selectedBar = index === selectedIndex;
             const currentBar = index === currentBarIndex;
             const cheapestBar = currentBarIndex < 0 && index === cheapestBarIndex;
-            const height = Math.max(30, (item.price / maxPrice) * 94);
+            const height = Math.max(0, item.price) / maxPrice * 94;
             return (
               <Pressable
                 key={item.startsAt.toISOString()}
@@ -269,31 +269,28 @@ export function PriceChart({ points, now, onScrubChange }: { points: PricePoint[
                 style={[
                   styles.barSlot,
                   { width: barWidth },
-                  selectedBar && styles.barSlotSelected,
                 ]}
               >
                 {currentBar ? (
                   <View style={[styles.currentMarker, { bottom: height + 24, width: 28, left: (barWidth - 28) / 2, alignItems: 'center' }]}>
                     <Text numberOfLines={1} style={styles.currentMarkerText}>NU</Text>
                   </View>
-                ) : selectedBar ? (
-                  <View style={[styles.currentMarker, styles.scrubMarker, { bottom: height + 24, width: 24, left: (barWidth - 24) / 2, alignItems: 'center' }]}>
-                    <Text numberOfLines={1} style={styles.currentMarkerText}>{dkTime.format(item.startsAt).slice(0, 2)}</Text>
-                  </View>
                 ) : null}
                 <View
                   style={[
                     styles.bar,
                     { width: barWidth },
-                    { height, backgroundColor: barColor(item.price, selectedBar || currentBar || cheapestBar) },
+                    { height, backgroundColor: barColor(item.price, currentBar || cheapestBar) },
                     currentBar && styles.currentBar,
                     cheapestBar && styles.cheapestBar,
                     selectedBar && styles.selectedBar,
                   ]}
                 />
-                <Text numberOfLines={1} style={[styles.barHour, showFullDay && styles.barHourOverview, (currentBar || selectedBar) && styles.barHourCurrent]}>
-                  {showFullDay && index % 3 !== 0 ? "" : dkTime.format(item.startsAt).slice(0, 2)}
-                </Text>
+                <View style={{ height: 18, width: barWidth, overflow: 'visible' }}>
+                  {index % Math.max(1, Math.ceil(44 / stride)) === 0 ? <Text numberOfLines={1} style={[styles.barHour, { position: 'absolute', width: 44, left: index === 0 ? 0 : (barWidth - 44) / 2, textAlign: index === 0 ? 'left' : 'center' }, currentBar && styles.barHourCurrent]}>
+                    {dkTime.format(item.startsAt).replace('.', ':')}
+                  </Text> : null}
+                </View>
               </Pressable>
             );
           })}
@@ -327,13 +324,13 @@ export function PriceChart({ points, now, onScrubChange }: { points: PricePoint[
 
       <View style={styles.chartToolbar}>
         <View style={styles.swipeHint}>
-          <Feather name="sliders" size={12} color={isSliding ? colors.primary : colors.muted} />
+          <AppIcon name="sliders" size={12} color={isSliding ? colors.primary : colors.muted} />
           <Text style={[styles.chartLabel, isSliding && styles.chartLabelActive]}>
             {isSliding || barScrub.isScrubbing ? "Vælger time" : "Hold en søjle eller skub prikken"}
           </Text>
         </View>
         <Pressable accessibilityLabel={showFullDay ? "Vis større søjler" : "Vis hele dagen"} onPress={() => setShowFullDay((value) => !value)} style={styles.overviewButton}>
-          <Feather name={showFullDay ? "minimize-2" : "maximize-2"} size={13} color={colors.ink} />
+          <AppIcon name={showFullDay ? "minimize-2" : "maximize-2"} size={13} color={colors.ink} />
           <Text style={styles.overviewButtonText}>{showFullDay ? "Større søjler" : "Vis hele dagen"}</Text>
         </Pressable>
       </View>

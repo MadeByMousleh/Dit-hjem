@@ -1,5 +1,4 @@
-import { Feather } from '@expo/vector-icons';
-import { LinearGradient } from 'expo-linear-gradient';
+import { AppIcon } from './AppIcon';
 import { useEffect, useMemo, useState } from 'react';
 import { ActivityIndicator, StyleSheet, Text, View } from 'react-native';
 import type { ElectricityAgreement } from '../hooks/useElectricityAgreements';
@@ -106,10 +105,10 @@ export function MonthlyUsageCard({ data, currentMonthDays, previousMonthDays, lo
     return total;
   }, [usable, currentKwh, currentStart, agreements, priceDays, previousMonthDays]);
 
-  return <LinearGradient colors={[colors.white, '#F0F4FF']} style={s.card}>
+  return <View style={[s.card, { backgroundColor: colors.white }]}>
     <View style={s.top}>
       <Text style={s.label}>Samlet forbrug i {monthName(`${currentStart}T12:00:00Z`)}</Text>
-      {percentage !== null ? <View style={[s.badge, { backgroundColor: badgeTone.backgroundColor }]}><Feather name={badgeTone.icon} size={14} color={badgeTone.color} /><Text style={[s.badgeText, { color: badgeTone.color }]}>{monthName(`${liveStart}T12:00:00Z`).slice(0, 3)} {Math.round(percentage) > 0 ? '+' : ''}{Math.round(percentage)} %</Text></View> : null}
+      {percentage !== null ? <View style={[s.badge, { backgroundColor: badgeTone.backgroundColor }]}><AppIcon name={badgeTone.icon} size={14} color={badgeTone.color} /><Text style={[s.badgeText, { color: badgeTone.color }]}>{monthName(`${liveStart}T12:00:00Z`).slice(0, 3)} {Math.round(percentage) > 0 ? '+' : ''}{Math.round(percentage)} %</Text></View> : null}
     </View>
     {usable ? <View style={s.totalRow}><Text style={s.total}>{number(currentKwh!, 1)}</Text><Text style={s.unit}>kWh</Text></View>
       : loading ? <ActivityIndicator color={colors.primary} style={s.loading} />
@@ -119,25 +118,25 @@ export function MonthlyUsageCard({ data, currentMonthDays, previousMonthDays, lo
       <View style={s.detailColumn}><Text style={s.detailLabel}>{monthComparison} · 1.–{comparison?.days ?? '…'}.</Text><Text style={s.comparison}>{difference === null ? 'Afventer målinger' : difference === 0 ? 'Samme forbrug' : `${number(Math.abs(difference), 1)} kWh ${difference < 0 ? 'mindre' : 'mere'}`}</Text></View>
     </View> : null}
     {error && !usable ? <Text style={s.error}>{error}</Text> : null}
-  </LinearGradient>;
+  </View>;
 }
 
 const s = StyleSheet.create({
-  card: { borderRadius: 20, padding: 20, marginBottom: 16 },
+  card: { borderRadius: 24, padding: 24, marginBottom: 24 },
   top: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', gap: 10 },
-  label: { fontFamily: 'DMSans_500Medium', fontSize: 14, color: colors.ink, flex: 1 },
+  label: { fontFamily: 'Nunito_500Medium', fontSize: 14, color: colors.ink, flex: 1 },
   badge: { flexDirection: 'row', alignItems: 'center', gap: 3, backgroundColor: colors.primarySoft, borderRadius: 16, paddingHorizontal: 10, paddingVertical: 5 },
-  badgeText: { fontFamily: 'DMSans_700Bold', fontSize: 12, color: colors.primaryPressed },
+  badgeText: { fontFamily: 'Nunito_700Bold', fontSize: 12, color: colors.primaryPressed },
   totalRow: { flexDirection: 'row', alignItems: 'baseline', gap: 7, marginTop: 4 },
-  total: { fontFamily: 'DMSans_700Bold', fontSize: 36, color: colors.ink, letterSpacing: -1 },
-  unit: { fontFamily: 'DMSans_700Bold', fontSize: 19, color: colors.ink },
+  total: { fontFamily: 'Nunito_700Bold', fontSize: 36, color: colors.ink, letterSpacing: -1 },
+  unit: { fontFamily: 'Nunito_700Bold', fontSize: 19, color: colors.ink },
   loading: { marginVertical: 20 },
-  missing: { fontFamily: 'DMSans_400Regular', fontSize: 13, color: colors.muted, marginTop: 15 },
+  missing: { fontFamily: 'Nunito_400Regular', fontSize: 13, color: colors.muted, marginTop: 15 },
   details: { flexDirection: 'row', gap: 14, borderRadius: 17, backgroundColor: 'rgba(203,216,255,0.4)', padding: 14, marginTop: 18 },
   detailColumn: { flex: 1 },
-  detailLabel: { fontFamily: 'DMSans_400Regular', color: colors.muted, fontSize: 12 },
-  price: { fontFamily: 'DMSans_700Bold', color: colors.ink, fontSize: 23, marginTop: 2, letterSpacing: -0.5 },
-  priceUnit: { fontFamily: 'DMSans_400Regular', fontSize: 12 },
-  comparison: { fontFamily: 'DMSans_700Bold', color: colors.primaryPressed, fontSize: 13, lineHeight: 18, marginTop: 6 },
-  error: { fontFamily: 'DMSans_400Regular', color: colors.coral, fontSize: 11, marginTop: 8 },
+  detailLabel: { fontFamily: 'Nunito_400Regular', color: colors.muted, fontSize: 12 },
+  price: { fontFamily: 'Nunito_700Bold', color: colors.ink, fontSize: 23, marginTop: 2, letterSpacing: -0.5 },
+  priceUnit: { fontFamily: 'Nunito_400Regular', fontSize: 12 },
+  comparison: { fontFamily: 'Nunito_700Bold', color: colors.primaryPressed, fontSize: 13, lineHeight: 18, marginTop: 6 },
+  error: { fontFamily: 'Nunito_400Regular', color: colors.coral, fontSize: 11, marginTop: 8 },
 });

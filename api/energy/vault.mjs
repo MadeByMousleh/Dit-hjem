@@ -1,4 +1,6 @@
 import { vaultWriteResponse } from '../../src/services/vault-write-server.mjs';
+import { managedVaultKeyResponse } from '../../src/services/managed-vault-key-server.mjs';
+import { heatingConnectionResponse } from '../../src/services/heating-connection-server.mjs';
 import { MAX_WRITE_BYTES } from '../../src/services/vault-signing.mjs';
 
 export default async function handler(request, response) {
@@ -13,6 +15,10 @@ export default async function handler(request, response) {
     body = typeof request.body === 'string' ? JSON.parse(request.body) : request.body;
   } catch { return response.status(400).json({ error: 'Invalid JSON' }); }
   const req = new Request('https://localhost/api/energy/vault', { method: 'POST', headers: { authorization: request.headers.authorization ?? '' } });
-  const result = await vaultWriteResponse(req, body);
+  const result = body?.action === 'managed-key'
+    ? await managedVaultKeyResponse(req, body)
+    : body?.operation === 'heating'
+      ? await heatingConnectionResponse(req, body)
+      : await vaultWriteResponse(req, body);
   return response.status(result.status).json(result.body);
 }

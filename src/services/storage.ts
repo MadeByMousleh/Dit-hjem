@@ -1,5 +1,6 @@
 import AsyncStorage from "@react-native-async-storage/async-storage";
 import { HouseholdDevice } from "../types/app";
+import { getSupabase } from './supabase';
 
 export const DEVICES_STORAGE_KEY = "stromblik.household-devices.v1";
 export const PROFILE_STORAGE_KEY = "stromblik.profile.v1";
@@ -9,6 +10,13 @@ export async function loadElectricityPlan() { const stored = await AsyncStorage.
 export async function saveElectricityPlan(plan: ElectricityPlan) { await AsyncStorage.setItem(ELECTRICITY_PLAN_STORAGE_KEY, JSON.stringify(plan)); }
 
 export type StoredProfile = {
+  firstName?: string;
+  lastName?: string;
+  addressId?: string;
+  addressX?: number;
+  addressY?: number;
+  gridSupplierId?: string;
+  gridSupplierName?: string;
   name?: string;
   email?: string;
   address?: string;
@@ -39,6 +47,10 @@ export async function loadProfile(userId?: string, accountEmail?: string) {
   if (userId) {
     const scoped = await AsyncStorage.getItem(userProfileKey(userId));
     if (scoped) return JSON.parse(scoped) as StoredProfile;
+    const client = await getSupabase();
+    const { data: { session } } = await client.auth.getSession();
+    const remote = session?.user.id === userId ? session.user.user_metadata?.home_profile : undefined;
+    if (remote && typeof remote === 'object' && !Array.isArray(remote)) return remote as StoredProfile;
   }
   const stored = await AsyncStorage.getItem(PROFILE_STORAGE_KEY);
   if (!stored) return undefined;

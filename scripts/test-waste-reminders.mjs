@@ -1,0 +1,15 @@
+import assert from 'node:assert/strict';
+import { planWasteReminders } from '../src/services/waste-reminder-plan.mjs';
+const event = { id: 'test', date: '2026-10-10', title: 'Madaffald' };
+const now = new Date('2026-10-01T00:00:00').getTime();
+const [day] = planWasteReminders([event], 2, 'days', now);
+assert.equal(day.date.getDate(), 8);
+assert.equal(day.date.getHours(), 7);
+const [hour] = planWasteReminders([event], 12, 'hours', now);
+assert.equal(hour.date.getDate(), 9);
+assert.equal(hour.date.getHours(), 19);
+assert.deepEqual(planWasteReminders([event], 8, 'days', now), []);
+assert.deepEqual(planWasteReminders([event], 0, 'hours', now), []);
+assert.deepEqual(planWasteReminders([event], 1, 'days', new Date('2026-10-10T00:00:00').getTime()), []);
+assert.deepEqual(planWasteReminders([{ ...event, date: 'invalid' }], 1, 'days', now), []);
+console.log('PASS: waste reminder day/hour offsets, limits, expired reminders and invalid dates.');

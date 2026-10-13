@@ -3,17 +3,13 @@ import { API_URL } from './services/supabase';
 export type AddressSuggestion = {
   id: string;
   text: string;
-  x: number;
-  y: number;
+  x?: number;
+  y?: number;
+  searchText?: string;
+  kind?: 'address';
+  refinement?: 'unit';
   municipalityCode?: string;
   postcode?: string;
-};
-
-const DAWA_AUTOCOMPLETE_URL = 'https://api.dataforsyningen.dk/autocomplete';
-
-type DawaSuggestion = {
-  tekst?: string;
-  data?: { id?: string; x?: number; y?: number; kommunekode?: string; postnr?: string };
 };
 
 async function addressSuggestionsFrom(response: Response): Promise<AddressSuggestion[]> {
@@ -23,20 +19,11 @@ async function addressSuggestionsFrom(response: Response): Promise<AddressSugges
   return result as AddressSuggestion[];
 }
 
-async function addressSuggestionsFromDawa(response: Response): Promise<AddressSuggestion[]> {
+async function addressSuggestionFrom(response: Response): Promise<AddressSuggestion> {
   const result = await response.json().catch(() => undefined);
-  if (!response.ok) throw new Error(`DAWA svarede med ${response.status}`);
-  if (!Array.isArray(result)) throw new Error('DAWA returnerede et ugyldigt svar.');
-  return (result as DawaSuggestion[])
-    .filter((suggestion) => suggestion.tekst && suggestion.data?.id && Number.isFinite(suggestion.data.x) && Number.isFinite(suggestion.data.y))
-    .map((suggestion) => ({
-      id: suggestion.data!.id!,
-      text: suggestion.tekst!,
-      x: suggestion.data!.x!,
-      y: suggestion.data!.y!,
-      municipalityCode: suggestion.data!.kommunekode,
-      postcode: suggestion.data!.postnr,
-    }));
+  if (!response.ok) throw new Error(result?.error ?? `Adresseopslaget svarede med ${response.status}`);
+  if (!result || typeof result !== 'object' || Array.isArray(result)) throw new Error('Adresseopslaget returnerede et ugyldigt svar.');
+  return result as AddressSuggestion;
 }
 
 const recentSearches = new Map<string, { expires: number; suggestions: AddressSuggestion[] }>();
@@ -63,18 +50,16 @@ export async function searchAddresses(query: string, signal?: AbortSignal): Prom
   const cached = recentSearches.get(query);
   if (cached && cached.expires > Date.now()) return cached.suggestions;
   const proxyParams = new URLSearchParams({ q: query });
-  let suggestions: AddressSuggestion[];
-  try {
-    suggestions = await timedSearch(`${API_URL}/api/address/search?${proxyParams.toString()}`, addressSuggestionsFrom, 1200, signal);
-  } catch (proxyError) {
-    if (signal?.aborted) throw proxyError;
-    if (__DEV__) console.warn('[Address proxy failed]', proxyError instanceof Error ? proxyError.message : 'Unknown error');
-    const dawaParams = new URLSearchParams({ q: query, type: 'adresse', per_side: '6' });
-    suggestions = await timedSearch(`${DAWA_AUTOCOMPLETE_URL}?${dawaParams.toString()}`, addressSuggestionsFromDawa, 5000, signal);
-  }
+  const suggestions = await timedSearch(`${API_URL}/api/address/search?${proxyParams.toString()}`, addressSuggestionsFrom, 18000, signal);
   if (!signal?.aborted) {
     if (recentSearches.size >= 30) recentSearches.delete(recentSearches.keys().next().value!);
     recentSearches.set(query, { expires: Date.now() + 300000, suggestions });
   }
   return suggestions;
+}
+
+export async function resolveAddress(id: string, signal?: AbortSignal): Promise<AddressSuggestion> {
+  const [address] = await timedSearch(`${API_URL}/api/address/search?id=${encodeURIComponent(id)}`, async response => [await addressSuggestionFrom(response)], 18000, signal);
+  if (!address) throw new Error('Adresseopslaget returnerede et tomt svar.');
+  return address;
 }

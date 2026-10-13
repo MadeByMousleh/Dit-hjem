@@ -1,10 +1,66 @@
 # Encrypted energy data: implementation and release boundaries
 
+## Managed-key rollout (production repair, 2026-10-12)
+
+Production migration `202610120001_managed_energy_vault_keys.sql` is now applied.
+The prior APK required this table before opening data, but it was absent: the
+new login gate therefore failed. Production deployment
+`dpl_CzccMt3VNVn7efcDhUzruhcWdudJ` now includes the matching backend and client
+repairs. APK `dist/Stromblik-1.0.2.apk` (versionCode 3) contains the client fixes.
+Existing ciphertext and writer records were not changed by the migration.
+
+The client preserves remembered keys when server registration fails, distinguishes
+that retryable failure from a missing historic key, repairs damaged local caches
+from valid cloud ciphertext, converges simultaneous first logins on one key, and
+discards stale session completions after unmount. Key requests have a timeout.
+Keys remain mandatory for decrypting old ciphertext: an unmigrated legacy backup
+without its remembered key still requires the one-time legacy migration screen.
+There is no data-reset or key-replacement fallback.
+
+Verified: TypeScript; crypto, signed-write, managed-key server and vault-client
+regressions; current third-party authorization tests; heat details/cost tests;
+Vercel web build; Android release build, version and signature; both live domains
+serve the repaired client and reject unauthenticated key requests with no-store.
+Production table RLS is enabled and anon/authenticated have no read or insert
+permission. All seven existing vaults had pinned writers at the preflight check.
+Dev SQL tests were blocked because the dev project is paused; authenticated
+production login and a physical-device migration remain unverified. The old
+`test-private-electricity.mjs` targets the retired customer-token client and fails
+at its outdated import mocks; it is not evidence about current third-party login.
+
+The recovery-key gate is being replaced by an account-authorized managed-key
+flow. A household still has a random 256-bit data key and the existing vault
+envelope/signing format is retained. The data key is stored only as an
+AES-256-GCM-wrapped envelope in `energy_vault_managed_keys`; the wrapping key
+is server-only configuration (`ENERGY_VAULT_KEK`) and must be a base64url
+encoded 32-byte value. It must never be added to Expo configuration, source,
+fixtures, logs or chat.
+
+`POST /api/energy/vault` accepts the authenticated `managed-key` action only
+after checking the current household membership. The key table has no client
+RLS policy or authenticated grants. New households generate/register a key
+without showing it. Existing signed vaults migrate only when the supplied key
+derives the already pinned writer key. This prevents a logged-in user from
+silently replacing an older household's key. An old vault without an available
+remembered key still requires one final manual entry; an unpinned legacy vault
+must remain blocked pending a separately reviewed transition.
+
+Operational limitations remain:
+the KEK must be provisioned separately for dev and production, backed up and
+rotated with a documented procedure. A dedicated KMS/HSM remains the intended
+production improvement. The production wrapping secret exists, but independent
+backup and rotation procedures still need verification. The historical sections
+below describe the original device-only-key model; managed accounts now obtain
+their data key through the authenticated server, so this is no longer a
+server-blind/zero-knowledge design.
+
 Production release, 2026-10-03: approved browser provider increment deployed in `dpl_6GkgLMXyfeGZu8guYfcjjcgdST2J`. Both production hostnames serve the updated bundle and retain production Auth configuration. No database or environment changes; real-account provider login/import and signed writes remain unverified end to end.
 
 Local browser increment, 2026-10-03: electricity and heat now support direct provider login/import on web. Browser provider credentials stay only in vault-session memory, with no localStorage, AsyncStorage, backend proxy or encrypted-backup persistence. Reloading or starting a new vault session requires reconnecting; saved encrypted history remains available. Native provider credentials continue to use SecureStore. Mock browser flow tests pass; real-account browser flows and deployment are not verified. Earlier browser history-only statements below describe the prior release.
 
 ## Implemented
+
+- Heat connection redesign, 2026-10-12: the client no longer retains eForsyning credentials in browser memory or native SecureStore. On a successful connection, the authenticated server validates the supplier login, encrypts it with AES-256-GCM using a server-only KEK, binds the ciphertext to user and household as authenticated data, and saves only the envelope in a server-only table. Refreshes decrypt and use it server-side; the password is never returned to the app. Production migration, secret and deployment are live; real-account/device verification remains outstanding.
 
 - Login authorizes access to a household's ciphertext, not its decryption key.
 - A client-generated 256-bit random key encrypts electricity agreements, meters, meter master data and readings with XChaCha20-Poly1305. Each save uses a fresh 192-bit random nonce. The authenticated context includes the format, household UUID and revision.

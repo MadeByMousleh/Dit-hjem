@@ -3,24 +3,31 @@
     "name": "Strømblik",
     "slug": "stromblik",
     "scheme": "stromblik",
-    "version": "1.0.0",
+    "version": "1.0.7",
     "orientation": "default",
     "userInterfaceStyle": "light",
+    "icon": "./assets/brand/stromblik-app-icon.png",
     "splash": {
-      "backgroundColor": "#F4F1E8"
+      "image": "./assets/brand/stromblik-mark.png",
+      "resizeMode": "contain",
+      "backgroundColor": "#F5F5F2"
     },
     "ios": {
       "supportsTablet": true,
       "bundleIdentifier": "dk.dithjem.stromblik"
     },
     "android": {
+      "versionCode": 8,
       "package": "dk.dithjem.stromblik",
+      "softwareKeyboardLayoutMode": "resize",
       "adaptiveIcon": {
-        "backgroundColor": "#F4F1E8"
+        "foregroundImage": "./assets/brand/stromblik-adaptive-foreground.png",
+        "backgroundColor": "#F5F5F2"
       }
     },
     "web": {
-      "bundler": "metro"
+      "bundler": "metro",
+      "favicon": "./assets/brand/stromblik-app-icon.png"
     },
     "plugins": [
       "expo-notifications",

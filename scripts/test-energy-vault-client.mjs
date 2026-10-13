@@ -10,10 +10,11 @@ import { vaultWriteResponse } from '../src/services/vault-write-server.mjs';
 // Exercise the actual TypeScript service with only its platform/I/O boundaries mocked.
 const clone = value => JSON.parse(JSON.stringify(value));
 const cache = new Map(), secure = new Map(), clouds = new Map(), uploads = [], versions = new Map();
-const writers = new Map(), signedRequests = [];
+const writers = new Map(), signedRequests = [], managedKeys = new Map();
+const knownHomes = new Set();
 const projectUrl = 'https://aaaaaaaaaaaaaaaaaaaa.supabase.co';
 process.env.SUPABASE_URL = projectUrl; // isolated process fixture, never .ENV
-let offline = false;
+let offline = false, registrationError = false;
 let beforeSave;
 const db = {
   auth: {getSession:async()=>({data:{session:{user:{id:user},access_token:'fixture-session'}},error:null})},
@@ -22,7 +23,7 @@ const db = {
     let columns;
     const rows = () => {
       if (offline) throw new Error('offline');
-      const source = table === 'household_members' ? [{household_id:home,user_id:user}] : [...(table === 'energy_vault_versions' ? versions : clouds).values()];
+      const source = table === 'household_members' ? [...knownHomes].map(household_id => ({household_id,user_id:user})) : [...(table === 'energy_vault_versions' ? versions : clouds).values()];
       return source.filter(row => filters.every(fn => fn(row))).map(clone);
     };
     const query = {
@@ -59,7 +60,7 @@ const storage = { getItem: async name => cache.get(name) ?? null, setItem: async
 const deps = {
   '@react-native-async-storage/async-storage': { default: storage },
   'expo-crypto': { getRandomBytesAsync: async n => new Uint8Array(randomBytes(n)) },
-  'expo-secure-store': { WHEN_UNLOCKED_THIS_DEVICE_ONLY:'device-only', getItemAsync: async name => secure.get(name) ?? null, setItemAsync: async (name,value,options) => { assert.equal(options.requireAuthentication,true); assert.equal(options.keychainAccessible,'device-only'); secure.set(name,value); } },
+  'expo-secure-store': { WHEN_UNLOCKED_THIS_DEVICE_ONLY:'device-only', getItemAsync: async name => secure.get(name) ?? null, setItemAsync: async (name,value,options) => { assert.equal(options.requireAuthentication,true); assert.equal(options.keychainAccessible,'device-only'); secure.set(name,value); }, deleteItemAsync: async name => secure.delete(name) },
   'react-native': { Platform: { OS:'ios' } },
   './supabase': { getSupabase: async () => db, getSupabaseProjectUrl:async()=>projectUrl,API_URL:'https://app.example.invalid' },
   './vault-crypto.mjs': crypto,
@@ -69,6 +70,15 @@ const mockFetch = async (url,options) => {
   assert.equal(url,'https://app.example.invalid/api/energy/vault');
   assert.equal(options.headers.Authorization,'Bearer fixture-session');
   const body = JSON.parse(options.body); signedRequests.push(clone(body));
+  if (body.action === 'managed-key') {
+    if (body.operation === 'get') return {ok:true,json:async()=>({key:managedKeys.get(body.householdId) ?? null})};
+    assert.equal(body.operation,'register');
+    if (registrationError) return {ok:false,status:503,json:async()=>({error:'Registration temporarily unavailable'})};
+    const previous = managedKeys.get(body.householdId);
+    if (previous && previous !== body.key) return {ok:false,status:409,json:async()=>({error:'Denne husstand har allerede en anden sikker nøgle. Dine data er ikke ændret.'})};
+    managedKeys.set(body.householdId,body.key);
+    return {ok:true,json:async()=>({registered:true})};
+  }
   const result = await vaultWriteResponse(new Request(url,{method:'POST',headers:options.headers}),body,async()=>({data:{userClaims:{id:user},supabase:db,supabaseAdmin:db},error:null}));
   return {ok:result.status===200,json:async()=>result.body};
 };
@@ -77,6 +87,7 @@ const mod = { exports:{} };
 vm.runInThisContext(`(function(require,module,exports,fetch){${output}\n})`)(name => { assert.ok(deps[name],name); return deps[name]; },mod,mod.exports,mockFetch);
 const { EnergyVault } = mod.exports;
 const home = randomUUID(), user = randomUUID(), text = crypto.recoveryKey(new Uint8Array(randomBytes(32)));
+knownHomes.add(home);
 const phone1 = new EnergyVault(home,user);
 await phone1.enroll(text);
 const original = clone(clouds.get(home));
@@ -209,5 +220,38 @@ assert.deepEqual(clouds.get(home),beforeLocked); writers.set(home,pinned);
 phone1.close();
 assert.throws(() => phone1.data);
 await assert.rejects(phone1.mutate(data => data));
+// New households receive a managed key without a recovery-key screen. A fresh
+// session can then open the same encrypted vault without local key storage.
+const automaticHome = randomUUID();
+knownHomes.add(automaticHome);
+const automaticFirst = new EnergyVault(automaticHome,user);
+assert.equal(await automaticFirst.unlockAutomatically(),'ready');
+assert.equal(automaticFirst.data.version,1);
+assert.match(managedKeys.get(automaticHome),/^[a-f0-9]{64}$/);
+automaticFirst.close();
+const automaticSecond = new EnergyVault(automaticHome,user);
+assert.equal(await automaticSecond.unlockAutomatically(),'ready');
+assert.equal(automaticSecond.data.version,1);
+automaticSecond.close();
+// A broken cache can be repaired from authenticated cloud ciphertext.
+cache.set(`stromblik.vault.${user}.${automaticHome}.encrypted`, '{broken');
+assert.equal(await new EnergyVault(automaticHome,user).unlockAutomatically(), 'ready');
+// A server migration failure must preserve the remembered key and be retryable.
+const migrationHome = randomUUID(); knownHomes.add(migrationHome);
+const legacy = new EnergyVault(migrationHome,user);
+await legacy.enroll(text); await legacy.remember(); legacy.close();
+registrationError = true;
+await assert.rejects(new EnergyVault(migrationHome,user).unlockAutomatically(), /temporarily unavailable/);
+assert.ok(secure.has(`stromblik.vault.${user}.${migrationHome}`));
+registrationError = false;
+assert.equal(await new EnergyVault(migrationHome,user).unlockAutomatically(), 'ready');
+assert.equal(secure.has(`stromblik.vault.${user}.${migrationHome}`), false);
+assert.equal(await new EnergyVault(migrationHome,user).unlockAutomatically(), 'ready');
+// Simultaneous first logins converge to one key and one readable vault.
+const concurrentHome = randomUUID(); knownHomes.add(concurrentHome);
+const sessions = [new EnergyVault(concurrentHome,user),new EnergyVault(concurrentHome,user)];
+assert.deepEqual(await Promise.all(sessions.map(session => session.unlockAutomatically())), ['ready','ready']);
+assert.deepEqual(sessions[0].data, sessions[1].data);
+console.log('PASS: managed-key repeat login, corrupt-cache recovery, retryable legacy migration and simultaneous enrollment.');
 console.log('PASS: actual vault service, cross-device recovery, secure-store isolation, concurrent saves, encrypted-only cache/uploads, offline reads, replay rejection, lock.');
 console.log('PASS: corrupt-head recovery, wrong-key/corrupt-version rejection before writes, immutable old versions, fresh-device restore, stale confirmation and save conflicts, history pagination.');

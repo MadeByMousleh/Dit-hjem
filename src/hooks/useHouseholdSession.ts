@@ -66,7 +66,7 @@ function useSessionState() {
       const client = await getSupabase();
       const result = codeSent
         ? await client.auth.verifyOtp({ email: email.trim(), token: code.trim(), type: 'email' })
-        : await client.auth.signInWithOtp({ email: email.trim(), options: { shouldCreateUser: createAccount, ...(typeof window !== 'undefined' && window.location?.origin ? { emailRedirectTo: window.location.origin } : {}) } });
+        : await client.auth.signInWithOtp({ email: email.trim(), options: { shouldCreateUser: createAccount, ...(createAccount ? { data: { onboarding_pending: true } } : {}), ...(typeof window !== 'undefined' && window.location?.origin ? { emailRedirectTo: window.location.origin } : {}) } });
       if (result.error) throw new Error(authErrorMessage(result.error, codeSent, createAccount));
       if (!codeSent) { setCodeSent(true); setRetryAt(Date.now() + 60000); }
     } catch (error) { setAuthError(error instanceof Error ? error.message : 'Login mislykkedes.'); }

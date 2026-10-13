@@ -1,31 +1,27 @@
-import { useState } from 'react';
-import { Linking, Platform, Pressable, Text, TextInput, View } from 'react-native';
+import { useEffect } from 'react';
+import { ActivityIndicator, Linking, Pressable, Text, View } from 'react-native';
 import { useEnergyVault } from './EnergyVaultGate';
-import { connectPrivateMeter } from '../services/private-electricity';
+import { usePowerSetup } from '../hooks/usePowerSetup';
 import { colors } from '../styles/theme';
 
 export function EncryptedEnergyControls({ onConnected }: { onConnected?: () => void }) {
-  const vault = useEnergyVault();
-  const [token, setToken] = useState('');
-  const [message, setMessage] = useState('');
-  const [busy, setBusy] = useState(false);
+  const setup = usePowerSetup(useEnergyVault());
+  useEffect(() => { if (setup.state === 'done') onConnected?.(); }, [setup.state, onConnected]);
+  return <View style={{ marginTop: 16, gap: 10 }}>
+    <Text style={{ color: colors.muted, lineHeight: 22 }}>Forbind med MitID hos Eloverblik. En allerede tilknyttet fuldmagt genbruges automatisk.</Text>
+    <Pressable accessibilityRole="button" disabled={setup.busy} onPress={() => void (setup.state === 'pending' || setup.state === 'done' ? setup.check() : setup.connect())} style={{ minHeight: 52, borderRadius: 16, backgroundColor: colors.primary, alignItems: 'center', justifyContent: 'center', opacity: setup.busy ? 0.5 : 1 }}>
+      {setup.busy ? <ActivityIndicator color={colors.white} /> : <Text style={{ color: colors.white, fontFamily: 'Nunito_700Bold' }}>{setup.state === 'done' ? 'Forbundet' : setup.state === 'pending' ? 'Kontrollér godkendelse' : 'Forbind med MitID'}</Text>}
+    </Pressable>
+    {setup.state === 'pending' ? <Pressable accessibilityRole="button" disabled={setup.busy} onPress={() => void setup.connect()} style={{ minHeight: 48, justifyContent: 'center' }}><Text style={{ color: colors.primary }}>Åbn Eloverblik igen</Text></Pressable> : null}
+    {setup.message || setup.error ? <Text accessibilityLiveRegion="polite" style={{ color: setup.error ? colors.error : colors.ink }}>{setup.error || setup.message}</Text> : null}
+    <ExistingAuthorizationHelp />
+  </View>;
+}
 
-  async function run(action: () => Promise<void>, success: string) {
-    if (busy) return;
-    setBusy(true); setMessage('');
-    try { await action(); setMessage(success); }
-    catch (cause) { setMessage(cause instanceof Error ? cause.message : 'Prøv igen.'); }
-    finally { setBusy(false); }
-  }
-
-  return <View style={{ marginTop: 16 }}>
-    {Platform.OS === 'web' ? <Text style={{ color: colors.muted, marginBottom: 10 }}>Forbindelsen huskes kun, indtil du genindlæser eller forlader siden.</Text> : null}
-    <>
-      <Text style={{ color: colors.muted, lineHeight: 19 }}>Hent din token hos Eloverblik, og indsæt den her.</Text>
-      <Pressable disabled={busy} onPress={() => void Linking.openURL('https://eloverblik.dk/')} style={{ minHeight: 44, justifyContent: 'center', marginTop: 5 }}><Text style={{ color: colors.primary, fontFamily: 'DMSans_700Bold' }}>Åbn Eloverblik</Text></Pressable>
-      <TextInput accessibilityLabel="Eloverblik-token" value={token} onChangeText={setToken} editable={!busy} secureTextEntry autoCapitalize="none" autoCorrect={false} placeholder="Indsæt din Eloverblik-token" placeholderTextColor={colors.muted} style={{ minHeight: 48, backgroundColor: colors.paper, borderWidth: 1, borderColor: colors.line, borderRadius: 10, paddingHorizontal: 12, color: colors.ink }} />
-      <Pressable disabled={busy || !token.trim()} onPress={() => void run(async () => { await connectPrivateMeter(vault, token); setToken(''); onConnected?.(); }, 'Eloverblik er nu forbundet.')} style={{ minHeight: 46, borderRadius: 23, backgroundColor: colors.primary, alignItems: 'center', justifyContent: 'center', marginTop: 10, opacity: busy || !token.trim() ? 0.5 : 1 }}><Text style={{ color: colors.white, fontFamily: 'DMSans_700Bold' }}>{busy ? 'Forbinder…' : 'Forbind'}</Text></Pressable>
-    </>
-    {message ? <Text accessibilityRole="alert" style={{ color: colors.ink, marginTop: 10 }}>{message}</Text> : null}
+export function ExistingAuthorizationHelp() {
+  return <View style={{ marginTop: 12, gap: 6 }}>
+    <Text style={{ color: colors.ink, fontFamily: 'Nunito_700Bold', fontSize: 14 }}>Siger Eloverblik, at fuldmagten allerede findes?</Text>
+    <Text style={{ color: colors.muted, lineHeight: 21, fontSize: 13 }}>Tryk først på Kontrollér godkendelse. Hvis fuldmagten er oprettet via et gammelt fælles link, kan vi ikke automatisk knytte den til din konto. Fjern kun fuldmagten til vores virksomhed hos Eloverblik, og vend tilbage for at oprette den via appen. Andre fuldmagter skal bevares.</Text>
+    <Pressable accessibilityRole="link" onPress={() => void Linking.openURL('https://eloverblik.dk').catch(() => {})} style={{ minHeight: 48, justifyContent: 'center' }}><Text style={{ color: colors.primary, fontFamily: 'Nunito_700Bold' }}>Åbn Eloverblik ↗</Text></Pressable>
   </View>;
 }
