@@ -1,0 +1,36 @@
+<!doctype html>
+<html lang="da">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width,initial-scale=1">
+  <meta name="referrer" content="no-referrer">
+  <meta http-equiv="Content-Security-Policy" content="default-src 'none'; script-src 'unsafe-inline'; style-src 'unsafe-inline'; base-uri 'none'; form-action 'none'">
+  <title>Tilbage til Strømblik</title>
+  <style>
+    body { margin:0; padding:32px 24px; background:#f5f5f2; color:#202532; font:18px/1.5 system-ui,sans-serif; }
+    main { max-width:440px; margin:12vh auto; }
+    h1 { font-size:30px; line-height:1.2; }
+    a { display:inline-block; padding:14px 22px; margin-top:12px; background:#4158d8; color:white; border-radius:16px; text-decoration:none; }
+  </style>
+</head>
+<body>
+  <main>
+    <h1>Tilbage til dit overblik</h1>
+    <p>Strømblik kontrollerer din fuldmagt hos Eloverblik, når du vender tilbage.</p>
+    <a id="return" href="/?eloverblik=return">Åbn Strømblik</a>
+    <p id="help">Du kan også vende tilbage til den åbne Strømblik-fane.</p>
+  </main>
+  <script>
+    // Navigation only. Never use return-page parameters as proof of approval,
+    // or forward arbitrary URLs, tokens, keys or account details to the app.
+    if (new URLSearchParams(location.search).get('app') === '1') {
+      const destination = 'stromblik://eloverblik/connected';
+      document.getElementById('return').href = destination;
+      document.getElementById('help').textContent = 'Hvis appen ikke åbner automatisk, tryk på Åbn Strømblik.';
+      location.replace(destination);
+    } else {
+      location.replace('/?eloverblik=return');
+    }
+  </script>
+</body>
+</html>

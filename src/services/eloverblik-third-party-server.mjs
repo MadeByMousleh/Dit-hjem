@@ -22,7 +22,9 @@ async function requireMembership(ctx, householdId) {
   if (!member) throw new EloverblikConnectionError(403, 'Du har ikke adgang til denne husstand.');
 }
 async function connection(ctx, householdId) {
-  const row = await checked(ctx.supabaseAdmin.from('eloverblik_third_party_connections').select('authorization_id').eq('household_id', householdId).eq('user_id', ctx.userClaims.id).maybeSingle());
+  // Membership is verified before every caller reaches here. The connection is
+  // household-owned; the user_id records who connected it, not the only reader.
+  const row = await checked(ctx.supabaseAdmin.from('eloverblik_third_party_connections').select('authorization_id').eq('household_id', householdId).maybeSingle());
   if (!row?.authorization_id) throw new EloverblikConnectionError(409, 'Forbind Eloverblik først.');
   return row.authorization_id;
 }
@@ -33,6 +35,27 @@ async function existingAuthorization(ctx, householdId, dependencies) {
   const active = await activeAuthorizations(dependencies.env ?? process.env, dependencies);
   return active.some(item => item.authorizationId === id) ? id : null;
 }
+async function recoverAuthorization(ctx, householdId, dependencies) {
+  const existing = await existingAuthorization(ctx, householdId, dependencies);
+  if (existing) return { id: existing, pending: false };
+  const attempts = await checked(ctx.supabaseAdmin.from('eloverblik_authorization_attempts').select('customer_key_hash').eq('user_id', ctx.userClaims.id).eq('household_id', householdId).gt('expires_at', new Date(dependencies.now ?? Date.now()).toISOString()));
+  if (!attempts.length) return { id: null, pending: false };
+  const wanted = new Set(attempts.map(row => row.customer_key_hash));
+  const matches = (await activeAuthorizations(dependencies.env ?? process.env, dependencies)).filter(item => item.customerKey && wanted.has(keyHash(item.customerKey)));
+  if (matches.length > 1) throw new EloverblikConnectionError(409, 'Flere fuldmagter matcher. Start forbindelsen igen.');
+  if (!matches.length) return { id: null, pending: true };
+  const match = matches[0];
+  const result = await ctx.supabaseAdmin.rpc('consume_eloverblik_authorization', { p_user: ctx.userClaims.id, p_household: householdId, p_customer_key_hash: keyHash(match.customerKey), p_authorization: match.authorizationId });
+  if (result.error) {
+    // Diagnose provider-to-household binding failures without logging keys,
+    // authorization IDs, account IDs or database error detail (which can contain them).
+    console.error('eloverblik_binding_failed', { code: result.error.code ?? 'unknown', attemptMissing: result.error.message === 'authorization_attempt_missing' });
+    // Two mounted clients can discover the same approved attempt together.
+    if (result.error.message === 'authorization_attempt_missing' && await existingAuthorization(ctx, householdId, dependencies) === match.authorizationId) return { id: match.authorizationId, pending: false };
+    throw new EloverblikConnectionError(result.error.message === 'authorization_attempt_missing' ? 410 : 503, result.error.message === 'authorization_attempt_missing' ? 'Forbindelsesforsøget er udløbet. Start igen.' : 'Forbindelsen kunne ikke gemmes.');
+  }
+  return { id: match.authorizationId, pending: false };
+}
 async function connectedResult(id, dependencies) {
   return { status: 200, body: { connected: true, pending: false, meters: await meteringPointsForAuthorization(id, dependencies.env ?? process.env, dependencies) } };
 }
@@ -41,13 +64,9 @@ function errorResponse(error, fallback) { const expected = error instanceof Elov
 export async function beginEloverblikAuthorization(request, body, dependencies = {}) {
   try {
     const ctx = await contextFor(request, dependencies.contextFactory); await requireMembership(ctx, body?.householdId);
-    const existing = await existingAuthorization(ctx, body.householdId, dependencies);
-    if (existing) return await connectedResult(existing, dependencies);
-    // A previous browser round-trip may have completed before the app closed.
-    const resumed = await finishEloverblikAuthorization(request, body, dependencies);
-    if (resumed.body.connected) return resumed;
-    if (resumed.status !== 200 && resumed.status !== 410) return resumed;
-    const created = createAuthorizationAttempt({ userId: ctx.userClaims.id, householdId: body.householdId }, dependencies.env ?? process.env, dependencies.now ?? Date.now());
+    const recovered = await recoverAuthorization(ctx, body.householdId, dependencies);
+    if (recovered.id) return await connectedResult(recovered.id, dependencies);
+    const created = createAuthorizationAttempt({ userId: ctx.userClaims.id, householdId: body.householdId, platform: body.platform }, dependencies.env ?? process.env, dependencies.now ?? Date.now());
     const saved = await ctx.supabaseAdmin.from('eloverblik_authorization_attempts').upsert({ customer_key_hash: keyHash(created.attempt.customerKey), user_id: created.attempt.userId, household_id: created.attempt.householdId, expires_at: new Date(created.attempt.expiresAt).toISOString(), created_at: new Date(created.attempt.createdAt).toISOString() }, { onConflict: 'customer_key_hash' });
     if (saved.error) throw new EloverblikConnectionError(503, 'Forbindelsen kunne ikke klargøres.');
     return { status: 200, body: { authorizationUrl: created.authorizationUrl, expiresAt: created.attempt.expiresAt } };
@@ -56,26 +75,20 @@ export async function beginEloverblikAuthorization(request, body, dependencies =
 export async function finishEloverblikAuthorization(request, body, dependencies = {}) {
   try {
     const ctx = await contextFor(request, dependencies.contextFactory); await requireMembership(ctx, body?.householdId);
-    const existing = await existingAuthorization(ctx, body.householdId, dependencies);
-    if (existing) return await connectedResult(existing, dependencies);
-    const attempts = await checked(ctx.supabaseAdmin.from('eloverblik_authorization_attempts').select('customer_key_hash').eq('user_id', ctx.userClaims.id).eq('household_id', body.householdId).gt('expires_at', new Date(dependencies.now ?? Date.now()).toISOString()));
-    if (!attempts.length) throw new EloverblikConnectionError(410, 'Forbindelsesforsøget er udløbet. Start igen.');
-    const wanted = new Set(attempts.map(row => row.customer_key_hash));
-    const matches = (await activeAuthorizations(dependencies.env ?? process.env, dependencies)).filter(item => item.customerKey && wanted.has(keyHash(item.customerKey)));
-    if (matches.length > 1) throw new EloverblikConnectionError(409, 'Flere fuldmagter matcher. Start forbindelsen igen.');
-    if (!matches.length) return { status: 200, body: { connected: false, pending: true } };
-    const result = await ctx.supabaseAdmin.rpc('consume_eloverblik_authorization', { p_user: ctx.userClaims.id, p_household: body.householdId, p_customer_key_hash: keyHash(matches[0].customerKey), p_authorization: matches[0].authorizationId });
-    if (result.error) throw new EloverblikConnectionError(result.error.message === 'authorization_attempt_missing' ? 410 : 503, result.error.message === 'authorization_attempt_missing' ? 'Forbindelsesforsøget er udløbet. Start igen.' : 'Forbindelsen kunne ikke gemmes.');
-    return await connectedResult(matches[0].authorizationId, dependencies);
+    const recovered = await recoverAuthorization(ctx, body.householdId, dependencies);
+    if (recovered.id) return await connectedResult(recovered.id, dependencies);
+    if (!recovered.pending) throw new EloverblikConnectionError(410, 'Forbindelsesforsøget er udløbet. Start igen.');
+    return { status: 200, body: { connected: false, pending: true } };
   } catch (error) { return errorResponse(error, 'Eloverblik-forbindelsen kunne ikke bekræftes.'); }
 }
 export async function thirdPartyMeters(request, body, dependencies = {}) { try { const ctx = await contextFor(request, dependencies.contextFactory); await requireMembership(ctx, body?.householdId); return { status: 200, body: { meters: await meteringPointsForAuthorization(await connection(ctx, body.householdId), dependencies.env ?? process.env, dependencies) } }; } catch (error) { return errorResponse(error, 'Målepunkterne kunne ikke hentes.'); } }
 export async function thirdPartyStatus(request, body, dependencies = {}) {
   try {
     const ctx = await contextFor(request, dependencies.contextFactory); await requireMembership(ctx, body?.householdId);
-    if (await existingAuthorization(ctx, body.householdId, dependencies)) return { status: 200, body: { connected: true, pending: false } };
-    const attempts = await checked(ctx.supabaseAdmin.from('eloverblik_authorization_attempts').select('customer_key_hash').eq('user_id', ctx.userClaims.id).eq('household_id', body.householdId).gt('expires_at', new Date(dependencies.now ?? Date.now()).toISOString()));
-    return { status: 200, body: { connected: false, pending: attempts.length > 0 } };
+    // Status must inspect provider approval, not merely report a pending DB row.
+    // This also repairs a round-trip that completed while the app was closed.
+    const recovered = await recoverAuthorization(ctx, body.householdId, dependencies);
+    return { status: 200, body: { connected: !!recovered.id, pending: recovered.pending } };
   } catch (error) { return errorResponse(error, 'Eloverblik-status kunne ikke hentes.'); }
 }
 export async function thirdPartyTimeseries(request, body, dependencies = {}) { try { const ctx = await contextFor(request, dependencies.contextFactory); await requireMembership(ctx, body?.householdId); return { status: 200, body: await meteringPointReadings(await connection(ctx, body.householdId), body?.meteringPointId, body?.from, body?.to, body?.aggregation, dependencies.env ?? process.env, dependencies) }; } catch (error) { return errorResponse(error, 'Målerdata kunne ikke hentes.'); } }

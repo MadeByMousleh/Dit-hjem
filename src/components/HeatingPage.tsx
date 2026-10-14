@@ -56,8 +56,8 @@ export function HeatingPage() {
         <Text style={s.muted}>{annualShare}% af årsforventningen</Text>
       </View> : null}
       {missingDetails ? <View style={s.missingDetails}>
-        <Text style={s.muted}>{heat.loading ? 'Henter årsoversigt og temperaturer…' : Platform.OS === 'web' ? 'Årsoversigt eller temperaturer mangler. Åbn mobilappen for at opdatere.' : 'Årsoversigt eller temperaturer mangler i de gemte data.'}</Text>
-        {Platform.OS !== 'web' && !heat.loading ? <Pressable accessibilityRole="button" onPress={() => void heat.refresh()} style={s.refreshButton}><AppIcon name="refresh-cw" size={14} color={colors.primary} /><Text style={s.refreshText}>Hent nye varmedata</Text></Pressable> : null}
+        <Text style={s.muted}>{heat.loading ? 'Henter årsoversigt og temperaturer…' : 'Årsoversigt eller temperaturer mangler i de gemte data.'}</Text>
+        {!heat.loading ? <Pressable accessibilityRole="button" onPress={() => void heat.refresh()} style={s.refreshButton}><AppIcon name="refresh-cw" size={14} color={colors.primary} /><Text style={s.refreshText}>Hent nye varmedata</Text></Pressable> : null}
       </View> : null}
       <Text style={s.updated}>Opdateret {new Date(history.fetchedAt).toLocaleDateString('da-DK')}</Text>
     </View> : null}
@@ -82,7 +82,7 @@ function HeatingCustomerCard({ customer, installation }: { customer: HeatCustome
     </View>
     {address ? <View style={s.addressRow}><AppIcon name="map-pin" size={15} color={colors.primary} /><Text style={s.address}>{address}</Text></View> : null}
     <View style={s.customerGrid}>{details.map(([label, value]) => <View key={label} style={s.customerMetric}><Text style={s.metricLabel}>{label}</Text><Text selectable style={s.customerValue}>{value}</Text></View>)}</View>
-    {!customer ? <Text style={s.customerHint}>Opdater varmedata i mobilappen for at hente adresse og måleroplysninger.</Text> : null}
+    {!customer ? <Text style={s.customerHint}>Opdater varmedata for at hente adresse og måleroplysninger.</Text> : null}
   </View>;
 }
 

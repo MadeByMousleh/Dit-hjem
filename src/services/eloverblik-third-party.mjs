@@ -7,6 +7,13 @@ export class ThirdPartyError extends Error {
   constructor(status, message) { super(message); this.status = status; }
 }
 
+// Provider authorization IDs are opaque strings. The public Swagger describes
+// UUIDs, but a real approved connection returned an ID rejected by PostgreSQL's
+// UUID input parser. Never reinterpret IDs as customer-facing grant numbers.
+export function isAuthorizationId(value) {
+  return typeof value === 'string' && value.length > 0 && value.length <= 200 && !/[\s\x00-\x1f\x7f]/.test(value);
+}
+
 function configuredRefreshToken(env = process.env) {
   const token = env.ELOVERBLIK_THIRD_PARTY_API_TOKEN?.trim();
   if (!token || token.length < 20) throw new ThirdPartyError(503, 'Eloverblik-tredjepartsadgang er ikke konfigureret.');
@@ -52,10 +59,10 @@ export async function dataAccessToken(env = process.env, dependencies = {}) {
 }
 
 export function authorizationRecord(value) {
-  // Public API id is a UUID string. The portal's visible number is NOT this id.
+  // Preserve the API's exact opaque identifier, not the portal's visible number.
   const authorizationId = typeof value?.id === 'string' ? value.id.trim() : '';
   const customerKey = typeof value?.customerKey === 'string' && value.customerKey ? value.customerKey : null;
-  if (!authorizationId) return null;
+  if (!isAuthorizationId(authorizationId)) return null;
   return {
     authorizationId,
     customerKey,
@@ -79,7 +86,7 @@ export async function authorizationForCustomerKey(customerKey, env = process.env
 }
 
 export async function meteringPointsForAuthorization(authorizationId, env = process.env, dependencies = {}) {
-  if (typeof authorizationId !== 'string' || !/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(authorizationId)) {
+  if (!isAuthorizationId(authorizationId)) {
     throw new ThirdPartyError(400, 'Eloverblik-forbindelsen er ugyldig.');
   }
   const accessToken = await dataAccessToken(env, dependencies);

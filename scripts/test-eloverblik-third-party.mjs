@@ -1,8 +1,19 @@
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
-import { __testing, activeAuthorizations, authorizationForCustomerKey, dataAccessToken, ThirdPartyError } from '../src/services/eloverblik-third-party.mjs';
+import { __testing, activeAuthorizations, authorizationForCustomerKey, dataAccessToken, meteringPointsForAuthorization, ThirdPartyError } from '../src/services/eloverblik-third-party.mjs';
 
 const env = { ELOVERBLIK_THIRD_PARTY_API_TOKEN: 'third-party-refresh-token-fixture' };
+
+test('uses exact opaque provider IDs for meter lookup, including safe path encoding', async () => {
+  __testing.clearCache();
+  let path;
+  const fetcher = async url => { path = url; return Response.json({ result: url.endsWith('/token') ? 'synthetic-access' : [{ meteringPointId: '123456789012345678' }] }); };
+  for (const id of ['123456789', 'provider-authorization-abc', 'provider/id+suffix']) {
+    assert.deepEqual(await meteringPointsForAuthorization(id, env, { fetcher }), ['123456789012345678']);
+    assert.ok(path.endsWith('/authorizationId/' + encodeURIComponent(id)));
+  }
+  for (const id of ['', 'with space', 'with\nnewline', 'x'.repeat(201)]) await assert.rejects(meteringPointsForAuthorization(id, env, { fetcher }), error => error.status === 400);
+});
 
 test('exchanges the server-side refresh token once and returns active customer-key authorizations', async () => {
   __testing.clearCache();

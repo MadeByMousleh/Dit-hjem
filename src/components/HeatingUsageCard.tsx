@@ -1,6 +1,6 @@
 import { AppIcon } from './AppIcon';
 import { useMemo, useRef, useState } from 'react';
-import { ActivityIndicator, Platform, Pressable, ScrollView, StyleSheet, Text, TextInput, View } from 'react-native';
+import { ActivityIndicator, Pressable, ScrollView, StyleSheet, Text, TextInput, View } from 'react-native';
 import Svg, { Circle, Line, Path, Rect } from 'react-native-svg';
 import { useEforsyning } from '../hooks/useEforsyning';
 import { useDashboardViewState } from '../hooks/useDashboardViewState';
@@ -141,10 +141,12 @@ export function HeatingUsageCard({ heat }: { heat: ReturnType<typeof useEforsyni
       </ScrollView></View>
       {points.length > 12 ? <Pressable accessibilityRole="button" onPress={() => setOverview(value => !value)} style={[s.detailButton, s.zoom]}><Text style={s.detailButtonText}>{overview ? 'Større søjler' : 'Vis hele perioden'}</Text></Pressable> : null}
 
-      <View style={s.actions}><Pressable disabled={heat.loading} onPress={() => void heat.refresh()}><Text style={s.link}>Opdater</Text></Pressable><Pressable disabled={heat.loading} onPress={() => { heat.setPassword(''); setEditing(value => !value); }}><Text style={s.link}>{editing ? 'Annuller' : 'Forbind igen'}</Text></Pressable></View>
+      <View style={s.actions}><Pressable disabled={heat.loading} onPress={() => void heat.refresh()}><Text style={s.link}>Opdater</Text></Pressable><Pressable disabled={heat.loading} onPress={() => { heat.setPassword(''); setEditing(value => !value); }}><Text style={s.link}>{editing ? 'Annuller' : 'Skift login'}</Text></Pressable></View>
     </> : null}
-    {(!history || heat.connected === false || editing) ? <>
-      {Platform.OS === 'web' ? <Text style={s.note}>Forbindelsen huskes kun, indtil du genindlæser eller forlader siden.</Text> : null}
+    {heat.connected === true ? <Text style={s.note}>Forbundet · Dit login er gemt og bruges automatisk ved opdatering.</Text> : null}
+    {heat.connected === null && !heat.loading ? <Pressable accessibilityRole="button" onPress={() => void heat.refresh()}><Text style={s.link}>Kontrollér forbindelse</Text></Pressable> : null}
+    {(heat.connected === false || editing) ? <>
+      <Text style={s.note}>Dit login gemmes sikkert, så du ikke skal indtaste det igen ved opdatering.</Text>
       <Text style={s.connectIntro}>Forbind din konto hos Sønderborg Varme for at hente dit varmeforbrug. Oplysningerne finder du på din varmeregning.</Text>
       <Text style={s.inputLabel}>Kundenummer</Text>
       <TextInput accessibilityLabel="Kundenummer" placeholder="Indtast dit kundenummer" keyboardType="number-pad" autoCapitalize="none" autoCorrect={false} value={heat.username} onChangeText={heat.setUsername} editable={!heat.loading} style={s.input} />
@@ -152,6 +154,7 @@ export function HeatingUsageCard({ heat }: { heat: ReturnType<typeof useEforsyni
       <TextInput accessibilityLabel="Kode fra varmeregningen" placeholder="Indtast koden fra regningen" secureTextEntry autoCapitalize="none" autoCorrect={false} value={heat.password} onChangeText={heat.setPassword} editable={!heat.loading} style={s.input} />
       <Pressable accessibilityRole="button" disabled={heat.loading || !heat.username || !heat.password} onPress={() => { void heat.login().then(success => { if (success) { setEditing(false); setSelected(''); } }); }} style={[s.button, (heat.loading || !heat.username || !heat.password) && { opacity: 0.5 }]}><Text style={s.buttonText}>Forbind varme</Text></Pressable>
     </> : null}
+    {!history && heat.connected === true ? <Pressable accessibilityRole="button" disabled={heat.loading} onPress={() => void heat.refresh()}><Text style={s.link}>Hent varmedata</Text></Pressable> : null}
     {heat.loading ? <ActivityIndicator color={colors.primary} style={{ marginTop: 12 }} /> : null}
     {heat.error ? <Text accessibilityRole="alert" style={s.error}>{heat.error}</Text> : null}
   </View>;

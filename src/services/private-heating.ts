@@ -7,7 +7,12 @@ export type HeatSummary = { from: string | null; to: string | null; actualKwh: n
 export type HeatCustomer = { customerNumber: string; consumerNumber: string | null; installationNumber: string | null; meterNumber: string | null; address: string | null; postalCode: string | null; city: string | null };
 export type HeatHistory = { supplier: 'sonderborg-varme'; installation: string; year: string; fetchedAt: string; readings: HeatReading[]; customer?: HeatCustomer | null; summary?: HeatSummary | null; annualRequestAttempted?: boolean };
 type Credentials = { username: string; password: string };
-const queues = new WeakMap<EnergyVault, Promise<void>>();
+export type HeatSyncResult = { connected: true; warning?: string };
+export class HeatingRequestError extends Error {
+  constructor(message: string, public code?: string) { super(message); }
+}
+export function heatingNeedsReconnect(error: unknown) { return error instanceof HeatingRequestError && ['HEATING_CONNECTION_MISSING', 'HEATING_CREDENTIALS_REJECTED', 'HEATING_CREDENTIALS_UNREADABLE'].includes(error.code ?? ''); }
+const queues = new WeakMap<EnergyVault, Promise<HeatSyncResult | undefined>>();
 
 function numeric(value: unknown): number | null {
   if (value === null || value === undefined || String(value).trim() === '') return null;
@@ -60,10 +65,14 @@ async function heatingRequest(vault: EnergyVault, body: Record<string, unknown>)
   const client = await getSupabase();
   const { data: { session } } = await client.auth.getSession();
   if (!session) throw new Error('Log ind igen for at forbinde varme.');
-  const response = await fetch(`${API_URL}/api/energy/vault`, { method: 'POST', headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${session.access_token}` }, body: JSON.stringify({ operation: 'heating', householdId: vault.householdId, ...body }) });
-  const result = await response.json() as { error?: string; connected?: boolean; history?: HeatHistory };
-  if (!response.ok) throw new Error(result.error ?? 'Varmeforbindelsen kunne ikke gennemføres.');
-  return result;
+  const controller = new AbortController(), timer = setTimeout(() => controller.abort(), 60000);
+  try {
+    const response = await fetch(`${API_URL}/api/energy/vault`, { method: 'POST', headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${session.access_token}` }, body: JSON.stringify({ operation: 'heating', householdId: vault.householdId, ...body }), signal: controller.signal });
+    const result = await response.json().catch(() => null) as { error?: string; code?: string; connected?: boolean; history?: HeatHistory; warning?: string } | null;
+    if (!result) throw new Error('Varmeserveren svarede ikke korrekt. Prøv igen senere.');
+    if (!response.ok) throw new HeatingRequestError(result.error ?? 'Varmeforbindelsen kunne ikke gennemføres.', result.code);
+    return result;
+  } finally { clearTimeout(timer); }
 }
 async function saveHistory(vault: EnergyVault, history: HeatHistory) {
   await vault.mutate(data => {
@@ -78,16 +87,23 @@ async function saveHistory(vault: EnergyVault, history: HeatHistory) {
 export async function hasPrivateHeatingConnection(vault: EnergyVault) { return Boolean((await heatingRequest(vault, { action: 'status' })).connected); }
 export async function syncHeating(vault: EnergyVault, credentials?: Credentials, force = false) {
   const existing = queues.get(vault);
-  if (existing) return existing;
-  const pending = (async () => {
+  if (existing && !credentials) return existing;
+  // A foreground login must not disappear into an unrelated background sync.
+  const pending = (existing ? existing.catch(() => undefined) : Promise.resolve()).then(async () => {
     if (!credentials) {
       const latest = vault.data.heating?.reduce<HeatHistory | undefined>((last, item) => !last || item.fetchedAt > last.fetchedAt ? item : last, undefined);
       if (!force && latest && !needsHeatingEnrichment(latest) && Date.now() - Date.parse(latest.fetchedAt) < 6 * 3600000) return;
     }
     const result = await heatingRequest(vault, credentials ? { action: 'connect', ...credentials } : { action: 'sync' });
-    if (!result.history) throw new Error('Varmeforbindelsen returnerede ingen målinger.');
-    await saveHistory(vault, result.history);
-  })();
+    if (!result.connected) throw new Error('Varmeforbindelsen blev ikke bekræftet.');
+    if (!result.history) {
+      if (result.warning) return { connected: true as const, warning: result.warning };
+      throw new Error('Varmeforbindelsen returnerede ingen målinger.');
+    }
+    try { await saveHistory(vault, result.history); }
+    catch { return { connected: true as const, warning: 'Forbindelsen er gemt, men varmedata kunne ikke gemmes i dit overblik. Prøv Opdater igen.' }; }
+    return { connected: true as const, warning: result.warning };
+  });
   queues.set(vault, pending);
-  try { await pending; } finally { if (queues.get(vault) === pending) queues.delete(vault); }
+  try { return await pending; } finally { if (queues.get(vault) === pending) queues.delete(vault); }
 }

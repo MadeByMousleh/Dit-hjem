@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from 'react';
-import { AccessibilityInfo, ActivityIndicator, Animated, Image, Keyboard, KeyboardAvoidingView, Modal, Platform, Pressable, ScrollView, StyleSheet, Text, TextInput, View, useWindowDimensions } from 'react-native';
+import { AccessibilityInfo, ActivityIndicator, Animated, Image, Keyboard, KeyboardAvoidingView, Linking, Modal, Platform, Pressable, ScrollView, StyleSheet, Text, TextInput, View, useWindowDimensions } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { AppIcon } from '../components/AppIcon';
 import { ExistingAuthorizationHelp } from '../components/EncryptedEnergyControls';
@@ -12,6 +12,7 @@ import { loadProfile } from '../services/storage';
 import { findAddressGrid, isPreciseAddress, saveSetupProfile } from '../services/onboarding-profile';
 import { resolveAddress, searchAddresses, type AddressSuggestion } from '../addresses';
 import { colors } from '../styles/theme';
+import { isEloverblikReturnUrl } from '../services/eloverblik-return';
 
 const pages = [
   { title: 'Hvad\nhedder du?', description: 'Gør dit overblik personligt.', tint: '#F0ECFF', icon: 'user', image: require('../assets/onboarding-home.png') },
@@ -43,6 +44,8 @@ export function AccountSetup({ onFinish, previewMode = false }: { onFinish: () =
   const [profileLoading, setProfileLoading] = useState(true), [profileError, setProfileError] = useState('');
   const [profileRetry, setProfileRetry] = useState(0);
   const [heat, setHeat] = useState<'loading' | 'ready' | 'done'>('loading');
+  const [heatStatusError, setHeatStatusError] = useState(''), [heatRetry, setHeatRetry] = useState(0);
+  const [heatWarning, setHeatWarning] = useState('');
   const [username, setUsername] = useState(''), [password, setPassword] = useState('');
   const [busy, setBusy] = useState(false), [error, setError] = useState('');
   const [help, setHelp] = useState(false), [dontShow, setDontShow] = useState(!previewMode);
@@ -58,6 +61,19 @@ export function AccountSetup({ onFinish, previewMode = false }: { onFinish: () =
   const locked = !isIntro && (busy || (step === 3 && power.busy));
   const compact = !isIntro && (height < 750 || step === 1 || step === 2 || step === 4);
   const heroHeight = isIntro ? Math.max(180, Math.min(height * 0.47, 410)) : compact ? 160 : Math.min(height * 0.37, 340);
+
+  useEffect(() => {
+    // Android can recreate the app while MitID/browser is open. Resume the
+    // electricity step only after the saved required profile has been restored.
+    if (profileLoading || profileError || !first.trim() || !last.trim() || !isPreciseAddress(address)) return;
+    let active = true;
+    const resume = (url: string) => {
+      if (active && isEloverblikReturnUrl(url)) { setIntro(null); setStep(3); }
+    };
+    const subscription = Linking.addEventListener('url', event => resume(event.url));
+    if (Platform.OS !== 'web') void Linking.getInitialURL().then(url => { if (url) resume(url); }).catch(() => {});
+    return () => { active = false; subscription.remove(); };
+  }, [profileLoading, profileError, first, last, address]);
 
   useEffect(() => { mounted.current = true; return () => { mounted.current = false; addressSequence.current++; }; }, []);
   useEffect(() => {
@@ -113,10 +129,11 @@ export function AccountSetup({ onFinish, previewMode = false }: { onFinish: () =
   useEffect(() => {
     if (!heatingEnabled) return;
     let active = true;
+    setHeat('loading'); setHeatStatusError('');
     hasPrivateHeatingConnection(vault).then(connected => { if (active) setHeat(connected ? 'done' : 'ready'); })
-      .catch(() => { if (active) setHeat('ready'); });
+      .catch(() => { if (active) { setHeat('ready'); setHeatStatusError('Varmeforbindelsen kunne ikke kontrolleres. Prøv igen.'); } });
     return () => { active = false; };
-  }, [vault, heatingEnabled]);
+  }, [vault, heatingEnabled, heatRetry]);
   useEffect(() => {
     if (isIntro || step !== 2 || address || query.trim().length < 3) return;
     let active = true;
@@ -139,12 +156,16 @@ export function AccountSetup({ onFinish, previewMode = false }: { onFinish: () =
     try {
       // A cached or older result can lack its coordinates. Complete it from its KDS ID
       // instead of making a valid visible address impossible to choose.
-      const selected = isPreciseAddress(value) ? value : await resolveAddress(value.id);
+      const selected = isPreciseAddress(value) ? value : await resolveAddress(value.id, value.text);
       if (!isPreciseAddress(selected)) throw new Error('Adressen mangler stadig nødvendige oplysninger.');
       if (id !== addressSequence.current) return;
       setAddress(selected); setQuery(selected.text); setSuggestions([]); setGridWarning(''); setGrid(undefined);
-      const found = await findAddressGrid(selected);
-      if (id === addressSequence.current) { setGrid(found); if (!found.id) setGridWarning('Netselskabet er fundet, men dets tarif findes ikke i prislisten endnu.'); }
+      try {
+        const found = await findAddressGrid(selected);
+        if (id === addressSequence.current) { setGrid(found); if (!found.id) setGridWarning('Netselskabet er fundet, men dets tarif findes ikke i prislisten endnu.'); }
+      } catch (cause) {
+        if (id === addressSequence.current) setGridWarning(cause instanceof Error ? cause.message : 'Netselskabet kunne ikke findes.');
+      }
     }
     catch (cause) { if (id === addressSequence.current) setAddressError(cause instanceof Error ? cause.message : 'Adressen kunne ikke vælges. Prøv igen.'); }
     finally { if (id === addressSequence.current) setAddressBusy(false); }
@@ -218,17 +239,19 @@ export function AccountSetup({ onFinish, previewMode = false }: { onFinish: () =
                   <Pressable accessibilityRole="button" disabled={locked || power.state === 'loading'} onPress={() => void (power.state === 'pending' ? power.check() : power.connect())} style={[s.action, (locked || power.state === 'loading') && s.disabled]}>{power.busy || power.state === 'loading' ? <ActivityIndicator color={colors.white} /> : <><Text style={s.actionText}>{power.state === 'pending' ? 'Kontrollér godkendelse' : 'Forbind med MitID'}</Text><AppIcon name="external-link" size={20} color={colors.white} /></>}</Pressable>
                   {power.state === 'pending' ? <Pressable disabled={locked} style={s.quiet} onPress={() => void power.connect()}><Text style={s.link}>Åbn Eloverblik igen</Text></Pressable> : null}
                 </>}
-                {power.state === 'pending' ? <Text accessibilityLiveRegion="polite" style={s.caption}>Godkend hos Eloverblik, og vend tilbage.</Text> : null}
+                {power.message ? <Text accessibilityLiveRegion="polite" style={s.caption}>{power.message}</Text> : null}
                 {power.error ? <><Text accessibilityRole="alert" style={s.error}>{power.error}</Text><Pressable disabled={locked} style={s.quiet} onPress={() => void power.check()}><Text style={s.link}>Kontrollér igen</Text></Pressable></> : null}
                 <Pressable accessibilityRole="button" accessibilityState={{ expanded: help }} style={s.quiet} onPress={() => setHelp(v => !v)}><Text style={s.link}>Har du allerede givet fuldmagt?</Text></Pressable>
                 {help ? <ExistingAuthorizationHelp /> : null}
               </View> : null}
-              {!isIntro && step === 4 ? <View style={s.form}>
+              {!isIntro && step === 4 ? <View onLayout={event => { formTop.current = event.nativeEvent.layout.y; }} style={s.form}>
+                {heatStatusError ? <><Text style={s.error}>{heatStatusError}</Text><Pressable onPress={() => setHeatRetry(value => value + 1)} style={s.quiet}><Text style={s.link}>Kontrollér forbindelse igen</Text></Pressable></> : null}
+                {heatWarning ? <Text style={s.caption}>{heatWarning}</Text> : null}
                 {heat === 'loading' ? <ActivityIndicator color={colors.primary} /> : heat === 'done' ? <View style={s.panel}><AppIcon name="check" size={22} color={colors.primary} /><Text style={s.panelTitle}>Sønderborg Varme er forbundet</Text></View> : <>
                   <View style={s.row}><AppIcon name="thermometer" size={20} color={colors.primary} /><Text style={s.caption}>Sønderborg Varme</Text></View>
-                  <Text style={s.fieldLabel}>Kundenummer</Text><TextInput accessibilityLabel="Kundenummer til Sønderborg Varme" value={username} onChangeText={setUsername} keyboardType="number-pad" autoCapitalize="none" autoCorrect={false} editable={!locked} style={s.input} placeholder="Fra din varmeregning" placeholderTextColor={colors.muted} />
-                  <Text style={s.fieldLabel}>Kode fra varmeregningen</Text><TextInput accessibilityLabel="Kode fra varmeregningen" value={password} onChangeText={setPassword} secureTextEntry autoCapitalize="none" autoCorrect={false} editable={!locked} style={s.input} placeholder="Din personlige kode" placeholderTextColor={colors.muted} />
-                  <Pressable accessibilityRole="button" disabled={locked || !username.trim() || !password} onPress={() => void run(async () => { await syncHeating(vault, { username: username.trim(), password }, true); if (mounted.current) { setHeat('done'); setPassword(''); } })} style={[s.action, (locked || !username.trim() || !password) && s.disabled]}>{busy ? <ActivityIndicator color={colors.white} /> : <Text style={s.actionText}>Forbind varme</Text>}</Pressable>
+                  <Text style={s.fieldLabel}>Kundenummer</Text><TextInput accessibilityLabel="Kundenummer til Sønderborg Varme" value={username} onChangeText={setUsername} onFocus={showFocusedForm} keyboardType="number-pad" autoCapitalize="none" autoCorrect={false} editable={!locked} style={s.input} placeholder="Fra din varmeregning" placeholderTextColor={colors.muted} />
+                  <Text style={s.fieldLabel}>Kode fra varmeregningen</Text><TextInput accessibilityLabel="Kode fra varmeregningen" value={password} onChangeText={setPassword} onFocus={showFocusedForm} secureTextEntry autoCapitalize="none" autoCorrect={false} editable={!locked} style={s.input} placeholder="Din personlige kode" placeholderTextColor={colors.muted} />
+                  <Pressable accessibilityRole="button" disabled={locked || !username.trim() || !password} onPress={() => void run(async () => { const result = await syncHeating(vault, { username: username.trim(), password }, true); if (mounted.current) { setHeat('done'); setHeatStatusError(''); setHeatWarning(result?.warning ?? ''); setPassword(''); } })} style={[s.action, (locked || !username.trim() || !password) && s.disabled]}>{busy ? <ActivityIndicator color={colors.white} /> : <Text style={s.actionText}>Forbind varme</Text>}</Pressable>
                 </>}
               </View> : null}
               {!isIntro && step === 5 ? <View style={s.form}>

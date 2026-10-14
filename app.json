@@ -3,7 +3,7 @@
     "name": "Strømblik",
     "slug": "stromblik",
     "scheme": "stromblik",
-    "version": "1.0.7",
+    "version": "1.0.11",
     "orientation": "default",
     "userInterfaceStyle": "light",
     "icon": "./assets/brand/stromblik-app-icon.png",
@@ -17,9 +17,18 @@
       "bundleIdentifier": "dk.dithjem.stromblik"
     },
     "android": {
-      "versionCode": 8,
+      "versionCode": 12,
       "package": "dk.dithjem.stromblik",
       "softwareKeyboardLayoutMode": "resize",
+      "intentFilters": [{
+        "action": "VIEW",
+        "autoVerify": true,
+        "data": [
+          { "scheme": "https", "host": "huslyg.dk", "pathPrefix": "/eloverblik/return.html" },
+          { "scheme": "https", "host": "dit-hjem-five.vercel.app", "pathPrefix": "/eloverblik/return.html" }
+        ],
+        "category": ["BROWSABLE", "DEFAULT"]
+      }],
       "adaptiveIcon": {
         "foregroundImage": "./assets/brand/stromblik-adaptive-foreground.png",
         "backgroundColor": "#F5F5F2"

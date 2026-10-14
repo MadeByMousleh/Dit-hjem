@@ -6,7 +6,7 @@ const uuid = value => typeof value === 'string' && /^[0-9a-f]{8}-[0-9a-f]{4}-[0-
 const aad = (householdId, userId) => Buffer.from(`stromblik-heating-credentials-v1\n${householdId}\n${userId}\nsonderborg-varme`, 'utf8');
 
 export class HeatingConnectionError extends Error {
-  constructor(status, message) { super(message); this.status = status; }
+  constructor(status, message, code) { super(message); this.status = status; this.code = code; }
 }
 
 function credentialKey(env = process.env) {
@@ -42,7 +42,7 @@ export function decryptHeatingCredentials(envelope, householdId, userId, env = p
     return validateCredentials(JSON.parse(Buffer.concat([decipher.update(Buffer.from(envelope.ciphertext, 'base64url')), decipher.final()]).toString('utf8')));
   } catch (error) {
     if (error instanceof HeatingConnectionError) throw error;
-    throw new HeatingConnectionError(503, 'Den gemte varmeforbindelse kunne ikke åbnes. Forbind varme igen.');
+    throw new HeatingConnectionError(503, 'Den gemte varmeforbindelse kunne ikke åbnes. Forbind varme igen.', 'HEATING_CREDENTIALS_UNREADABLE');
   }
 }
 
@@ -107,31 +107,52 @@ function summary(payload) {
   return { from: maybeDate(line.FraDatoStr), to: maybeDate(line.TilDatoStr), actualKwh: unitFactor !== null && actual !== null && actual >= 0 ? actual * unitFactor : null, expectedYearKwh: unitFactor !== null && expected !== null && expected >= 0 ? expected * unitFactor : null };
 }
 
-async function fetchHeating(credentials, fetcher = fetch) {
+async function fetchHeating(credentials, fetcher = fetch, onVerified = async () => {}) {
   const session = randomUUID().slice(0, 8).toUpperCase();
+  const deadline = Date.now() + 45000;
   const request = async (path, body, method = body ? 'POST' : 'GET') => {
-    const controller = new AbortController(), timer = setTimeout(() => controller.abort(), 20000);
+    // Never log paths, error messages/objects or bodies: they contain credentials.
+    const stage = path.startsWith('system/getsecuritytoken/') ? 'challenge'
+      : path.startsWith('system/login/') ? 'login'
+      : path.startsWith('api/getebrugerinfo?') ? 'user_info'
+      : path.startsWith('api/FindInstallationer?') ? 'installations'
+      : path.startsWith('api/getaktuelaarsmaerke?') ? 'billing_year'
+      : path.startsWith('api/getforbrug?') ? (body?.Aflaesningsfilter === 'afDagsvis' ? 'daily_readings' : 'annual_readings') : 'unknown';
+    const started = Date.now();
+    let httpStatus = null;
+    const remaining = deadline - Date.now();
+    if (remaining <= 0) throw new HeatingConnectionError(504, 'Varmeværket svarede for langsomt. Prøv igen senere.');
+    const controller = new AbortController(), timer = setTimeout(() => controller.abort(), Math.min(15000, remaining));
     try {
       const response = await fetcher(`${API}${path}`, { method, redirect: 'error', headers: { Accept: 'application/json', 'Content-Type': 'application/json', 'X-Session-ID': session, 'X-Correlation-ID': randomUUID().slice(0, 8).toUpperCase() }, ...(body ? { body: JSON.stringify(body) } : {}), signal: controller.signal });
+      httpStatus = response.status;
       let result; try { result = await response.json(); } catch { result = null; }
-      if (!response.ok) throw new HeatingConnectionError(response.status === 401 || response.status === 403 ? 401 : 502, 'Sønderborg Varme kunne ikke godkende forbindelsen. Kontrollér kundenummer og kode.');
+      if (!response.ok) {
+        if (response.status === 401 || response.status === 403) throw new HeatingConnectionError(401, 'Sønderborg Varme afviste kundenummer eller kode.', 'HEATING_CREDENTIALS_REJECTED');
+        throw new HeatingConnectionError(502, 'Sønderborg Varme kunne ikke hente data lige nu. Prøv igen senere.');
+      }
       return result;
     } catch (error) {
+      const allowedCodes = new Set(['ENOTFOUND', 'EAI_AGAIN', 'ECONNREFUSED', 'ECONNRESET', 'ETIMEDOUT', 'ENETUNREACH', 'EHOSTUNREACH', 'UND_ERR_CONNECT_TIMEOUT', 'UND_ERR_HEADERS_TIMEOUT', 'UND_ERR_BODY_TIMEOUT', 'UND_ERR_SOCKET', 'CERT_HAS_EXPIRED', 'CERT_NOT_YET_VALID', 'UNABLE_TO_VERIFY_LEAF_SIGNATURE', 'UNABLE_TO_GET_ISSUER_CERT_LOCALLY', 'DEPTH_ZERO_SELF_SIGNED_CERT', 'ERR_TLS_CERT_ALTNAME_INVALID']);
+      const candidates = [error?.code, error?.cause?.code, ...(Array.isArray(error?.cause?.errors) ? error.cause.errors.map(item => item?.code) : [])];
+      const codes = [...new Set(candidates.filter(code => allowedCodes.has(code)))];
+      console.error('heating_upstream_failed', JSON.stringify({ stage, httpStatus, elapsedMs: Date.now() - started, codes: controller.signal.aborted ? ['REQUEST_TIMEOUT'] : codes.length ? codes : [error instanceof HeatingConnectionError ? 'HTTP_ERROR' : 'UNKNOWN_NETWORK_ERROR'] }));
       if (error instanceof HeatingConnectionError) throw error;
       throw new HeatingConnectionError(502, 'Sønderborg Varme kunne ikke kontaktes. Prøv igen senere.');
     } finally { clearTimeout(timer); }
   };
   const challenge = await request(`system/getsecuritytoken/project/app/consumer/${encodeURIComponent(credentials.username)}`);
-  if (typeof challenge?.Token !== 'string' || !challenge.Token) throw new HeatingConnectionError(401, 'Kundenummeret blev ikke godkendt.');
+  if (typeof challenge?.Token !== 'string' || !challenge.Token) throw new HeatingConnectionError(401, 'Kundenummeret blev ikke godkendt.', 'HEATING_CREDENTIALS_REJECTED');
   const digest = createHash('md5').update(credentials.password).digest('hex');
   const token = createHash('md5').update(`${digest}${challenge.Token}`).digest('hex');
   const login = await request(`system/login/project/app/consumer/${encodeURIComponent(credentials.username)}/installation/1/id/${token}`);
-  if (login?.Result !== 1) throw new HeatingConnectionError(401, 'Kundenummer eller kode blev afvist.');
+  if (login?.Result !== 1) throw new HeatingConnectionError(401, 'Kundenummer eller kode blev afvist.', 'HEATING_CREDENTIALS_REJECTED');
   const user = await request(`api/getebrugerinfo?id=${encodeURIComponent(token)}`);
   const installations = await request(`api/FindInstallationer?id=${encodeURIComponent(token)}`, { Soegetekst: '', Skip: '0', Take: '100', EBrugerId: String(user?.id ?? ''), Huskeliste: 'null', MedtagTilknyttede: 'true' });
   if (!Array.isArray(installations?.Installationer) || installations.Installationer.length !== 1) throw new HeatingConnectionError(409, 'Denne konto skal have præcis én varmeinstallation.');
   const installation = installations.Installationer[0], asset = String(installation.AktivNr), meter = String(installation.InstallationNr);
   if (!/^\d+$/.test(asset) || !/^\d+$/.test(meter)) throw new HeatingConnectionError(502, 'Ukendt varmeinstallation.');
+  await onVerified();
   const year = await request(`api/getaktuelaarsmaerke?id=${encodeURIComponent(token)}`, undefined, 'POST');
   if (!/^\d{4}$/.test(String(year?.aarsmaerke))) throw new HeatingConnectionError(502, 'Afregningsåret kunne ikke hentes.');
   const common = { Ejendomnr: credentials.username, AktivNr: asset, I_Nr: meter, AarsMaerke: String(year.aarsmaerke), ForbrugsAfgraensning_FraDato: '0', ForbrugsAfgraensning_TilDato: '0', ForbrugsAfgraensning_FraAflaesning: '0', ForbrugsAfgraensning_TilAflaesning: '2', Optioner: 'foBestemtBeboer, foSkabDetaljer, foMedtagWebAflaes', AHoejDetail: 'false', AflaesningsFilterDag: 'ULTIMO', SletFiltreredeAflaesninger: 'true', MedForventetForbrug: 'true', OmregnForbrugTilAktuelleEnhed: 'true' };
@@ -145,11 +166,11 @@ async function fetchHeating(credentials, fetcher = fetch) {
 async function savedCredentials(ctx, householdId, env) {
   const { data, error } = await ctx.supabaseAdmin.from('heating_connections').select('credentials_envelope').eq('household_id', householdId).eq('user_id', ctx.userClaims.id).maybeSingle();
   if (error) throw new HeatingConnectionError(503, 'Varmeforbindelsen kunne ikke læses.');
-  if (!data) throw new HeatingConnectionError(409, 'Forbind varme først.');
+  if (!data) throw new HeatingConnectionError(409, 'Forbind varme først.', 'HEATING_CONNECTION_MISSING');
   return decryptHeatingCredentials(data.credentials_envelope, householdId, ctx.userClaims.id, env);
 }
 
-function resultError(error, fallback) { return { status: error instanceof HeatingConnectionError ? error.status : 503, body: { error: error instanceof HeatingConnectionError ? error.message : fallback } }; }
+function resultError(error, fallback) { return { status: error instanceof HeatingConnectionError ? error.status : 503, body: { error: error instanceof HeatingConnectionError ? error.message : fallback, ...(error?.code ? { code: error.code } : {}) } }; }
 
 export async function heatingConnectionResponse(request, body, dependencies = {}) {
   try {
@@ -165,12 +186,22 @@ export async function heatingConnectionResponse(request, body, dependencies = {}
       if (error) throw new HeatingConnectionError(503, 'Varmeforbindelsen kunne ikke fjernes.');
       return { status: 200, body: { connected: false } };
     }
-    const credentials = body?.action === 'connect' ? validateCredentials(body) : await savedCredentials(ctx, householdId, env);
-    const history = await fetchHeating(credentials, dependencies.fetcher);
-    if (body?.action === 'connect') {
+    if (!['connect', 'sync'].includes(body?.action)) throw new HeatingConnectionError(400, 'Ukendt varmehandling.');
+    const credentials = body.action === 'connect' ? validateCredentials(body) : await savedCredentials(ctx, householdId, env);
+    if (body.action === 'connect') credentialKey(env);
+    let saved = false;
+    const saveConnection = async () => {
       const { error } = await ctx.supabaseAdmin.from('heating_connections').upsert({ household_id: householdId, user_id: ctx.userClaims.id, provider: 'sonderborg-varme', credentials_envelope: encryptHeatingCredentials(credentials, householdId, ctx.userClaims.id, env), last_verified_at: new Date().toISOString(), updated_at: new Date().toISOString() }, { onConflict: 'household_id,user_id' });
       if (error) throw new HeatingConnectionError(503, 'Varmeforbindelsen kunne ikke gemmes.');
-    } else {
+      saved = true;
+    };
+    let history;
+    try { history = await fetchHeating(credentials, dependencies.fetcher, body.action === 'connect' ? saveConnection : undefined); }
+    catch (error) {
+      if (!saved) throw error;
+      return { status: 200, body: { connected: true, warning: 'Forbindelsen er gemt. Varmedata kunne ikke hentes endnu. Prøv Opdater senere.' } };
+    }
+    if (body.action === 'sync') {
       const { error } = await ctx.supabaseAdmin.from('heating_connections').update({ last_verified_at: new Date().toISOString(), updated_at: new Date().toISOString() }).eq('household_id', householdId).eq('user_id', ctx.userClaims.id);
       if (error) throw new HeatingConnectionError(503, 'Varmeforbindelsen kunne ikke opdateres.');
     }

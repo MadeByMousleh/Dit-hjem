@@ -15,7 +15,7 @@ test('uses the actual portal link format with independent per-attempt keys and n
   assert.equal(link.searchParams.get('customerKey'), a.attempt.customerKey);
   assert.match(a.attempt.customerKey, /^[a-f0-9]{64}$/);
   assert.notEqual(a.attempt.customerKey, b.attempt.customerKey);
-  assert.equal(link.searchParams.get('returnUrl'), env.ELOVERBLIK_RETURN_URL);
+  assert.equal(link.searchParams.get('returnUrl'), 'https://example.com/eloverblik/return.html');
   assert.equal(link.searchParams.get('fromDate'), '2021-01-01');
   assert.equal(a.attempt.expiresAt - a.attempt.createdAt, 30 * 60_000);
   for (const privateValue of [...Object.values(identity), env.ELOVERBLIK_THIRD_PARTY_API_TOKEN]) assert.ok(!a.authorizationUrl.includes(privateValue));
@@ -34,6 +34,20 @@ test('rejects unsafe templates, duplicate parameters, expired dates and unsafe r
     assert.throws(() => buildAuthorizationLink(invalid, key, undefined, now));
   }
   for (const url of ['javascript:alert(1)', 'http://example.com', 'https://user:secret@example.com', 'https://example.com/#token']) assert.throws(() => buildAuthorizationLink(template, key, url, now));
+});
+
+test('uses the trusted HTTPS return page and marks native app navigation without passing identity', () => {
+  const defaults = { EL_OVERBLIK_AUTH_LINK: template };
+  const native = new URL(createAuthorizationAttempt({ ...identity, platform: 'android' }, defaults, now).authorizationUrl);
+  assert.equal(native.searchParams.get('returnUrl'), 'https://huslyg.dk/eloverblik/return.html?app=1');
+  const browser = new URL(createAuthorizationAttempt({ ...identity, platform: 'web' }, defaults, now).authorizationUrl);
+  assert.equal(browser.searchParams.get('returnUrl'), 'https://huslyg.dk/eloverblik/return.html');
+  const configured = { EL_OVERBLIK_AUTH_LINK: template + '&returnUrl=' + encodeURIComponent('https://registered.example/eloverblik/return.html') };
+  const ios = new URL(createAuthorizationAttempt({ ...identity, platform: 'ios' }, configured, now).authorizationUrl);
+  assert.equal(ios.searchParams.get('returnUrl'), 'https://registered.example/eloverblik/return.html?app=1');
+  const oldConfig = new URL(createAuthorizationAttempt({ ...identity, platform: 'android' }, { ...defaults, ELOVERBLIK_RETURN_URL: 'https://registered.example/?eloverblik=return' }, now).authorizationUrl);
+  assert.equal(oldConfig.searchParams.get('returnUrl'), 'https://registered.example/eloverblik/return.html?app=1');
+  for (const privateValue of Object.values(identity)) assert.ok(!ios.searchParams.get('returnUrl').includes(privateValue));
 });
 
 test('verifies only the owner of a nonexpired attempt against an exact provider key', async () => {

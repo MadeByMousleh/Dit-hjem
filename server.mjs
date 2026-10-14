@@ -1,6 +1,6 @@
 import { createCipheriv, createDecipheriv, createHash, createHmac, randomBytes, randomUUID } from "node:crypto";
 import { createServer } from "node:http";
-import { findAddressSuggestions } from './src/services/address-search.mjs';
+import { findAddressSuggestionById, findAddressSuggestions } from './src/services/address-search.mjs';
 import { readFileSync } from "node:fs";
 import { extname, join, normalize } from "node:path";
 import { thirdPartyConnectionResponse } from "./src/services/eloverblik-third-party-server.mjs";
@@ -609,11 +609,19 @@ export async function handler(request, response) {
     }
     return;
   }
+  if (request.method === 'GET' && new URL(request.url ?? '/', `http://${request.headers.host}`).pathname === '/eloverblik/return.html') {
+    response.writeHead(200, { 'Content-Type': 'text/html; charset=utf-8', 'Cache-Control': 'no-store', 'Referrer-Policy': 'no-referrer' });
+    response.end(readFileSync(new URL('./public/eloverblik/return.html', import.meta.url), 'utf8'));
+    return;
+  }
   if (request.method === 'GET' && new URL(request.url ?? '/', `http://${request.headers.host}`).pathname === '/api/address/search') {
-    const query = new URL(request.url, `http://${request.headers.host}`).searchParams.get('q')?.trim() ?? '';
+    const params = new URL(request.url, `http://${request.headers.host}`).searchParams;
+    const query = params.get('q')?.trim() ?? '';
+    const id = params.get('id')?.trim() ?? '';
+    if (id && !/^[0-9a-f-]{36}$/i.test(id)) { response.writeHead(400, { 'Content-Type': 'application/json' }); response.end(JSON.stringify({ error: 'Adresse-id er ugyldigt.' })); return; }
     if (query.length > 73) { response.writeHead(400, { 'Content-Type': 'application/json' }); response.end(JSON.stringify({ error: 'Adressen er for lang.' })); return; }
     try {
-      const addresses = query.length < 3 ? [] : await findAddressSuggestions(query);
+      const addresses = id ? await findAddressSuggestionById(id) : query.length < 3 ? [] : await findAddressSuggestions(query);
       response.writeHead(200, { 'Content-Type': 'application/json' }); response.end(JSON.stringify(addresses));
     } catch { response.writeHead(502, { 'Content-Type': 'application/json' }); response.end(JSON.stringify({ error: 'Adresser kunne ikke hentes. Prøv igen.' })); }
     return;

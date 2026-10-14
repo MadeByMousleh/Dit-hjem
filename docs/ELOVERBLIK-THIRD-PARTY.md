@@ -1,5 +1,88 @@
 # Eloverblik third-party connection
 
+## Production save and Android return repair (2026-10-13)
+
+Physical-device checks confirmed a PostgreSQL `22P02` binding failure: the real
+provider returned an opaque authorization ID despite Swagger documenting UUID.
+IDs are now bounded, non-whitespace strings and are URL-encoded for provider
+paths. With explicit approval, migration
+`202610130001_eloverblik_opaque_authorization_ids.sql` was dry-run and applied
+to production. The text column and replacement text-argument RPC preserve
+uniqueness, membership, expiry, atomic attempt consumption, RLS and service-role
+execution restrictions. The old UUID RPC was removed. A real signed grant was
+recovered without signing again; the phone showed `Eloverblik er forbundet`.
+Do not revert populated provider IDs to UUID.
+
+Backend/static deployment `dpl_FnGW82YTQXnWMsb4DxfNADDaqbeG` serves both
+production domains. Public HTTPS return pages and Android assetlinks return
+200. APK 1.0.11/versionCode 12 was built and installed on the paired Samsung
+phone without clearing data; both domains are Android-verified and HTTPS return
+intents open MainActivity, including a cold launch. The final native build also
+retains incoming intents and restores electricity onboarding after saved profile
+loading. Custom-scheme matching avoids React Native URL getter limitations.
+Return navigation still cannot establish authorization; server verification is
+required. Check requests now time out with visible feedback rather than leaving
+the onboarding action apparently silent.
+
+Provider, reconnect and actual-hook return tests, TypeScript-only checking,
+Gradle release and APK v2 signature verification passed. This APK retains the
+existing debug/test certificate. The final cold-start screen could not be
+visually inspected while the phone slept. A fresh MitID countdown-to-app
+round-trip has not been rerun; the user's countdown report confirms the observed
+provider completion UI, not a verified end-to-end redirect. No secret change,
+commit or push was performed.
+
+## Local reconnect and app return repair (2026-10-13)
+
+Release update: these repairs were subsequently deployed with user approval in
+`dpl_CLuUj8tXLTfEev2FoskxV6e5NpG8` and packaged in APK 1.0.9. Both production
+domains now serve the app-return page with HTTP 200 and the repaired client
+bundle. Production connection tables and the atomic binding function were
+verified using read-only schema queries. MitID account/device round-trip and
+registered-company return-domain acceptance remain unverified. The text below
+records the local verification boundary before that release.
+
+The application integration is implemented locally; the older sections below
+record the original helper investigation. This increment has not been deployed
+or included in a new APK.
+
+- Begin, finish and status share provider-backed recovery. An already bound
+  household grant is checked against active provider authorizations. A verified
+  member can reuse the household connection even if another member created it.
+- Status now consumes an approved, unexpired, account/household-scoped attempt
+  instead of leaving it pending. Concurrent completion rereads the verified
+  binding if another request consumed the same attempt first. Unknown/unkeyed
+  general grants cannot be assigned by names, address, meter IDs or grant order.
+- Link generation supplies an HTTPS return page on the configured return origin
+  (or the trusted template's return origin), defaulting to
+  `https://huslyg.dk/eloverblik/return.html`. Old home-page return paths are
+  replaced by the implemented path. The server accepts only a platform selector
+  from the client, never a client-controlled return destination.
+- Native links mark the return with `app=1`; the static page opens the fixed
+  `stromblik://eloverblik/connected` URL and retains an explicit open-app button
+  if the browser blocks automatic app opening. Web returns to the same origin's
+  root page. The landing page is navigation only and never establishes approval.
+- The hook checks on foreground, warm deep link and cold-start URL, queues a
+  return arriving during an in-flight request, and retries pending approval up
+  to three times while foregrounded. Upstream errors stop this retry sequence.
+
+Current public portal source was rechecked: the signed page in
+`https://eloverblik.dk/chunk-Vg8fAUU9.js` validates the return URL using the third
+party's registered website before redirecting. The older chunk URLs cited below
+now return 404. The configured return origin must therefore match the company's
+Eloverblik registration; this has not been verified with an authenticated account.
+The actual MitID-to-browser transition remains controlled by Eloverblik and its
+broker, not by this app's landing page.
+
+Verification: reconnect tests, authorization-link/provider tests, actual-hook
+and return-page script tests, TypeScript-only check, server syntax check and Expo
+web export passed. Providers, membership and platform events in these tests are
+synthetic. The export includes `eloverblik/return.html`. Production rejects
+unauthenticated status requests with 401, and the new public return path still
+returns 404 before deployment. No real MitID round-trip, device verification,
+database migration, environment change, production deployment or APK build was
+performed for this increment.
+
 Verified public frontend behavior: 2026-10-08. Local helpers only; not deployed or connected to the application UI/database yet. No authenticated provider calls performed.
 
 ## Link creation: resolved

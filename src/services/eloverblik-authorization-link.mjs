@@ -38,10 +38,24 @@ export function buildAuthorizationLink(template, customerKey, returnUrl, now = D
 
 // The authenticated route must obtain these IDs from verified session + membership.
 // Persist attempt BEFORE returning its URL. Never log the key or URL.
-export function createAuthorizationAttempt({ userId, householdId }, env = process.env, now = Date.now()) {
+export function createAuthorizationAttempt({ userId, householdId, platform }, env = process.env, now = Date.now()) {
   if (!uuid.test(userId ?? '') || !uuid.test(householdId ?? '')) throw new ThirdPartyError(400, 'Ugyldig bruger eller husstand.');
   const customerKey = randomBytes(32).toString('hex');
-  const authorizationUrl = buildAuthorizationLink(env.EL_OVERBLIK_AUTH_LINK ?? env.ELOVERBLIK_AUTHORIZATION_URL, customerKey, env.ELOVERBLIK_RETURN_URL, now);
+  const template = env.EL_OVERBLIK_AUTH_LINK ?? env.ELOVERBLIK_AUTHORIZATION_URL;
+  // Use only trusted configuration for the HTTPS landing page. Eloverblik
+  // validates its domain against the company's registered website.
+  let configuredReturn = env.ELOVERBLIK_RETURN_URL;
+  if (!configuredReturn) {
+    try { configuredReturn = new URL(template).searchParams.get('returnUrl'); } catch { /* Validated below. */ }
+  }
+  const returnUrl = new URL(configuredReturn || 'https://huslyg.dk/eloverblik/return.html');
+  // Older configuration pointed at the home page, which never opened the app.
+  // Preserve its registered origin but always use the implemented landing page.
+  returnUrl.pathname = '/eloverblik/return.html';
+  returnUrl.search = '';
+  if (platform === 'android' || platform === 'ios') returnUrl.searchParams.set('app', '1');
+  else returnUrl.searchParams.delete('app');
+  const authorizationUrl = buildAuthorizationLink(template, customerKey, returnUrl.toString(), now);
   return {
     attempt: { userId, householdId, customerKey, createdAt: now, expiresAt: now + 30 * 60_000 },
     authorizationUrl,

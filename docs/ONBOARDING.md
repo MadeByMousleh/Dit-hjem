@@ -28,8 +28,12 @@ currently supports Sønderborg Varme, not every eForsyning supplier.
 
 Both onboarding and the electricity connection card use `usePowerSetup`.
 Existing user/household bindings are checked against active provider grants and
-reused. Approved, unexpired, user-scoped attempts can be resumed after returning
-from the provider. Browser focus and native foreground trigger another check.
+reused by verified household members. Approved, unexpired, user-scoped attempts
+are recovered by status checks after returning from the provider. Browser focus,
+native foreground and the Eloverblik app deep link trigger verification. A return
+arriving during an in-flight request is queued; pending approval is retried briefly.
+The HTTPS return page and matching backend/client changes remain local and need
+deployment plus an updated APK; see [connection details](ELOVERBLIK-THIRD-PARTY.md).
 
 An old general-link grant without a verified account binding cannot safely be
 assigned by matching a name or address. The UI explains how to remove only this

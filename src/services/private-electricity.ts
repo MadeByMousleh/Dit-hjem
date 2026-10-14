@@ -1,4 +1,5 @@
 import { EnergyVault, type ElectricityMeterDetails } from './energy-vault';
+import { Platform } from 'react-native';
 import { API_URL, getSupabase } from './supabase';
 import { advance, aggregateReadings, meterReadings, midnight } from './consumption-data.mjs';
 import type { ElectricityUsage, UsageSelection } from './eloverblik';
@@ -10,10 +11,17 @@ async function thirdPartyRequest<T>(vault: EnergyVault, body: Record<string, unk
   const client = await getSupabase();
   const { data: { session } } = await client.auth.getSession();
   if (!session) throw new Error('Log ind igen for at forbinde Eloverblik.');
-  const response = await fetch(`${API_URL}/api/eloverblik/usage`, { method: 'POST', headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${session.access_token}` }, body: JSON.stringify({ householdId: vault.householdId, ...body }) });
-  const result = await response.json() as T & { error?: string };
-  if (!response.ok) throw new Error(result.error ?? 'Eloverblik kunne ikke gennemføre forbindelsen.');
-  return result;
+  const controller = new AbortController(), timer = setTimeout(() => controller.abort(), 45000);
+  try {
+    const response = await fetch(`${API_URL}/api/eloverblik/usage`, { method: 'POST', headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${session.access_token}` }, body: JSON.stringify({ householdId: vault.householdId, ...body }), signal: controller.signal });
+    const result = await response.json().catch(() => null) as (T & { error?: string }) | null;
+    if (!result) throw new Error('Eloverblik-serveren svarede ikke korrekt. Prøv igen.');
+    if (!response.ok) throw new Error(result.error ?? 'Eloverblik kunne ikke gennemføre forbindelsen.');
+    return result;
+  } catch (error) {
+    if (controller.signal.aborted) throw new Error('Kontrollen tog for lang tid. Prøv igen.');
+    throw error;
+  } finally { clearTimeout(timer); }
 }
 
 export type MeterConnectionResult = { connected?: boolean; pending?: boolean; authorizationUrl?: string; meters?: string[] };
@@ -24,7 +32,7 @@ async function importConnection(vault: EnergyVault, result: MeterConnectionResul
   });
   return result;
 }
-export async function beginThirdPartyMeterConnection(vault: EnergyVault) { return importConnection(vault, await thirdPartyRequest<MeterConnectionResult>(vault, { action: 'begin' })); }
+export async function beginThirdPartyMeterConnection(vault: EnergyVault) { return importConnection(vault, await thirdPartyRequest<MeterConnectionResult>(vault, { action: 'begin', platform: Platform.OS })); }
 export async function finishThirdPartyMeterConnection(vault: EnergyVault) {
   const result = await thirdPartyRequest<{ connected: boolean; pending: boolean; meters?: string[] }>(vault, { action: 'finish' });
   return importConnection(vault, result);
