@@ -2,6 +2,7 @@ import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
 import vm from 'node:vm';
 import ts from 'typescript';
+import * as localStorageCache from '../src/services/local-storage-cache.mjs';
 
 let now = Date.parse('2026-09-22T12:00:00Z');
 let calls = 0;
@@ -9,13 +10,15 @@ let fail = false;
 class Clock extends Date { static now() { return now; } }
 const exports = {};
 const disk = new Map();
+const storage = { getItem: async key => disk.get(key) ?? null, setItem: async (key, value) => { disk.set(key, value); }, removeItem: async key => disk.delete(key), getAllKeys: async () => [...disk.keys()] };
 const code = ts.transpileModule(readFileSync(new URL('../src/prices.ts', import.meta.url), 'utf8'), {
   compilerOptions: { module: ts.ModuleKind.CommonJS, target: ts.ScriptTarget.ES2022 },
 }).outputText;
 const context = { exports, Date: Clock, URLSearchParams, AbortController, setTimeout, clearTimeout,
   require: name => {
+    if (name === './services/local-storage-cache.mjs') return localStorageCache;
     assert.equal(name, '@react-native-async-storage/async-storage');
-    return { default: { getItem: async key => disk.get(key) ?? null, setItem: async (key, value) => { disk.set(key, value); } } };
+    return { default: storage };
   },
   fetch: async () => {
     calls++;
@@ -44,6 +47,7 @@ await fetchPrices('DK1', 'n1_c');
 assert.equal(calls, 5, 'failed request does not prevent retry');
 assert.ok(getCachedPrices('DK1', 'n1_c'));
 const restarted = {};
+await new Promise(resolve => setImmediate(resolve));
 vm.runInNewContext(code, { ...context, exports: restarted });
 const restored = await restarted.fetchPrices('DK1', 'n1_c');
 assert.equal(calls, 5, 'cold restart loads valid public disk cache without network');

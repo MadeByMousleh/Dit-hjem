@@ -7,19 +7,19 @@ import { colors } from "../styles/theme";
 import { ElectricityUsageChart } from "./ElectricityUsageChart";
 import { EncryptedEnergyControls } from './EncryptedEnergyControls';
 
-type Props = ReturnType<typeof useElectricityUsage> & { prices: PricePoint[]; gridSupplierName: string; gridSupplier: GridSupplier };
+type Props = ReturnType<typeof useElectricityUsage> & { prices: PricePoint[]; gridSupplierName: string; gridSupplier: GridSupplier; widget?: boolean; onScrubChange?: (active: boolean) => void };
 
 export function ElectricityUsageCard(props: Props) {
   const { auth, connected } = props;
   return (
-    <View style={styles.card}>
-      <View style={styles.heading}>
+    <View style={props.widget ? { padding: 8, backgroundColor: colors.white, borderRadius: 16 } : styles.card}>
+      {!props.widget ? <View style={styles.heading}>
         <View style={styles.icon}><AppIcon name="zap" size={20} color={colors.primary} /></View>
         <View style={styles.headingCopy}>
           <Text style={styles.title}>Dit faktiske elforbrug</Text>
           <Text style={styles.subtitle}>Data fra Eloverblik</Text>
         </View>
-      </View>
+      </View> : null}
       {(connected === null && !props.connectionError) || auth.authLoading ? <ActivityIndicator style={{ marginTop: 20 }} color={colors.primary} /> : null}
       {props.connectionError ? <View><Text accessibilityRole="alert" style={styles.error}>{props.connectionError}</Text><Pressable accessibilityRole="button" onPress={() => void props.connectionReady()} style={styles.secondaryButton}><Text style={styles.secondaryText}>Prøv igen</Text></Pressable></View> : null}
       {connected === false && !props.connectionError ? <EncryptedEnergyControls onConnected={props.connectionReady} /> : null}

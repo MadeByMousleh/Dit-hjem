@@ -1,4 +1,5 @@
 import AsyncStorage from '@react-native-async-storage/async-storage';
+import { writeOptionalCache } from './services/local-storage-cache.mjs';
 
 export type PriceArea = "DK1" | "DK2";
 
@@ -70,7 +71,7 @@ export function fetchHistoricalPrices(area: PriceArea, supplierId: string, from:
       }
     } catch { /* Fetch fresh public prices. */ }
     const points = await requestPrices(area, supplierId, from, to, false);
-    void AsyncStorage.setItem(storageKey, JSON.stringify({ fetchedAt: Date.now(), points })).catch(() => {});
+    void writeOptionalCache(AsyncStorage, storageKey, JSON.stringify({ fetchedAt: Date.now(), points }));
     return points;
   })().finally(() => historicPrices.delete(key));
   historicPrices.set(key, request);
@@ -119,7 +120,7 @@ export function fetchPrices(area: PriceArea, supplierId: string, refresh = false
     const points = await requestPrices(area, supplierId);
     const entry = { points, fetchedAt: Date.now() };
     priceCache.set(key, entry);
-    void AsyncStorage.setItem(storageKey, JSON.stringify(entry)).catch(() => {});
+    void writeOptionalCache(AsyncStorage, storageKey, JSON.stringify(entry));
     return points;
   })().finally(() => pendingPrices.delete(key));
   pendingPrices.set(key, request);

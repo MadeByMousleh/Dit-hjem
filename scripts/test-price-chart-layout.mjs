@@ -57,3 +57,6 @@ for (const now of [points[0].startsAt.getTime(), points[2].startsAt.getTime(), D
   }
 }
 console.log('PASS: rendered price bar styles preserve 1:0.5:0.01:0 ratios, including selected/current/cheapest bars.');
+const smallBars = barsIn(PriceChart({ points, now: +points[0].startsAt, compact: true }));
+assert.equal(smallBars[0].height, 54);
+assert.equal(smallBars[1].height / smallBars[0].height, .5);

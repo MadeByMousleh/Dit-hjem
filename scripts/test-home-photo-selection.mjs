@@ -1,0 +1,12 @@
+import assert from 'node:assert/strict';
+import {getHomePhotos} from '../src/services/home-photos-server.mjs';
+import proj4 from 'proj4';
+const center=proj4('EPSG:4326','+proj=utm +zone=32 +ellps=GRS80 +units=m +no_defs',[9.825,54.926]);
+const calls=[];
+const feature=(direction,date)=>({properties:{direction,datetime:date,'pers:crs':25832,'pers:rotation_matrix':[1,0,0,0,1,0,0,0,1],'pers:perspective_center':[552000,6086000,2100],'pers:interior_orientation':{sensor_array_dimensions:[20544,14016],pixel_spacing:[0.00376,0.00376],principal_point_offset:[0,0],focal_length:79.6}},assets:{thumbnail:{href:'https://api.dataforsyningen.dk/rest/skraafoto_cogtiler/v1.0/thumbnail.jpg?url='+encodeURIComponent('https://cdn.dataforsyningen.dk/skraafoto_server/test.tif')}}});
+const fetcher=async input=>{const url=new URL(input),direction=JSON.parse(url.searchParams.get('filter')).eq[1];calls.push(url);assert.ok(url.searchParams.has('datetime'));assert.ok(!url.searchParams.has('sortby'));const features=[feature(direction,'2025-05-12T10:00:00Z'),feature(direction,'2025-05-12T12:00:00Z')];for(const f of features)f.properties['pers:perspective_center']=[...center,2100];return {ok:true,json:async()=>({features})};};
+const sources=await getHomePhotos({x:9.825,y:54.926},{token:'synthetic',fetcher,sourcesOnly:true});
+assert.equal(sources.length,5);assert.equal(calls.length,5);
+assert.ok(sources.every(p=>p.capturedAt==='2025-05-12T12:00:00Z'));
+assert.ok(sources.some(p=>p.direction==='nadir'&&p.properties['pers:interior_orientation'].sensor_array_dimensions[0]===20544));
+console.log('Date-window selection, unsorted results and large nadir sensor: passed.');

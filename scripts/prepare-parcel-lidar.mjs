@@ -1,0 +1,11 @@
+import {readFile,writeFile,mkdir,link,stat} from 'node:fs/promises';
+const source='.tmp/lidar-reference',dir='.tmp/lidar-parcel';
+const geometry=JSON.parse(await readFile(`${source}/geometry.json`,'utf8')),previous=JSON.parse(await readFile(`${source}/catalog.json`,'utf8'));
+const points=geometry.parcels.flatMap(p=>p.polygons.flat(2)),bbox=[Math.min(...points.map(p=>p[0]))-2,Math.min(...points.map(p=>p[1]))-2,Math.max(...points.map(p=>p[0]))+2,Math.max(...points.map(p=>p[1]))+2];
+if(!previous.selected.bbox.every((v,i)=>i<2?v<=bbox[i]:v>=bbox[i]))throw Error('Parcel crosses tile boundary; download additional tiles before continuing');
+const catalog={...previous,bbox,buildings:geometry.buildings.filter(b=>b.main||b.associated),selectedTiles:[previous.selected]};
+await mkdir(dir,{recursive:true});
+await writeFile(`${dir}/geometry.json`,JSON.stringify(geometry));await writeFile(`${dir}/catalog.json`,JSON.stringify(catalog,null,2));
+await writeFile(`${dir}/roofprints.geojson`,JSON.stringify({type:'FeatureCollection',crs:{type:'name',properties:{name:'urn:ogc:def:crs:EPSG::25832'}},features:catalog.buildings.map(b=>({type:'Feature',properties:{id:b.id},geometry:{type:'Polygon',coordinates:b.rings}}))}));
+const target=`${dir}/${catalog.selected.id}.laz`;if(!await stat(target).catch(()=>null))await link(`${source}/${catalog.selected.id}.laz`,target);
+console.log(JSON.stringify({dir,bbox,buildings:catalog.buildings.map(b=>b.id),reusedTile:true}));

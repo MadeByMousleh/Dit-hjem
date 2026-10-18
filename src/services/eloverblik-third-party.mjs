@@ -2,6 +2,7 @@ import { createHash, randomUUID } from 'node:crypto';
 
 const baseUrl = 'https://api.eloverblik.dk/thirdpartyapi/api';
 const accessTokens = new Map();
+const meterAccess = new Map();
 
 export class ThirdPartyError extends Error {
   constructor(status, message) { super(message); this.status = status; }
@@ -86,13 +87,27 @@ export async function authorizationForCustomerKey(customerKey, env = process.env
 }
 
 export async function meteringPointsForAuthorization(authorizationId, env = process.env, dependencies = {}) {
+  return (await meteringPointAccessForAuthorization(authorizationId, env, dependencies)).map(item => item.meteringPointId);
+}
+
+export async function meteringPointAccessForAuthorization(authorizationId, env = process.env, dependencies = {}) {
   if (!isAuthorizationId(authorizationId)) {
     throw new ThirdPartyError(400, 'Eloverblik-forbindelsen er ugyldig.');
   }
-  const accessToken = await dataAccessToken(env, dependencies);
-  const payload = await request(`/authorization/authorization/meteringpoints/authorizationId/${encodeURIComponent(authorizationId)}`, accessToken, {}, dependencies);
-  const items = Array.isArray(payload?.result) ? payload.result : [];
-  return [...new Set(items.map(item => String(item?.meteringPointId ?? item?.id ?? '').trim()).filter(id => /^\d{18}$/.test(id)))];
+  const cacheKey = createHash('sha256').update(`${configuredRefreshToken(env)}\n${authorizationId}`).digest('hex');
+  const previous = meterAccess.get(cacheKey);
+  if (previous?.until > Date.now()) return previous.promise;
+  if (meterAccess.size > 1000) meterAccess.clear();
+  const entry = { until: Date.now() + 60000, promise: (async () => {
+    const accessToken = await dataAccessToken(env, dependencies);
+    const payload = await request(`/authorization/authorization/meteringpoints/authorizationId/${encodeURIComponent(authorizationId)}`, accessToken, {}, dependencies);
+    if (!Array.isArray(payload?.result)) throw new ThirdPartyError(502, 'Eloverblik returnerede et ukendt målerformat.');
+    const items = payload.result;
+    return [...new Map(items.map(item => ({ ...item, meteringPointId: String(item?.meteringPointId ?? item?.id ?? '').trim() })).filter(item => /^\d{18}$/.test(item.meteringPointId)).map(item => [item.meteringPointId, item])).values()];
+  })() };
+  meterAccess.set(cacheKey, entry);
+  try { const result = await entry.promise; if (!result.length && meterAccess.get(cacheKey) === entry) meterAccess.delete(cacheKey); return result; }
+  catch (error) { if (meterAccess.get(cacheKey) === entry) meterAccess.delete(cacheKey); throw error; }
 }
 
 export async function meteringPointReadings(authorizationId, meteringPointId, from, to, aggregation, env = process.env, dependencies = {}) {
@@ -103,8 +118,8 @@ export async function meteringPointReadings(authorizationId, meteringPointId, fr
   if (!allowed.includes(meteringPointId)) throw new ThirdPartyError(403, 'Måleren er ikke omfattet af din fuldmagt.');
   const accessToken = await dataAccessToken(env, dependencies);
   return await request(`/meterdata/gettimeseries/${from}/${to}/${aggregation}`, accessToken, {
-    method: 'POST', body: JSON.stringify({ meteringPoints: { meteringPoint: [meteringPointId] } }),
+    method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ meteringPoints: { meteringPoint: [meteringPointId] } }),
   }, dependencies);
 }
 
-export const __testing = { clearCache: () => accessTokens.clear() };
+export const __testing = { clearCache: () => { accessTokens.clear(); meterAccess.clear(); } };

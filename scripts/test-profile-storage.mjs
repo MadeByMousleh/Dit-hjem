@@ -2,10 +2,13 @@ import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
 import vm from 'node:vm';
 import ts from 'typescript';
+import * as localStorageCache from '../src/services/local-storage-cache.mjs';
 
 const values = new Map();
 const storage = {
   getItem: async key => values.get(key) ?? null,
+  getAllKeys: async () => [...values.keys()],
+  removeItem: async key => values.delete(key),
   setItem: async (key, value) => { values.set(key, value); },
   mergeItem: async (key, value) => { values.set(key, JSON.stringify({ ...JSON.parse(values.get(key) ?? '{}'), ...JSON.parse(value) })); },
 };
@@ -14,6 +17,8 @@ const output = ts.transpileModule(source, { compilerOptions: { module: ts.Module
 const module = { exports: {} };
 vm.runInThisContext(`(function(require,module,exports){${output}\n})`)(name => {
   if (name === '@react-native-async-storage/async-storage') return storage;
+  if (name === './local-storage-cache.mjs') return localStorageCache;
+  if (name === './supabase') return { getSupabase: async () => ({ auth: { getSession: async () => ({ data: { session: null } }) } }) };
   throw new Error(`Unexpected import ${name}`);
 }, module, module.exports);
 const { PROFILE_STORAGE_KEY, loadProfile, saveProfile } = module.exports;

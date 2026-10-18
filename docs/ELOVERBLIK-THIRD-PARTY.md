@@ -1,5 +1,45 @@
 # Eloverblik third-party connection
 
+## Local historical import bounds (2026-10-14)
+
+Authenticated `action: history` returns only the connected household grant's
+consumption-meter IDs and permitted data bounds. It checks membership, the stored
+authorization ID and active grant; it never guesses a grant by name/address or
+returns the company-wide authorization list. Start is the latest of retention
+(five previous calendar years), grant validFrom, accessFrom and consumerStartDate.
+End is the earliest grant validTo/accessTo. Explicit non-consumption meters are
+excluded. Exact authorization-scoped meter metadata is positively cached for one
+minute; failed/empty results are not cached. Actual timeseries requests still
+enforce active authorization and meter binding.
+
+The client uses resumable hourly import, encrypted period records and precomputed
+summaries described in [ELECTRICITY-CACHE.md](ELECTRICITY-CACHE.md). New code is
+released in deployment `dpl_DEokBqtVMXHYygrbNPp66bmTo2KP` after explicit approval;
+the dev-tested period-record migration is applied to production. APK 1.0.12 is
+installed on the paired Samsung. Real authenticated all-history import remains
+to be verified.
+
+## Consumption JSON header repair (2026-10-14)
+
+Production requests returned HTTP 502 alongside successful connection requests.
+Reproducing the actual server helper with synthetic provider responses confirmed
+its timeseries POST used `text/plain;charset=UTF-8` for a JSON body. The official
+Third Party Swagger accepts application/json or application/xml, not text/plain.
+Added `Content-Type: application/json` specifically to the timeseries POST.
+The regression test fails before the change and passes after, verifying the
+actual Request headers, authorization, body and date/aggregation path. All 13
+provider/link/reconnect/return tests, server syntax and TypeScript-only pass.
+
+With explicit approval, deployed `dpl_BbJo3sBegwP8dtNKaZoGMV9wA8GE`, ready
+on both production domains. Compared all 354 source hashes with the preceding
+release: only src/services/eloverblik-third-party.mjs differs, matching the tested
+local hash. Compiled Eloverblik API remains in fra1. No database, credentials,
+auth protocol, APK, commit or push changes. Previous deployment
+`dpl_GcVAHrTNnzRy1GJxP4MBx1HAMRLS` is the rollback checkpoint. The exact
+provider rejection status before this fix was not logged; HTTP 415 was not
+confirmed. Authenticated consumption retrieval after this fix remains pending
+the user's refresh; public checks alone cannot prove that flow.
+
 ## Production save and Android return repair (2026-10-13)
 
 Physical-device checks confirmed a PostgreSQL `22P02` binding failure: the real

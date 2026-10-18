@@ -1,0 +1,37 @@
+# Guided house photography — 2026-10-17
+
+Client-only capture foundation; NOT a deployed reconstruction service. No database, authentication or server changes. The production API remains unchanged. Meshroom/AliceVision and ODM are candidates for a separately hosted reconstruction worker; none is installed, connected or billed by this increment. Free/open-source software does not eliminate worker hardware, storage and processing costs. A few facade pictures are useful reference data but do not guarantee a successful multi-view reconstruction.
+
+`HousePhotoGuide` under Hus & sol derives exterior facades from every matched main-building outline. Winding is normalized; redundant nearly collinear vertices collapse; true concave corners are retained. Small survey edges under 0.75 m are ignored. Coordinate-derived facade IDs survive ring reversal, so captures do not depend on compass assumptions or one example address. Holes/courtyard facades and roofs do not receive capture steps in this version. No fabricated room layout or facade front/back identification.
+
+Opening a guide step sends its actual endpoints and building height to the existing 3D state bridge. The engine orients toward the outward facade normal, highlights that wall in blue, and a north-up outline diagram shows the same segment. Previous/next steps, camera, multi-photo system picker, previews, per-face counts and explicit remove confirmation are provided. Guidance asks for a frontal and two overlapping oblique pictures from the ground. Minimum short edge 600 px is only a size check, NOT a blur/sharpness/coverage detector. No automatic quality scoring or facade identification from image content is claimed.
+
+Native images are copied at picker quality 1, without cropping, into app-private document storage scoped by authenticated user UUID, household UUID and address UUID. The selected source file is never deleted. Six images per facade, 60 per home, 20 MiB per image, 120 MiB per home; available disk must retain a 32 MiB reserve. Writes serialize; a temporary manifest is renamed over the old manifest, and failed metadata writes remove only the newly copied image. Existing photos survive page reloads/restarts and are not swept as ordinary cache. Explicit removal affects only feature-owned exact paths. Account changes clear UI and select a separate scope. Native records are not end-to-end encrypted and are not synced between devices. Existing Android backup rules include shared preferences only, not these document files.
+
+Web stores Blobs in IndexedDB, separated by the same account/home scope, with the same count/size bounds and clear storage errors. No house images are uploaded to a server or third-party service. UI explicitly states local storage and that pictures do not modify the 3D model yet. Browser storage may be cleared by browser/user policy. Automatic reconstruction, calibrated photo placement, export and server processing remain future work.
+
+## Touch ownership
+
+Android WebView `nestedScrollEnabled` invokes native `requestDisallowInterceptTouchEvent(true)` on touch, avoiding a JS timing race when an outer ScrollView steals vertical orbit gestures. Internal WebView scroll/overscroll are disabled. A scoped interaction provider synchronously disables the parent page ScrollView during touch; end, cancel, errors and unmount release it. Other parts of the page remain scrollable. Web iframe/document/canvas use `touch-action:none` and overscroll suppression. These changes do not replace OrbitControls.
+
+## Verification and artifact
+
+`scripts/test-house-photo-guide.mjs`: actual facade derivation on rectangle, reversed ring, redundant vertices, L shape and multiple buildings; stable facade identities. Actual native storage with synthetic filesystem covers persistence, account isolation, minimum resolution, image quotas, disk-full rejection, failed-write rollback, removal and preserving original images. TypeScript-only passes. Actual local Chrome renderer loads five photographic sources, renders the blue facade guide/auto-orientation, advances sun animation and reports no WebGL errors. Camera permission, Android image picker return and real customer capture persistence are not established by these synthetic/browser checks.
+
+APK `dist/Stromblik-1.0.39.apk`, versionCode 40, 76,434,271 bytes, SHA256 `C675D8CD66040A547762A8747D307FAA5A893115D25B5EF3C15CB86A101137DF`. Gradle release build, APK metadata, v2 signature and certificate continuity verified (existing Android Debug/test key). Fourteen scoped packaged client files match current sources; production API is embedded, actual server credentials absent. Expo-compatible `expo-image-picker` 17.0.11 added; no broad dependency upgrades or vulnerability repair. No Git commit/push or web production deployment.
+
+User-approved wireless `install -r` returned Success on SM_A576B; package manager confirms versionName 1.0.39/versionCode 40. MainActivity launched; app data retained. Subsequent keyguard check reports showing=true: despite the earlier unlock message, the phone is locked again. No lock bypass or setup/profile changes attempted. Physical guide rendering, capture and vertical-orbit-versus-page-scroll verification remain outstanding.
+
+## Local single-photo preview — 2026-10-17
+
+Added `Vis mit facadebillede på huset` for the latest saved capture and per-photo `Vis i 3D`. Reads the existing local app-private image without any server upload or request to reattach it in chat. Expo ImageManipulator derives a JPEG at at most 2,048 px longest edge / quality .88 / 2 MB base64 ceiling; original capture remains unchanged. Preview is an explicitly temporary flat facade overlay with zoom/pan crop controls and a remove-preview comparison. No perspective calibration, inferred geometry, automatic reconstruction or permanent facade modification is claimed. The UI states these limits. Entering preview pauses the sun clock and selects noon; the overlay uses an unlit material for readable detail independently of the sun. It does not cast new geometry shadows. Camera points toward its assigned facade. Other facades retain their existing data. Temporary preview/crop is cleared on account/home change and is not persisted.
+
+Actual Chrome engine check loads and removes a synthetic facade image without WebGL errors, alongside the five original aerial photos and moving sun. This is not a quality assessment of the customer's uploaded image. TypeScript-only and facade/storage regressions pass. Added Expo-compatible image-manipulator; no server/database/environment change or deployment, no Git commit/push.
+
+APK `dist/Stromblik-1.0.40.apk`, versionCode 41, SHA256 `F270510DC6A02BC2880169B0C658EEAB43DF3FB6D3BB6B849FE52AB574F0C9E6`. Gradle, APK metadata, v2 certificate continuity (existing debug/test signing), 14 exact packaged scoped source files, production API and server-secret absence checks pass.
+
+Wireless `install -r` returned Success on the connected Samsung and MainActivity launched, retaining app data and the existing capture directory. Customer-photo appearance in the native preview has not been visually verified at this checkpoint.
+
+## AI facade replacement
+
+The photo-overlay controls above are superseded by the Gemini facade flow documented in [FACADE-AI.md](FACADE-AI.md). The current client offers one-photo analysis, a procedural facade preview, accept/cancel and reset. The original local capture remains usable. Server deployment and customer-photo verification are separate from the local implementation.

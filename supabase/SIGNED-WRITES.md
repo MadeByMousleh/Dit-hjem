@@ -1,5 +1,28 @@
 # Signed energy writes: security step 1b
 
+## Electricity period batches (2026-10-14)
+
+The new `stromblik-electricity-records-write-v1` signature domain reuses the
+existing household-derived Ed25519 key and pinned writer, without modifying the
+root-vault protocol below. It signs project, household, user, public key and a
+sorted list of record keys, expected revisions, formats, nonces and ciphertext
+hashes. The encrypted wrapper also includes the record key. A signature cannot
+be moved between keys, contexts or the root-write protocol.
+
+The existing `/api/energy/vault` endpoint dispatches `operation: electricity-records`
+to an authenticated gateway. `commit_electricity_period_records` is executable
+only by service_role, locks membership/household and atomically commits the whole
+CAS batch plus encrypted versions and quota counters. Direct client writes are
+revoked; household members can read only their encrypted records through RLS.
+No new writer enrollment or key replacement is allowed through this endpoint.
+
+The migration and rollback-only database tests passed on dev. The same migration
+is now applied to production with explicit approval, and deployment
+`dpl_DEokBqtVMXHYygrbNPp66bmTo2KP` is READY; APK 1.0.12 is installed on the paired
+Samsung. Hosted end-to-end session/signature/provider testing remains pending.
+See [ELECTRICITY-CACHE.md](../docs/ELECTRICITY-CACHE.md) for metadata, limits,
+legacy migration and recovery-UI boundaries. The dated status below is historical.
+
 Status (2026-09-22): implemented locally; migration `202609230006_signed_energy_writes.sql` applied and tested **only on dev**. The new HTTP endpoint has not been deployed or exercised end-to-end against hosted Auth/PostgREST. Production is unchanged. This is not an independent security audit.
 
 ## Trust boundaries

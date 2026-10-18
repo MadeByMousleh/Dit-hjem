@@ -1,0 +1,11 @@
+import assert from 'node:assert/strict';
+import {build} from 'esbuild';
+const r=await build({entryPoints:['src/web/photo-materials.ts'],bundle:true,platform:'node',format:'esm',write:false});
+const {dominantColor}=await import(`data:text/javascript;base64,${Buffer.from(r.outputFiles[0].text).toString('base64')}`);
+assert.equal(dominantColor([]),null);assert.equal(dominantColor(Array.from({length:39},()=>[130,90,60])),null);
+assert.equal(dominantColor(Array.from({length:100},()=>[0,0,0])),null);
+assert.equal(dominantColor(Array.from({length:100},()=>[255,255,255])),null);
+const samples=[...Array.from({length:80},()=>[150,100,65]),...Array.from({length:10},()=>[20,180,30]),...Array.from({length:10},()=>[240,240,240])];
+assert.deepEqual(dominantColor(samples).rgb,[150,100,65]);
+assert.equal(dominantColor([...Array.from({length:40},()=>[190,30,30]),...Array.from({length:40},()=>[20,190,30]),...Array.from({length:40},()=>[20,30,190])]),null);
+console.log('PASS: sparse/black/clipped/mixed samples abstain; dominant photographic colour retained');

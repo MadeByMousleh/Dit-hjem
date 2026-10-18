@@ -1,11 +1,10 @@
 import { EnergyVault, type ElectricityMeterDetails } from './energy-vault';
 import { Platform } from 'react-native';
 import { API_URL, getSupabase } from './supabase';
-import { advance, aggregateReadings, meterReadings, midnight } from './consumption-data.mjs';
+import { cachedElectricityPoints, electricityIndex } from './electricity-cache.mjs';
+import { electricityImportStatus, readElectricityPeriods, startElectricityHistory, storedElectricityPoints, subscribeElectricityHistory } from './electricity-history';
 import type { ElectricityUsage, UsageSelection } from './eloverblik';
 import { usageToday } from '../utils/usagePeriods';
-
-type Selection = { from: string; to: string; aggregation: string };
 
 async function thirdPartyRequest<T>(vault: EnergyVault, body: Record<string, unknown>): Promise<T> {
   const client = await getSupabase();
@@ -16,7 +15,7 @@ async function thirdPartyRequest<T>(vault: EnergyVault, body: Record<string, unk
     const response = await fetch(`${API_URL}/api/eloverblik/usage`, { method: 'POST', headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${session.access_token}` }, body: JSON.stringify({ householdId: vault.householdId, ...body }), signal: controller.signal });
     const result = await response.json().catch(() => null) as (T & { error?: string }) | null;
     if (!result) throw new Error('Eloverblik-serveren svarede ikke korrekt. Prøv igen.');
-    if (!response.ok) throw new Error(result.error ?? 'Eloverblik kunne ikke gennemføre forbindelsen.');
+    if (!response.ok) throw Object.assign(new Error(result.error ?? 'Eloverblik kunne ikke gennemføre forbindelsen.'), { status: response.status });
     return result;
   } catch (error) {
     if (controller.signal.aborted) throw new Error('Kontrollen tog for lang tid. Prøv igen.');
@@ -30,15 +29,25 @@ async function importConnection(vault: EnergyVault, result: MeterConnectionResul
     for (const meteringPointId of result.meters!) if (!data.meters.some(meter => meter.metering_point_id === meteringPointId)) data.meters.push({ id: meteringPointId, metering_point_id: meteringPointId });
     return data;
   });
+  if (result.connected) startElectricityHistory(vault, body => thirdPartyRequest(vault, body));
   return result;
 }
-export async function beginThirdPartyMeterConnection(vault: EnergyVault) { return importConnection(vault, await thirdPartyRequest<MeterConnectionResult>(vault, { action: 'begin', platform: Platform.OS })); }
+export async function beginThirdPartyMeterConnection(vault: EnergyVault) { statuses.delete(vault); return importConnection(vault, await thirdPartyRequest<MeterConnectionResult>(vault, { action: 'begin', platform: Platform.OS })); }
 export async function finishThirdPartyMeterConnection(vault: EnergyVault) {
+  statuses.delete(vault);
   const result = await thirdPartyRequest<{ connected: boolean; pending: boolean; meters?: string[] }>(vault, { action: 'finish' });
   return importConnection(vault, result);
 }
-export async function privateMeterStatus(vault: EnergyVault) { return thirdPartyRequest<{ connected: boolean; pending?: boolean }>(vault, { action: 'status' }); }
-export async function hasPrivateMeterConnection(vault: EnergyVault) { return (await thirdPartyRequest<{ connected: boolean }>(vault, { action: 'status' })).connected; }
+const statuses = new WeakMap<EnergyVault, { until: number; promise: Promise<{ connected: boolean; pending?: boolean }> }>();
+export async function privateMeterStatus(vault: EnergyVault) {
+  const cached = statuses.get(vault);
+  if (cached && cached.until > Date.now()) return cached.promise;
+  const entry = { until: Infinity, promise: thirdPartyRequest<{ connected: boolean; pending?: boolean }>(vault, { action: 'status' }) };
+  statuses.set(vault, entry);
+  try { const result = await entry.promise; entry.until = result.connected ? Date.now() + 5 * 60000 : 0; return result; }
+  catch (error) { if (statuses.get(vault) === entry) statuses.delete(vault); throw error; }
+}
+export async function hasPrivateMeterConnection(vault: EnergyVault) { return (await privateMeterStatus(vault)).connected; }
 export async function disconnectPrivateMeter(_vault: EnergyVault) { throw new Error('Afbrydelse af tredjepartsfuldmagt håndteres i Eloverblik.'); }
 export async function connectPrivateMeter(_vault: EnergyVault, _token: string) { throw new Error('Token-login er erstattet af Eloverblik-fuldmagt.'); }
 
@@ -50,48 +59,24 @@ export function parseElectricityMeterDetails(value: any): ElectricityMeterDetail
   return { address: [address, city].filter(Boolean).join(', ') || null, meterNumber: text(value?.meterNumber, 80), gridOperatorName: text(value?.gridOperatorName, 140), gridArea: text(value?.meteringGridAreaIdentification, 40), balanceSupplierName: text(value?.balanceSupplierName, 140), balanceSupplierStartDate: isoDate(value?.balanceSupplierStartDate), consumerStartDate: isoDate(value?.consumerStartDate), settlementMethod: text(value?.settlementMethod, 40), meterReadingOccurrence: text(value?.meterReadingOccurrence, 40), taxReduction: text(value?.taxReduction, 40) };
 }
 
-const syncQueues = new WeakMap<EnergyVault, Promise<void>>();
-async function syncUsage(vault: EnergyVault, selections: Selection[]) {
-  const today = usageToday();
-  const connected = await hasPrivateMeterConnection(vault);
-  if (!connected && !vault.data.readings.length) throw new Error('Forbind Eloverblik først, og prøv derefter igen.');
-  if (!connected) return;
-  const imported: typeof vault.data.readings = [];
-  const fetched: NonNullable<typeof vault.data.synced_ranges> = [];
-  try {
-    for (const selection of selections) {
-      const resolution = selection.aggregation.toLowerCase(), end = selection.to < today ? selection.to : today;
-      if (selection.from >= end) continue;
-      const chunk = ['Hour', 'Quarter'].includes(selection.aggregation) ? 'day' : selection.aggregation === 'Day' ? 'month' : 'year';
-      for (const meter of vault.data.meters) for (let from = selection.from; from < end; from = advance(from, chunk)) {
-        const to = [advance(from, chunk), end].sort()[0]!;
-        const fromAt = midnight(from), toAt = midnight(to);
-        const existing = vault.data.readings.filter(row => row.meter_id === meter.id && row.resolution === resolution && row.starts_at >= fromAt && row.starts_at < toAt);
-        const complete = aggregateReadings(existing, [meter], from, to, resolution, today).every(point => point.kwh !== null && !point.incomplete);
-        const recent = to >= new Date(Date.parse(`${today}T12:00:00Z`) - 2 * 86400000).toISOString().slice(0, 10);
-        const checked = vault.data.synced_ranges?.find(range => range.meter_id === meter.id && range.resolution === resolution && range.from === from && range.to === to);
-        if (complete || (checked && Date.now() - Date.parse(checked.fetched_at) < (recent ? 6 : 168) * 3600000)) continue;
-        const result = await thirdPartyRequest<any>(vault, { action: 'timeseries', meteringPointId: meter.metering_point_id, from, to, aggregation: selection.aggregation });
-        for (const row of meterReadings(result, meter.metering_point_id, resolution)) if (row.starts_at >= fromAt && row.starts_at < toAt) imported.push({ ...row, meter_id: meter.id, resolution });
-        fetched.push({ meter_id: meter.id, resolution, from, to, fetched_at: new Date().toISOString() });
-      }
-    }
-  } finally {
-    if (fetched.length) await vault.mutate(data => {
-      const rows = new Map(data.readings.map(row => [`${row.meter_id}:${row.resolution}:${row.starts_at}`, row]));
-      for (const row of imported) { const key = `${row.meter_id}:${row.resolution}:${row.starts_at}`; if (row.kwh !== null || !rows.has(key)) rows.set(key, row); }
-      data.readings = [...rows.values()];
-      data.synced_ranges = [...new Map([...(data.synced_ranges ?? []), ...fetched].map(range => [`${range.meter_id}:${range.resolution}:${range.from}:${range.to}`, range])).values()];
-      return data;
-    });
-  }
+export async function loadPrivateUsageBatch(vault: EnergyVault, selections: UsageSelection[]) {
+  await readElectricityPeriods(vault, selections);
+  return selections.map(selection => cachedPrivateUsage(vault, selection));
 }
-function queueSync(vault: EnergyVault, selections: Selection[]) { const pending = (syncQueues.get(vault) ?? Promise.resolve()).catch(() => {}).then(() => syncUsage(vault, selections)); syncQueues.set(vault, pending); void pending.finally(() => { if (syncQueues.get(vault) === pending) syncQueues.delete(vault); }); return pending; }
-export async function privateUsageBatch(vault: EnergyVault, selections: UsageSelection[]) { await queueSync(vault, selections); return selections.map(selection => cachedPrivateUsage(vault, selection)); }
-export async function privateUsage(vault: EnergyVault, selection: UsageSelection) { await queueSync(vault, [selection]); return cachedPrivateUsage(vault, selection); }
+export const subscribePrivateElectricity = subscribeElectricityHistory;
+export const privateImportStatus = electricityImportStatus;
+export async function privateUsageBatch(vault: EnergyVault, selections: UsageSelection[]) {
+  await readElectricityPeriods(vault, selections);
+  startElectricityHistory(vault, body => thirdPartyRequest(vault, body));
+  return selections.map(selection => cachedPrivateUsage(vault, selection));
+}
+export async function privateUsage(vault: EnergyVault, selection: UsageSelection) {
+  return (await privateUsageBatch(vault, [selection]))[0]!;
+}
 export function cachedPrivateUsage(vault: EnergyVault, selection: { from: string; to: string; aggregation: string }): ElectricityUsage {
-  const resolution = selection.aggregation.toLowerCase(), today = usageToday(), data = vault.data, fromAt = midnight(selection.from), toAt = midnight(selection.to);
-  const points = aggregateReadings(data.readings.filter(row => row.resolution === resolution && row.starts_at >= fromAt && row.starts_at < toAt), data.meters, selection.from, selection.to, resolution, today);
-  const firstYear = data.readings.reduce((year, row) => Math.min(year, Number(row.starts_at.slice(0, 4))), Number(today.slice(0, 4)) - 5);
-  return { ...selection, points, totalKwh: points.reduce((sum, point) => sum + (point.kwh ?? 0), 0), meterCount: data.meters.length, availableYears: Array.from({ length: Number(today.slice(0, 4)) - firstYear + 1 }, (_, index) => firstYear + index), incomplete: points.some(point => point.incomplete), syncFailed: false } as ElectricityUsage;
+  const resolution = selection.aggregation.toLowerCase(), today = usageToday(), data = vault.data;
+  const points = storedElectricityPoints(vault, selection as UsageSelection, today) ?? cachedElectricityPoints(data, selection.from, selection.to, resolution, today);
+  const state = vault.cachedElectricityRecord('state/import');
+  const firstYear = state?.meters?.length ? Math.min(...state.meters.map((meter: any) => Number(meter.from.slice(0, 4)))) : electricityIndex(data).firstYear;
+  return { ...selection, points, totalKwh: points.reduce((sum, point) => sum + (point.kwh ?? 0), 0), meterCount: state?.meters?.length ?? data.meters.length, availableYears: Array.from({ length: Number(today.slice(0, 4)) - firstYear + 1 }, (_, index) => firstYear + index), incomplete: points.some(point => point.incomplete), syncFailed: false } as ElectricityUsage;
 }

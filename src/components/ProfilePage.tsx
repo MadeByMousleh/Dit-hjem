@@ -4,6 +4,7 @@ import { ReactNode, useEffect, useRef, useState } from 'react';
 import { ActivityIndicator, Keyboard, KeyboardAvoidingView, Modal, Platform, Pressable, ScrollView, StyleSheet, Text, TextInput, View } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { WasteReminderSetting } from './WasteReminderSetting';
+import { HomePropertyPage } from './HomePropertyPage';
 import type { AddressSuggestion } from '../addresses';
 import { useHouseholdSession } from '../hooks/useHouseholdSession';
 import { useRememberedScroll } from '../hooks/useRememberedScroll';
@@ -16,6 +17,7 @@ import type { ChargingWindowAlertStatus } from '../hooks/useChargingWindowAlert'
 import type { ConsumptionBudgetUnit } from '../services/low-price-alert';
 
 type Props = {
+  openBudgetOnMount?: boolean;
   wasteReminder: ReturnType<typeof import('../hooks/useWasteReminder').useWasteReminder>;
   profileName: string;
   setProfileName: (value: string) => void;
@@ -62,6 +64,7 @@ type Props = {
 };
 
 export function ProfilePage(props: Props) {
+  const [homeOpen, setHomeOpen] = useState(false);
   const auth = useHouseholdSession();
   const household = auth.households.find(item => item.id === auth.householdId);
   const scroll = useRememberedScroll('profile');
@@ -77,6 +80,14 @@ export function ProfilePage(props: Props) {
   const [chargingReadyByInput, setChargingReadyByInput] = useState('');
   const [summaryHourInput, setSummaryHourInput] = useState('');
   const [thresholdError, setThresholdError] = useState('');
+  useEffect(() => {
+    if (props.openBudgetOnMount) {
+      setBudgetUnit(props.consumptionBudgetUnit);
+      setThresholdInput(String(props.consumptionBudgetLimit).replace('.', ','));
+      setThresholdError('');
+      setEditingAlert('budget');
+    }
+  }, [props.openBudgetOnMount]);
 
   useEffect(() => {
     const show = Keyboard.addListener('keyboardDidShow', () => setKeyboardVisible(true));
@@ -216,6 +227,7 @@ export function ProfilePage(props: Props) {
     setEditingAlert(null);
   };
 
+  if (homeOpen) return <HomePropertyPage address={props.address} selected={props.addressSelected} onBack={() => setHomeOpen(false)} navigation={props.navigation} />;
   return <SafeAreaView style={s.page} edges={['top']}>
     <StatusBar style="dark" />
     <KeyboardAvoidingView style={s.flex} behavior={Platform.OS === 'ios' ? 'padding' : undefined}>
@@ -242,6 +254,7 @@ export function ProfilePage(props: Props) {
             
           </View>
 
+          <Pressable accessibilityRole="button" accessibilityLabel="Mit hjem · BBR-oplysninger" onPress={() => setHomeOpen(true)} style={[s.card, { flexDirection: 'row', alignItems: 'center', gap: 12 }]}><AppIcon name="home" size={24} color={colors.primary} /><View style={{ flex: 1 }}><Text style={s.cardTitle}>Mit hjem</Text><Text style={s.description}>Bolig, bygninger og installationer fra BBR</Text></View><AppIcon name="chevron-right" size={21} color={colors.primary} /></Pressable>
           <View onLayout={event => { addressTop.current = event.nativeEvent.layout.y; }} style={s.card}>
             <View style={s.cardHeading}>
               <View style={s.cardIcon}><AppIcon name="map-pin" size={20} color={colors.primary} /></View>

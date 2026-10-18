@@ -49,8 +49,14 @@ import WaterEnergyIcon from '@hugeicons/core-free-icons/WaterEnergyIcon';
 import Notification03Icon from '@hugeicons/core-free-icons/Notification03Icon';
 import DashboardSquare01Icon from '@hugeicons/core-free-icons/DashboardSquare01Icon';
 import Square01Icon from '@hugeicons/core-free-icons/Square01Icon';
+import OvenIcon from '@hugeicons/core-free-icons/OvenIcon';
+import WashingMachineIcon from '@hugeicons/core-free-icons/WashingMachineIcon';
+import RefrigeratorIcon from '@hugeicons/core-free-icons/RefrigeratorIcon';
 
 const icons = {
+  'oven': OvenIcon,
+  'washing-machine': WashingMachineIcon,
+  'refrigerator': RefrigeratorIcon,
   'square': Square01Icon,
   'activity': Activity01Icon,
   'arrow-left': ArrowLeft01Icon,

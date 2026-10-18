@@ -17,8 +17,8 @@ const modes: [UsageAggregation, string][] = [['Year', 'År'], ['Month', 'Måned'
 const number = (value: number, digits = 3) => new Intl.NumberFormat('da-DK', { maximumFractionDigits: digits }).format(value);
 const kroner = (ore: number) => new Intl.NumberFormat('da-DK', { style: 'currency', currency: 'DKK', maximumFractionDigits: 2 }).format(ore / 100);
 
-type Props = ReturnType<typeof useElectricityUsage> & { prices: PricePoint[]; gridSupplierName: string; gridSupplier: GridSupplier };
-export function ElectricityUsageChart({ usage, aggregation, anchor, loading, load, availableYears, agreements, prices, gridSupplier }: Props) {
+type Props = ReturnType<typeof useElectricityUsage> & { prices: PricePoint[]; gridSupplierName: string; gridSupplier: GridSupplier; widget?: boolean; onScrubChange?: (active: boolean) => void };
+export function ElectricityUsageChart({ usage, aggregation, anchor, loading, load, availableYears, agreements, prices, gridSupplier, widget = false, onScrubChange }: Props) {
   const [selectedAt, setSelectedAt] = useState('');
   const [picker, setPicker] = useState(false);
   const [chartWidth, setChartWidth] = useState(0);
@@ -79,7 +79,7 @@ export function ElectricityUsageChart({ usage, aggregation, anchor, loading, loa
     tickSelection();
   };
   const barScrub = useBarScrub({ count: points.length, stride: slotWidth, inset: 8, viewportWidth: chartWidth,
-    contentWidth: points.length * slotWidth + 16, scrollRef: chartScrollRef, onSelect: selectBar });
+    contentWidth: points.length * slotWidth + 16, scrollRef: chartScrollRef, onSelect: selectBar, onScrubChange });
   const max = Math.max(1, ...points.map(point => point.kwh ?? 0));
   const earliest = `${Math.min(...years)}-01-01`;
   const previous = moveUsagePeriod(aggregation, periodAnchor, -1);
@@ -97,12 +97,12 @@ export function ElectricityUsageChart({ usage, aggregation, anchor, loading, loa
   useEffect(() => { setSelectedAt(''); }, [from, usage?.to, aggregation]);
 
   return <View>
-    <Text style={s.sectionLabel}>VÆLG VISNING</Text>
+    {!widget ? <Text style={s.sectionLabel}>VÆLG VISNING</Text> : null}
     <View style={s.tabs}>{modes.map(([mode, name]) => <Pressable key={mode} accessibilityRole="button" accessibilityState={{ selected: aggregation === mode }} onPress={() => { setSelectedAt(''); void load(mode, safeAnchor); }} style={[s.tab, aggregation === mode && s.activeTab]}><Text style={[s.tabText, aggregation === mode && s.activeTabText]}>{name}</Text></Pressable>)}</View>
 
-    <View style={s.periodRow}>
+    <View style={[s.periodRow, widget && { marginVertical: 8 }]}>
       <Pressable accessibilityLabel="Forrige periode" disabled={previous < earliest} onPress={() => void load(aggregation, previous)} style={[s.arrow, previous < earliest && s.disabled]}><AppIcon name="chevron-left" size={21} color={colors.ink} /></Pressable>
-      <Pressable accessibilityRole="button" accessibilityLabel="Vælg periode" onPress={() => setPicker(true)} style={s.periodButton}><Text style={s.periodText}>{title}</Text><AppIcon name="calendar" size={16} color={colors.primary} /></Pressable>
+      <Pressable accessibilityRole="button" accessibilityLabel="Vælg periode" onPress={() => setPicker(true)} style={[s.periodButton, widget && { flex: 1, paddingHorizontal: 4 }]}><Text numberOfLines={widget ? 1 : undefined} adjustsFontSizeToFit={widget} style={[s.periodText, widget && { flexShrink: 1, fontSize: 14 }]}>{title}</Text><AppIcon name="calendar" size={16} color={colors.primary} /></Pressable>
       <Pressable accessibilityLabel="Næste periode" disabled={next > yesterday} onPress={() => void load(aggregation, next)} style={[s.arrow, next > yesterday && s.disabled]}><AppIcon name="chevron-right" size={21} color={colors.ink} /></Pressable>
     </View>
     {picker ? <UsageDatePicker aggregation={aggregation} anchor={safeAnchor} maxDate={yesterday} years={years} onClose={() => setPicker(false)} onSelect={date => { setPicker(false); setSelectedAt(''); void load(aggregation, date); }} /> : null}
@@ -110,24 +110,24 @@ export function ElectricityUsageChart({ usage, aggregation, anchor, loading, loa
     {loading && !usage ? <View style={s.empty}><ActivityIndicator color={colors.primary} /><Text style={s.note}>Henter forbrug…</Text></View> : usage ? <>
       {loading ? <ActivityIndicator color={colors.primary} size="small" style={{ alignSelf: 'flex-start' }} /> : null}
       {usage.syncFailed ? <Text style={s.warning}>Eloverblik kunne ikke opdateres. Gemte målinger vises.</Text> : null}
-      <View style={s.summary}>
-        <View style={{ flex: 1 }}><Text style={s.summaryLabel}>{selected ? label(selected.at) : 'Forbrug i perioden'}{(selected ? selected.incomplete : points.some(point => point.incomplete)) ? ' · foreløbigt' : ''}</Text><Text style={s.value}>{selected?.kwh === null ? 'Mangler data' : `${number(selected ? selected.kwh! : points.reduce((sum, point) => sum + (point.kwh ?? 0), 0))} kWh`}</Text></View>
+      <View style={[s.summary, widget && { paddingTop: 8 }]}>
+        <View style={{ flex: 1, minWidth: 0 }}><Text style={s.summaryLabel}>{selected ? label(selected.at) : 'Forbrug i perioden'}{(selected ? selected.incomplete : points.some(point => point.incomplete)) ? ' · foreløbigt' : ''}</Text><Text numberOfLines={widget ? 1 : undefined} adjustsFontSizeToFit={widget} style={[s.value, widget && { fontSize: 26 }]}>{selected?.kwh === null ? 'Mangler data' : `${number(selected ? selected.kwh! : points.reduce((sum, point) => sum + (point.kwh ?? 0), 0))} kWh`}</Text></View>
         {selected ? <Pressable accessibilityRole="button" onPress={() => setSelectedAt('')} style={s.detailButton}><Text style={s.detailButtonText}>Vis total</Text></Pressable> : null}
       </View>
 
-      {detailed ? totalCost !== undefined ? <View style={s.costCard}>
-        <View style={s.costHeading}><Text style={s.costTitle}>Estimeret pris</Text><Text style={s.costValue}>{kroner(totalCost)}</Text></View>
+      {detailed ? totalCost !== undefined ? <View style={[s.costCard, widget && { marginTop: 8, padding: 8, borderRadius: 12 }]}>
+        <View style={[s.costHeading, widget && { flexWrap: 'wrap', gap: 4 }]}><Text style={s.costTitle}>Estimeret pris</Text><Text style={s.costValue}>{kroner(totalCost)}</Text></View>
       </View> : selected ? <Text style={s.note}>{priceLoading ? 'Beregner pris…' : !agreements.records.length ? 'Tilføj din elaftale for at se prisen.' : 'Prisen kan ikke beregnes endnu. Prøv igen senere.'}</Text> : null : cost.hasEstimate ? <View style={s.costCard}>
         <View style={s.costHeading}><Text style={s.costTitle}>Estimeret elhandel</Text><Text style={s.costValue}>{kroner(cost.ore)}</Text></View>
         <Text style={s.costNote}>{cost.supplierName} · uden abonnement, nettariffer og afgifter{cost.partial ? ' · delvist estimat' : ''}</Text>
       </View> : null}
 
       {points.length ? <>
-        <View style={s.chartHeader}><Text style={s.chartTitle}>Forbrug</Text><Text style={s.note}>0–{number(max)} kWh</Text></View>
+        <View style={[s.chartHeader, widget && { marginTop: 10 }]}><Text style={s.chartTitle}>Forbrug</Text><Text style={s.note}>0–{number(max)} kWh</Text></View>
         <View ref={barScrub.viewportRef} collapsable={false} {...barScrub.panHandlers} onTouchEnd={barScrub.end}
           onTouchCancel={barScrub.end} onLayout={event => setChartWidth(event.nativeEvent.layout.width)}>
         <ScrollView ref={chartScrollRef} horizontal scrollEnabled={!barScrub.isScrubbing} showsHorizontalScrollIndicator={false}
-          onScroll={event => barScrub.setScrollX(event.nativeEvent.contentOffset.x)} scrollEventThrottle={16} contentContainerStyle={s.chart}>
+          onScroll={event => barScrub.setScrollX(event.nativeEvent.contentOffset.x)} scrollEventThrottle={16} contentContainerStyle={[s.chart, widget && { height: 126 }]}>
           {points.map((point, index) => {
             const selectedPoint = point.at === selectedAt;
             const labelEvery = Math.max(1, Math.ceil(44 / slotWidth));
@@ -136,7 +136,7 @@ export function ElectricityUsageChart({ usage, aggregation, anchor, loading, loa
               accessibilityHint="Hold og træk for at vælge andre søjler"
               delayLongPress={300} onLongPress={event => barScrub.begin(index, event.nativeEvent.pageX)}
               onPress={() => { if (!barScrub.shouldIgnorePress()) selectBar(index); }} style={[s.slot, { width: slotWidth }]}>
-              <View style={s.barArea}><View style={[s.bar, { width: slotWidth - 2, height: point.kwh === null ? 3 : Math.max(0, point.kwh ?? 0) / max * 136, backgroundColor: selectedPoint ? colors.primary : point.kwh === null ? colors.line : '#B9D9BE' }]} /></View>
+              <View style={[s.barArea, widget && { height: 102 }]}><View style={[s.bar, { width: slotWidth - 2, height: point.kwh === null ? 3 : Math.max(0, point.kwh ?? 0) / max * (widget ? 96 : 136), backgroundColor: selectedPoint ? colors.primary : point.kwh === null ? colors.line : '#B9D9BE' }]} /></View>
               <View style={{ height: 21, width: slotWidth, overflow: 'visible' }}>{showLabel ? <Text numberOfLines={1} style={[s.tick, { position: 'absolute', width: 44, left: index === 0 ? 0 : (slotWidth - 44) / 2, textAlign: index === 0 ? 'left' : 'center' }, selectedPoint && s.selectedTick]}>{label(point.at, true)}</Text> : null}</View>
             </Pressable>;
           })}

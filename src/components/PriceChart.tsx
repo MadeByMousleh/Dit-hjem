@@ -8,7 +8,7 @@ import { styles } from "../styles/appStyles";
 import { useBarScrub } from '../hooks/useBarScrub';
 import { tickSelection } from '../utils/barScrub';
 
-export function PriceChart({ points, now, onScrubChange }: { points: PricePoint[]; now: number; onScrubChange?: (isScrubbing: boolean) => void }) {
+export function PriceChart({ points, now, onScrubChange, compact = false, minimal = false }: { points: PricePoint[]; now: number; onScrubChange?: (isScrubbing: boolean) => void; compact?: boolean; minimal?: boolean }) {
   const allHours = useMemo(() => {
   const groups = new Map<string, PricePoint[]>();
   points.forEach((point) => {
@@ -234,7 +234,7 @@ export function PriceChart({ points, now, onScrubChange }: { points: PricePoint[
         {...barScrub.panHandlers}
         onTouchEnd={barScrub.end}
         onTouchCancel={barScrub.end}
-        style={styles.barViewport}
+        style={[styles.barViewport, compact && { height: 106 }]}
         onLayout={(event) => {
           setChartViewportWidth(event.nativeEvent.layout.width);
         }}
@@ -251,13 +251,13 @@ export function PriceChart({ points, now, onScrubChange }: { points: PricePoint[
             setScrollX(event.nativeEvent.contentOffset.x);
           }}
           scrollEventThrottle={16}
-          contentContainerStyle={[styles.barChart, { gap, paddingHorizontal: padding, width: hourly.length * stride - gap + padding * 2 }]}
+          contentContainerStyle={[styles.barChart, compact && { height: 106 }, { gap, paddingHorizontal: padding, width: hourly.length * stride - gap + padding * 2 }]}
         >
           {hourly.map((item, index) => {
             const selectedBar = index === selectedIndex;
             const currentBar = index === currentBarIndex;
             const cheapestBar = currentBarIndex < 0 && index === cheapestBarIndex;
-            const height = Math.max(0, item.price) / maxPrice * 94;
+            const height = Math.max(0, item.price) / maxPrice * (compact ? 54 : 94);
             return (
               <Pressable
                 key={item.startsAt.toISOString()}
@@ -323,12 +323,12 @@ export function PriceChart({ points, now, onScrubChange }: { points: PricePoint[
       </View>
 
       <View style={styles.chartToolbar}>
-        <View style={styles.swipeHint}>
+        {!minimal ? <View style={styles.swipeHint}>
           <AppIcon name="sliders" size={12} color={isSliding ? colors.primary : colors.muted} />
           <Text style={[styles.chartLabel, isSliding && styles.chartLabelActive]}>
             {isSliding || barScrub.isScrubbing ? "Vælger time" : "Hold en søjle eller skub prikken"}
           </Text>
-        </View>
+        </View> : null}
         <Pressable accessibilityLabel={showFullDay ? "Vis større søjler" : "Vis hele dagen"} onPress={() => setShowFullDay((value) => !value)} style={styles.overviewButton}>
           <AppIcon name={showFullDay ? "minimize-2" : "maximize-2"} size={13} color={colors.ink} />
           <Text style={styles.overviewButtonText}>{showFullDay ? "Større søjler" : "Vis hele dagen"}</Text>

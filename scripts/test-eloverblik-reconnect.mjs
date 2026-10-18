@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import { createHash } from 'node:crypto';
-import { beginEloverblikAuthorization, finishEloverblikAuthorization, thirdPartyStatus } from '../src/services/eloverblik-third-party-server.mjs';
+import { beginEloverblikAuthorization, finishEloverblikAuthorization, thirdPartyStatus, thirdPartyImportBounds } from '../src/services/eloverblik-third-party-server.mjs';
 import { __testing } from '../src/services/eloverblik-third-party.mjs';
 
 const user = '11111111-1111-4111-8111-111111111111', household = '22222222-2222-4222-8222-222222222222', grant = '33333333-3333-4333-8333-333333333333';
@@ -10,7 +10,7 @@ process.env.SUPABASE_URL = 'https://synthetic.supabase.co';
 const env = { ELOVERBLIK_THIRD_PARTY_API_TOKEN: 'synthetic-third-party-token-only', EL_OVERBLIK_AUTH_LINK: `https://eloverblik.dk/power-of-attorney?thirdPartyId=${grant}&fromDate=2021-01-01&toDate=2029-10-08` };
 const request = new Request('https://test.invalid/connect', { headers: { authorization: 'Bearer fixture' } });
 
-function scenario({ bound = null, boundUser = user, grants = [], attempts = [], member = true, failProvider = false } = {}) {
+function scenario({ bound = null, boundUser = user, grants = [], attempts = [], member = true, failProvider = false, meters = [{ meteringPointId: '123456789012345678' }] } = {}) {
   __testing.clearCache();
   const state = { bound, grants, attempts, newAttempts: 0, consumed: 0 };
   const from = table => {
@@ -34,7 +34,7 @@ function scenario({ bound = null, boundUser = user, grants = [], attempts = [], 
     state.consumed++; state.bound = args.p_authorization; state.attempts = []; return { error: null };
   } } } }), fetcher: async url => {
     if (failProvider) return new Response('', { status: 503 });
-    return Response.json({ result: url.endsWith('/token') ? 'synthetic-access' : url.includes('/meteringpoints/') ? [{ meteringPointId: '123456789012345678' }] : state.grants });
+    return Response.json({ result: url.endsWith('/token') ? 'synthetic-access' : url.includes('/meteringpoints/') ? meters : state.grants });
   } } };
 }
 const ownAttempt = { user_id: user, household_id: household, customer_key_hash: hash, expires_at: new Date(now + 60000).toISOString() };
@@ -103,4 +103,21 @@ for (const attempts of [[], [{ ...ownAttempt, user_id: grant }], [{ ...ownAttemp
   assert.equal(state.newAttempts, 1);
   assert.ok(!response.body.authorizationUrl.includes('attacker.invalid'));
 }
-console.log('PASS: idempotent reconnect, return recovery, ownership/expiry, unkeyed grants, revocation, provider outage and membership.');
+{
+  const { dependencies } = scenario({ bound: grant, grants: [{ id: grant, validFrom: '2022-03-01', validTo: '2029-10-08' }], meters: [
+    { meteringPointId: '123456789012345678', typeOfMP: 'E17', accessFrom: '2023-02-01', consumerStartDate: '2024-01-15', accessTo: '2028-01-01' },
+    { meteringPointId: '123456789012345679', typeOfMP: 'E18' },
+  ] });
+  const result = await thirdPartyImportBounds(request, { householdId: household }, dependencies);
+  assert.equal(result.status, 200);
+  assert.deepEqual(result.body.meters, [{ metering_point_id: '123456789012345678', from: '2024-01-15', to: '2028-01-01' }]);
+}
+{
+  const { dependencies } = scenario({ bound: grant, grants: [{ id: grant, validFrom: '2015-01-01' }] });
+  assert.equal((await thirdPartyImportBounds(request, { householdId: household }, dependencies)).body.meters[0].from, '2021-01-01', 'Retention floor limits the initial import');
+}
+for (const options of [{ member: false }, { bound: grant, grants: [] }]) {
+  const { dependencies } = scenario(options);
+  assert.equal((await thirdPartyImportBounds(request, { householdId: household }, dependencies)).status, options.member === false ? 403 : 409);
+}
+console.log('PASS: idempotent reconnect, return recovery, ownership/expiry, unkeyed grants, revocation, provider outage, membership and scoped historical import bounds.');

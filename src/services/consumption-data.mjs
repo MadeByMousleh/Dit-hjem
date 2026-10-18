@@ -41,6 +41,7 @@ export function expectedIntervals(from, to, resolution) {
 export function meterReadings(payload, meterPointId, resolution) {
   if (!Array.isArray(payload?.result) || !payload.result.length || payload.result.some(r => !r.success && ![30015,30018].includes(r.errorCode))) throw new Error('Eloverblik kunne ikke hente målerdata. Prøv igen senere.');
   const rows = new Map();
+  let hasFinerIntervals = false;
   const resolutions = { PT15M: 'quarter', PT1H: 'hour', P1D: 'day', P1M: 'month', P1Y: 'year' };
   for (const result of payload.result) for (const series of result.MyEnergyData_MarketDocument?.TimeSeries ?? []) {
     if (series.businessType !== 'A04' || (series['measurement_Unit.name'] && series['measurement_Unit.name'] !== 'KWH')) continue;
@@ -50,6 +51,7 @@ export function meterReadings(payload, meterPointId, resolution) {
       const actual = resolutions[period.resolution?.replace(/^PT1([DMY])$/, 'P1$1')];
       const rank = { quarter: 0, hour: 1, day: 2, month: 3, year: 4 };
       if (actual === undefined || rank[actual] > rank[resolution]) throw new Error('Uventet opløsning i målerdata.');
+      hasFinerIntervals ||= rank[actual] < rank[resolution];
       const start = new Date(period.timeInterval?.start);
       if (!Number.isFinite(+start)) throw new Error('Ugyldigt tidspunkt i målerdata.');
       for (const point of period.Point ?? []) {
@@ -88,6 +90,9 @@ export function meterReadings(payload, meterPointId, resolution) {
   const sorted = [...rows.values()].sort((a,b) => a.starts_at.localeCompare(b.starts_at));
   if (sorted.some((row,index)=>index>0 && sorted[index-1].ends_at>row.starts_at)) throw new Error('Overlappende målinger.');
   const coarser = resolution === 'hour' ? 3600000 : resolution === 'quarter' ? 900000 : null;
+  // Preserve the real coverage of a partial calendar year/month/day. Only
+  // finer-resolution replies need rebucketing; a partial period is not zero.
+  if (!coarser && !hasFinerIntervals) return sorted;
   const bucketFor = row => {
     if (coarser) return new Date(Math.floor(Date.parse(row.starts_at) / coarser) * coarser).toISOString();
     const date = danishDate(new Date(row.starts_at));

@@ -1,12 +1,14 @@
 import { useHouseholdSession } from "./useHouseholdSession";
 import { useCallback, useEffect, useRef, useState } from "react";
+import { AppState } from 'react-native';
 import { ElectricityUsage, UsageSelection } from "../services/eloverblik";
 import { usagePeriod, usageToday } from "../utils/usagePeriods";
 import { useElectricityAgreements } from './useElectricityAgreements';
 import { useEnergyVault } from '../components/EnergyVaultGate';
 import { useDashboardViewState } from './useDashboardViewState';
-import { cachedPrivateUsage, privateUsage, privateUsageBatch } from '../services/private-electricity';
+import { cachedPrivateUsage, loadPrivateUsageBatch, privateImportStatus, privateUsage, privateUsageBatch, subscribePrivateElectricity } from '../services/private-electricity';
 import { useMeterConnection } from './useMeterConnection';
+import { nextElectricitySyncAt } from '../services/electricity-cache.mjs';
 
 const monthStart = (offset: number) => {
   const date = new Date(`${usageToday().slice(0, 7)}-01T12:00:00Z`);
@@ -32,6 +34,20 @@ export function useElectricityUsage(active = true, now = Date.now()) {
   const [monthlyError, setMonthlyError] = useState('');
   const [currentMonthDays, setCurrentMonthDays] = useState<ElectricityUsage | null>(null);
   const [previousMonthDays, setPreviousMonthDays] = useState<ElectricityUsage | null>(null);
+  const [syncTick, setSyncTick] = useState(0);
+  useEffect(() => {
+    if (!active) return;
+    let timer: ReturnType<typeof setTimeout>;
+    const schedule = () => {
+      clearTimeout(timer);
+      timer = setTimeout(() => { setSyncTick(value => value + 1); schedule(); }, Math.max(1000, nextElectricitySyncAt() - Date.now()));
+    };
+    schedule();
+    const subscription = AppState.addEventListener('change', state => {
+      if (state === 'active') { setSyncTick(value => value + 1); schedule(); }
+    });
+    return () => { clearTimeout(timer); subscription.remove(); };
+  }, [active]);
   const previousDaysRequest = useRef(0);
   const loadMonthly = useCallback(async () => {
     if (!auth.householdId) return;
@@ -79,7 +95,7 @@ export function useElectricityUsage(active = true, now = Date.now()) {
   }, []);
 
   useEffect(() => {
-    if (!active || !connected || !auth.householdId) return;
+    if (!active || !auth.householdId) return;
     const summaryId = ++summaryRequest.current;
     const daysId = ++previousDaysRequest.current;
     const graphId = ++requestId.current;
@@ -105,6 +121,21 @@ export function useElectricityUsage(active = true, now = Date.now()) {
       }
     };
     publish(selections.map(selection => cachedPrivateUsage(vault, selection)));
+    const unsubscribe = subscribePrivateElectricity(vault, () => {
+      try {
+        const results = selections.map(selection => cachedPrivateUsage(vault, selection));
+        publish(results);
+        if (results.some(result => result.points.some(point => point.kwh !== null))) setLoading(false);
+        if (results[0]?.points.some(point => point.kwh !== null)) setMonthlyLoading(false);
+        const state = privateImportStatus(vault);
+        if (state.error) { setError(state.error); setMonthlyError(state.error); }
+      } catch { /* The vault may have locked while the importer completed. */ }
+    });
+    // Saved charts remain available while status is unknown or the network fails.
+    if (connected !== true) {
+      void loadPrivateUsageBatch(vault, selections).then(publish).catch(() => { /* Preserve legacy/local cached values. */ });
+      return () => { unsubscribe(); summaryRequest.current++; previousDaysRequest.current++; requestId.current++; };
+    }
     setLoading(true); setMonthlyLoading(true); setError(''); setMonthlyError('');
     // Let cached data render before starting network/import work.
     const timer = setTimeout(() => {
@@ -119,9 +150,9 @@ export function useElectricityUsage(active = true, now = Date.now()) {
         if (summaryId === summaryRequest.current) setMonthlyLoading(false);
       });
     }, 0);
-    return () => { clearTimeout(timer); summaryRequest.current++; previousDaysRequest.current++; requestId.current++; };
+    return () => { unsubscribe(); clearTimeout(timer); summaryRequest.current++; previousDaysRequest.current++; requestId.current++; };
   // Run once when the home tab opens or the connection changes.
-  }, [active, connected, auth.householdId, vault, localDay]);
+  }, [active, connected, auth.householdId, vault, localDay, syncTick, aggregation, anchor]);
 
   return { auth, agreements, meters: vault.data.meters, availableYears, usage, loading, error, connectionError, load, disconnect, aggregation, anchor, connected, connectionReady, monthlyUsage, monthlyLoading, monthlyError, loadMonthly, currentMonthDays, previousMonthDays };
 }

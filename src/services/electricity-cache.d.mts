@@ -1,0 +1,10 @@
+import type { VaultData, ElectricityMeter } from './energy-vault';
+export type CachedPoint = { at: string; kwh: number | null; incomplete: boolean };
+export type MissingDay = { meter: ElectricityMeter; from: string; to: string };
+export function electricityIndex(data: VaultData): { cache: NonNullable<VaultData['electricity_cache']>; rows: Map<string, unknown>; firstYear: number };
+export function materializeElectricityCache<T extends VaultData>(data: T): T;
+export function cachedElectricityPoints(data: VaultData, from: string, to: string, resolution: string, today: string): CachedPoint[];
+export function completeHourlyDay(data: VaultData, meterId: string, day: string): boolean;
+export function missingElectricityDays(data: VaultData, selections: { from: string; to: string; aggregation: string }[], now?: number): MissingDay[];
+export function batchMissingDays(days: MissingDay[]): (MissingDay & { days: string[] })[];
+export function nextElectricitySyncAt(now?: number): number;

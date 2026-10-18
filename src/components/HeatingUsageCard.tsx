@@ -19,7 +19,7 @@ const priceText = (value: number | null) => value === null ? 'Ingen data' : kr.f
 const chartHeight = 142;
 const barScale = 136;
 
-export function HeatingUsageCard({ heat }: { heat: ReturnType<typeof useEforsyning> }) {
+export function HeatingUsageCard({ heat, widget = false, onScrubChange }: { heat: ReturnType<typeof useEforsyning>; widget?: boolean; onScrubChange?: (active: boolean) => void }) {
   const { heatPeriod: period, setHeatPeriod: setPeriod, heatDate: date, setHeatDate: setDate } = useDashboardViewState();
   const [editing, setEditing] = useState(false);
   const [selected, setSelected] = useState('');
@@ -62,7 +62,7 @@ export function HeatingUsageCard({ heat }: { heat: ReturnType<typeof useEforsyni
     tickSelection();
   };
   const barScrub = useBarScrub({ count: points.length, stride: slotWidth, inset: 8, viewportWidth: width,
-    contentWidth: chartWidth + 16, scrollRef: chartScrollRef, onSelect: selectBar });
+    contentWidth: chartWidth + 16, scrollRef: chartScrollRef, onSelect: selectBar, onScrubChange });
   const labelEvery = Math.max(1, Math.ceil(38 / slotWidth));
   const y = (value: number) => chartHeight - value / max * barScale;
   let connected = false;
@@ -87,8 +87,8 @@ export function HeatingUsageCard({ heat }: { heat: ReturnType<typeof useEforsyni
   const title = period === 'year' ? 'Gemte år' : period === 'month' ? anchor.slice(0, 4) : new Date(`${anchor}T12:00:00Z`).toLocaleDateString('da-DK', { month: 'long', year: 'numeric', timeZone: 'UTC' });
   const selectedLabel = selected ? period === 'year' ? selected : period === 'month' ? new Date(`${selected}-01T12:00:00Z`).toLocaleDateString('da-DK', { month: 'long', year: 'numeric', timeZone: 'UTC' }) : new Date(`${selected}T12:00:00Z`).toLocaleDateString('da-DK', { day: 'numeric', month: 'long', timeZone: 'UTC' }) : 'Forbrug i perioden';
 
-  return <View style={s.card}>
-    <Text style={s.title}>Dit varmeforbrug</Text>
+  return <View style={widget ? { padding: 8, backgroundColor: colors.white, borderRadius: 16 } : s.card}>
+    {!widget ? <Text style={s.title}>Dit varmeforbrug</Text> : null}
     {history ? <>
       <View style={s.tabs}>{modes.map(([mode, name]) => <Pressable key={mode} accessibilityRole="button" accessibilityState={{ selected: period === mode }} onPress={() => { setPeriod(mode); setSelected(''); }} style={[s.tab, period === mode && s.activeTab]}><Text style={[s.tabText, period === mode && s.activeTabText]}>{name}</Text></Pressable>)}</View>
 

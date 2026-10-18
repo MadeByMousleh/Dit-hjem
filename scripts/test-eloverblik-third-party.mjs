@@ -1,8 +1,28 @@
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
-import { __testing, activeAuthorizations, authorizationForCustomerKey, dataAccessToken, meteringPointsForAuthorization, ThirdPartyError } from '../src/services/eloverblik-third-party.mjs';
+import { __testing, activeAuthorizations, authorizationForCustomerKey, dataAccessToken, meteringPointsForAuthorization, meteringPointReadings, ThirdPartyError } from '../src/services/eloverblik-third-party.mjs';
 
 const env = { ELOVERBLIK_THIRD_PARTY_API_TOKEN: 'third-party-refresh-token-fixture' };
+
+test('sends consumption JSON with the required application/json content type', async () => {
+  __testing.clearCache();
+  const meter = '123456789012345678';
+  let posted = false;
+  const fetcher = async (url, options) => {
+    if (url.endsWith('/token')) return Response.json({ result: 'synthetic-access' });
+    if (url.includes('/meteringpoints/')) return Response.json({ result: [{ meteringPointId: meter }] });
+    const request = new Request(url, options);
+    assert.equal(request.method, 'POST');
+    assert.equal(request.headers.get('content-type'), 'application/json');
+    assert.equal(request.headers.get('authorization'), 'Bearer synthetic-access');
+    assert.deepEqual(await request.json(), { meteringPoints: { meteringPoint: [meter] } });
+    assert.ok(url.endsWith('/meterdata/gettimeseries/2026-10-01/2026-10-02/Hour'));
+    posted = true;
+    return Response.json({ result: [] });
+  };
+  assert.deepEqual(await meteringPointReadings('synthetic-authorization', meter, '2026-10-01', '2026-10-02', 'Hour', env, { fetcher }), { result: [] });
+  assert.equal(posted, true);
+});
 
 test('uses exact opaque provider IDs for meter lookup, including safe path encoding', async () => {
   __testing.clearCache();

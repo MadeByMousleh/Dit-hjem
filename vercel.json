@@ -21,6 +21,9 @@
     }
   ],
   "functions": {
+    "api/address/search.mjs": {
+      "maxDuration": 60
+    },
     "api/energy/vault.mjs": {
       "maxDuration": 60
     },

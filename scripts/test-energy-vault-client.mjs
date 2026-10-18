@@ -5,6 +5,9 @@ import vm from 'node:vm';
 import ts from 'typescript';
 import * as crypto from '../src/services/vault-crypto.mjs';
 import * as signing from '../src/services/vault-signing.mjs';
+import * as electricityCache from '../src/services/electricity-cache.mjs';
+import * as localStorageCache from '../src/services/local-storage-cache.mjs';
+import { expectedIntervals } from '../src/services/consumption-data.mjs';
 import { vaultWriteResponse } from '../src/services/vault-write-server.mjs';
 
 // Exercise the actual TypeScript service with only its platform/I/O boundaries mocked.
@@ -56,7 +59,7 @@ const db = {
     return { data: [clone(row)] };
   },
 };
-const storage = { getItem: async name => cache.get(name) ?? null, setItem: async (name,value) => cache.set(name,value) };
+const storage = { getItem: async name => cache.get(name) ?? null, setItem: async (name,value) => cache.set(name,value), getAllKeys: async () => [...cache.keys()], removeItem: async name => cache.delete(name) };
 const deps = {
   '@react-native-async-storage/async-storage': { default: storage },
   'expo-crypto': { getRandomBytesAsync: async n => new Uint8Array(randomBytes(n)) },
@@ -65,6 +68,8 @@ const deps = {
   './supabase': { getSupabase: async () => db, getSupabaseProjectUrl:async()=>projectUrl,API_URL:'https://app.example.invalid' },
   './vault-crypto.mjs': crypto,
   './vault-signing.mjs': signing,
+  './electricity-cache.mjs': electricityCache,
+  './local-storage-cache.mjs': localStorageCache,
 };
 const mockFetch = async (url,options) => {
   assert.equal(url,'https://app.example.invalid/api/energy/vault');
@@ -252,6 +257,27 @@ const concurrentHome = randomUUID(); knownHomes.add(concurrentHome);
 const sessions = [new EnergyVault(concurrentHome,user),new EnergyVault(concurrentHome,user)];
 assert.deepEqual(await Promise.all(sessions.map(session => session.unlockAutomatically())), ['ready','ready']);
 assert.deepEqual(sessions[0].data, sessions[1].data);
+// Hours and all chart summaries travel in the same signed encrypted snapshot.
+await sessions[0].mutate(data => {
+  data.meters.push({ id: 'cached-meter', metering_point_id: '123456789012345678' });
+  data.readings = expectedIntervals('2026-10-01', '2026-10-02', 'hour').map(interval => ({ ...interval, meter_id: 'cached-meter', resolution: 'hour', kwh: 1 }));
+  return data;
+});
+const chartSnapshot = clone(sessions[0].data);
+assert.equal(chartSnapshot.readings.length, 24);
+assert.equal(chartSnapshot.electricity_cache.summaries.find(row => row.resolution === 'day').kwh, 24);
+assert.equal(chartSnapshot.electricity_cache.summaries.find(row => row.resolution === 'month').kwh, 24);
+const cachedEnvelope = cache.get(`stromblik.vault.${user}.${concurrentHome}.encrypted`);
+assert.ok(!cachedEnvelope.includes('cached-meter'));
+assert.ok(!cachedEnvelope.includes('electricity_cache'));
+await sessions[1].refresh();
+assert.deepEqual(sessions[1].data.electricity_cache, chartSnapshot.electricity_cache);
+sessions[0].close();
+offline = true;
+const offlineCharts = new EnergyVault(concurrentHome,user);
+await offlineCharts.unlock(crypto.recoveryKey(crypto.parseRecoveryKey(managedKeys.get(concurrentHome))));
+assert.deepEqual(offlineCharts.data, chartSnapshot);
+offline = false;
 console.log('PASS: managed-key repeat login, corrupt-cache recovery, retryable legacy migration and simultaneous enrollment.');
 console.log('PASS: actual vault service, cross-device recovery, secure-store isolation, concurrent saves, encrypted-only cache/uploads, offline reads, replay rejection, lock.');
 console.log('PASS: corrupt-head recovery, wrong-key/corrupt-version rejection before writes, immutable old versions, fresh-device restore, stale confirmation and save conflicts, history pagination.');

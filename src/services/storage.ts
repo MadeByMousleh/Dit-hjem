@@ -1,6 +1,7 @@
 import AsyncStorage from "@react-native-async-storage/async-storage";
 import { HouseholdDevice } from "../types/app";
 import { getSupabase } from './supabase';
+import { resilientStorage } from './local-storage-cache.mjs';
 
 export const DEVICES_STORAGE_KEY = "stromblik.household-devices.v1";
 export const PROFILE_STORAGE_KEY = "stromblik.profile.v1";
@@ -62,7 +63,7 @@ export async function loadProfile(userId?: string, accountEmail?: string) {
 }
 
 export async function saveProfile(profile: StoredProfile, userId?: string) {
-  await AsyncStorage.setItem(userId ? userProfileKey(userId) : PROFILE_STORAGE_KEY, JSON.stringify(profile));
+  await resilientStorage(AsyncStorage).setItem(userId ? userProfileKey(userId) : PROFILE_STORAGE_KEY, JSON.stringify(profile));
 }
 
 export async function updateProfile(changes: Partial<StoredProfile>) {

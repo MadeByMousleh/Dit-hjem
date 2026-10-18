@@ -7,3 +7,9 @@ export function vaultWriterPublicKey(key: Uint8Array, projectUrl: string, househ
 export function writeMessage(write: WriteFields & { publicKey: string }): Uint8Array;
 export function signVaultWrite(fields: WriteFields, key: Uint8Array): SignedWrite;
 export function verifyVaultWrite(write: unknown): boolean;
+export const ELECTRICITY_RECORD_PROTOCOL: string;
+export function validElectricityRecordKey(key: unknown): boolean;
+export type ElectricityRecordWrite = { recordKey: string; expectedRevision: number; envelope: Envelope };
+export type SignedElectricityWrite = { projectUrl: string; householdId: string; userId: string; records: ElectricityRecordWrite[]; publicKey: string; signature: string };
+export function signElectricityRecordsWrite(fields: Omit<SignedElectricityWrite, 'publicKey' | 'signature'>, key: Uint8Array): SignedElectricityWrite;
+export function verifyElectricityRecordsWrite(write: unknown): boolean;

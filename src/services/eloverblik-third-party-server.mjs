@@ -1,7 +1,8 @@
 import { createHash } from 'node:crypto';
 import { createSupabaseContext } from '@supabase/server';
 import { createAuthorizationAttempt } from './eloverblik-authorization-link.mjs';
-import { activeAuthorizations, meteringPointReadings, meteringPointsForAuthorization, ThirdPartyError } from './eloverblik-third-party.mjs';
+import { activeAuthorizations, meteringPointReadings, meteringPointAccessForAuthorization, meteringPointsForAuthorization, ThirdPartyError } from './eloverblik-third-party.mjs';
+import { danishDate } from './consumption-data.mjs';
 
 export class EloverblikConnectionError extends Error { constructor(status, message) { super(message); this.status = status; } }
 const uuid = value => typeof value === 'string' && /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(value);
@@ -92,4 +93,20 @@ export async function thirdPartyStatus(request, body, dependencies = {}) {
   } catch (error) { return errorResponse(error, 'Eloverblik-status kunne ikke hentes.'); }
 }
 export async function thirdPartyTimeseries(request, body, dependencies = {}) { try { const ctx = await contextFor(request, dependencies.contextFactory); await requireMembership(ctx, body?.householdId); return { status: 200, body: await meteringPointReadings(await connection(ctx, body.householdId), body?.meteringPointId, body?.from, body?.to, body?.aggregation, dependencies.env ?? process.env, dependencies) }; } catch (error) { return errorResponse(error, 'Målerdata kunne ikke hentes.'); } }
-export async function thirdPartyConnectionResponse(request, body, dependencies = {}) { const handler = { begin: beginEloverblikAuthorization, finish: finishEloverblikAuthorization, status: thirdPartyStatus, meters: thirdPartyMeters, timeseries: thirdPartyTimeseries }[body?.action]; return handler ? await handler(request, body, dependencies) : { status: 400, body: { error: 'Ukendt Eloverblik-handling.' } }; }
+export async function thirdPartyImportBounds(request, body, dependencies = {}) {
+  try {
+    const ctx = await contextFor(request, dependencies.contextFactory); await requireMembership(ctx, body?.householdId);
+    const id = await connection(ctx, body.householdId);
+    const grant = (await activeAuthorizations(dependencies.env ?? process.env, dependencies)).find(item => item.authorizationId === id);
+    if (!grant) throw new EloverblikConnectionError(409, 'Fuldmagten er ikke længere aktiv.');
+    const today = danishDate(new Date(dependencies.now ?? Date.now())), floor = `${Number(today.slice(0, 4)) - 5}-01-01`;
+    const iso = value => typeof value === 'string' && /^\d{4}-\d{2}-\d{2}/.test(value) ? value.slice(0, 10) : null;
+    const meters = (await meteringPointAccessForAuthorization(id, dependencies.env ?? process.env, dependencies)).filter(item => !item.typeOfMP || item.typeOfMP === 'E17').map(item => ({
+      metering_point_id: item.meteringPointId,
+      from: [floor, iso(grant.from), iso(item.accessFrom), iso(item.consumerStartDate)].filter(Boolean).sort().at(-1),
+      to: [iso(grant.to), iso(item.accessTo)].filter(Boolean).sort()[0] ?? null,
+    })).filter(item => !item.to || item.from < item.to);
+    return { status: 200, body: { meters } };
+  } catch (error) { return errorResponse(error, 'Historikkens tilgængelige periode kunne ikke hentes.'); }
+}
+export async function thirdPartyConnectionResponse(request, body, dependencies = {}) { const handler = { begin: beginEloverblikAuthorization, finish: finishEloverblikAuthorization, status: thirdPartyStatus, meters: thirdPartyMeters, timeseries: thirdPartyTimeseries, history: thirdPartyImportBounds }[body?.action]; return handler ? await handler(request, body, dependencies) : { status: 400, body: { error: 'Ukendt Eloverblik-handling.' } }; }

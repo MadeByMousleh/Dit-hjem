@@ -11,10 +11,9 @@ import {
   View,
 } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
-import { useState } from 'react';
+import { useRef, useState } from 'react';
 import { FamilyPlanner as ExtractedFamilyPlanner } from "../components/FamilyPlanner";
 import { DevicePlanCard } from "../components/DevicePlanCard";
-import { PriceChart } from "../components/PriceChart";
 import { BottomTabs } from "../components/BottomTabs";
 import { useWasteReminder } from '../hooks/useWasteReminder';
 import { WasteCollectionCard } from "../components/WasteCollectionCard";
@@ -22,7 +21,6 @@ import { SecondaryTabScreen } from "./SecondaryTabsScreen";
 import { useTeslaConnection } from "../hooks/useTeslaConnection";
 import { useEnergyPrices } from "../hooks/useEnergyPrices";
 import { useWasteCalendar } from "../hooks/useWasteCalendar";
-import { useQuickDevices } from "../hooks/useQuickDevices";
 import { useProfileAddress } from "../hooks/useProfileAddress";
 import { useLowPriceAlert } from "../hooks/useLowPriceAlert";
 import { useHighPriceAlert } from "../hooks/useHighPriceAlert";
@@ -35,13 +33,20 @@ import { useRememberedScroll } from "../hooks/useRememberedScroll";
 import { formatPrice } from "../utils/formatting";
 import { colors, dkDay, dkTime } from "../styles/theme";
 import { styles } from "../styles/appStyles";
+import { useHouseholdSession } from '../hooks/useHouseholdSession';
+import { useElectricityWidgets } from '../hooks/useElectricityWidgets';
+import { PinnedElectricityWidgets, useElectricityWidgetData } from '../components/ElectricityWidgets';
+import { useSmartThingsConnection } from '../hooks/useSmartThingsConnection';
 
 function Dashboard() {
   const { width } = useWindowDimensions();
   const isMobile = width < 520;
   const { gridSuppliers, selectedSupplier, setSelectedSupplierId, now, prices, loading, refreshing, isSample, load } = useEnergyPrices();
-  const { activeTab, setActiveTab } = useDashboardViewState();
+  const { activeTab, setActiveTab, rememberScroll, openWidget } = useDashboardViewState();
   const [chartScrubbing, setChartScrubbing] = useState(false);
+  const [widgetDragging, setWidgetDragging] = useState(false);
+  const widgetDismiss = useRef<(() => void) | null>(null);
+  const widgetScrollOffset = useRef(0), widgetMaxScroll = useRef(0), widgetViewportHeight = useRef(0), widgetContentHeight = useRef(0);
   const rememberedScroll = useRememberedScroll('dashboard', activeTab === 'dashboard');
   const evModels = useEvModels();
   const {
@@ -87,9 +92,13 @@ function Dashboard() {
   } = useProfileAddress({ refreshKey: activeTab, gridSuppliers, setSelectedSupplierId });
   const { lowPriceAlertStatus, requestLowPriceAlertPermission } = useLowPriceAlert({ enabled: lowPriceAlerts, points: prices, samplePrices: isSample, thresholdOrePerKwh: lowPriceAlertThresholdOre });
   const { highPriceAlertStatus, requestHighPriceAlertPermission } = useHighPriceAlert({ enabled: highPriceAlerts, points: prices, samplePrices: isSample, thresholdOrePerKwh: highPriceAlertThresholdOre });
-  const { devices: quickDevices, expandedId: expandedQuickId, toggleExpanded: toggleQuickExpanded, updateDevice: updateQuickDevice } = useQuickDevices(activeTab);
   const tesla = useTeslaConnection(activeTab);
-  const electricityUsage = useElectricityUsage(activeTab === 'electricity', now);
+  const smartThings = useSmartThingsConnection(activeTab === 'smartthings');
+  const widgetAuth = useHouseholdSession();
+  const widgetPreferences = useElectricityWidgets(widgetAuth.session?.user.id ?? '', widgetAuth.householdId);
+  const showUsageWidgets = activeTab === 'dashboard' && widgetPreferences.pins.dashboard.some(id => ['latest', 'month', 'budget', 'usageChart'].includes(id));
+  const electricityUsage = useElectricityUsage(activeTab === 'electricity' || activeTab === 'electricity-widgets' || showUsageWidgets, now);
+  const widgetData = useElectricityWidgetData({ usage: electricityUsage, prices, isSample, supplier: selectedSupplier, now, unit: consumptionBudgetUnit, limit: consumptionBudgetLimit, enabled: activeTab === 'electricity' || activeTab === 'electricity-widgets' || showUsageWidgets });
   const { consumptionBudgetAlertStatus, requestConsumptionBudgetAlertPermission } = useConsumptionBudgetAlert({ enabled: consumptionBudgetAlerts, unit: consumptionBudgetUnit, limit: consumptionBudgetLimit, usage: electricityUsage.currentMonthDays, prices, now });
   const { chargingWindowAlertStatus, requestChargingWindowAlertPermission } = useChargingWindowAlert({ enabled: chargingWindowAlerts, points: prices, samplePrices: isSample, durationHours: chargingDurationHours, readyByHour: chargingReadyByHour });
 
@@ -121,22 +130,23 @@ function Dashboard() {
     await setMonthlyEnergySummary(enabled, monthlyEnergySummaryHour);
   };
 
-  if (activeTab !== "dashboard") return <SecondaryTabScreen key={activeTab} activeTab={activeTab} wasteReminder={wasteReminder} wasteContent={<WasteCollectionCard events={wasteEvents} error={wasteError} wasteHealth={wasteHealth} onOpenProfile={() => setActiveTab('profile')} />} now={now} isMobile={isMobile} styles={styles} colors={colors} profileName={profileName} setProfileName={setProfileName} profileEmail={profileEmail} saveProfile={saveProfile} profileSaved={profileSaved} profileSaving={profileSaving} profileError={profileError} address={address} setAddress={setAddress} addressSelected={addressSelected} addressSuggestions={addressSuggestions} chooseAddress={chooseAddress} addressLookupLoading={addressLookupLoading} addressError={addressError} selectedSupplier={selectedSupplier} lowPriceAlerts={lowPriceAlerts} setLowPriceAlerts={changeLowPriceAlerts} lowPriceAlertStatus={lowPriceAlertStatus} lowPriceAlertThresholdOre={lowPriceAlertThresholdOre} setLowPriceAlertThresholdOre={setLowPriceAlertThresholdOre} highPriceAlerts={highPriceAlerts} setHighPriceAlerts={changeHighPriceAlerts} highPriceAlertStatus={highPriceAlertStatus} highPriceAlertThresholdOre={highPriceAlertThresholdOre} setHighPriceAlertThresholdOre={setHighPriceAlertThresholdOre} consumptionBudgetAlerts={consumptionBudgetAlerts} setConsumptionBudgetAlerts={changeConsumptionBudgetAlerts} consumptionBudgetAlertStatus={consumptionBudgetAlertStatus} consumptionBudgetUnit={consumptionBudgetUnit} consumptionBudgetLimit={consumptionBudgetLimit} setConsumptionBudget={setConsumptionBudget} chargingWindowAlerts={chargingWindowAlerts} setChargingWindowAlerts={changeChargingWindowAlerts} chargingWindowAlertStatus={chargingWindowAlertStatus} chargingDurationHours={chargingDurationHours} chargingReadyByHour={chargingReadyByHour} setChargingWindow={setChargingWindow} monthlyEnergySummaryAlerts={monthlyEnergySummaryAlerts} setMonthlyEnergySummaryAlerts={changeMonthlyEnergySummaryAlerts} monthlyEnergySummaryHour={monthlyEnergySummaryHour} setMonthlyEnergySummary={setMonthlyEnergySummary} prices={prices} evModels={evModels} teslaConnected={tesla.connected} teslaVehicle={tesla.vehicle} teslaRefreshing={tesla.refreshing} teslaChargingCommandPending={tesla.chargingCommandPending} connectTesla={tesla.connect} refreshTesla={tesla.refresh} setTeslaCharging={tesla.setCharging} pairTeslaVirtualKey={tesla.pairVirtualKey} electricityUsage={electricityUsage} renderDeviceCard={renderDeviceCard} navigation={navigation} />;
+  if (activeTab !== "dashboard") return <SecondaryTabScreen pricesAreSample={isSample} smartThings={smartThings} widgetPreferences={widgetPreferences} widgetData={widgetData} key={activeTab} activeTab={activeTab} wasteReminder={wasteReminder} wasteContent={<WasteCollectionCard events={wasteEvents} error={wasteError} wasteHealth={wasteHealth} onOpenProfile={() => setActiveTab('profile')} />} now={now} isMobile={isMobile} styles={styles} colors={colors} profileName={profileName} setProfileName={setProfileName} profileEmail={profileEmail} saveProfile={saveProfile} profileSaved={profileSaved} profileSaving={profileSaving} profileError={profileError} address={address} setAddress={setAddress} addressSelected={addressSelected} addressSuggestions={addressSuggestions} chooseAddress={chooseAddress} addressLookupLoading={addressLookupLoading} addressError={addressError} selectedSupplier={selectedSupplier} lowPriceAlerts={lowPriceAlerts} setLowPriceAlerts={changeLowPriceAlerts} lowPriceAlertStatus={lowPriceAlertStatus} lowPriceAlertThresholdOre={lowPriceAlertThresholdOre} setLowPriceAlertThresholdOre={setLowPriceAlertThresholdOre} highPriceAlerts={highPriceAlerts} setHighPriceAlerts={changeHighPriceAlerts} highPriceAlertStatus={highPriceAlertStatus} highPriceAlertThresholdOre={highPriceAlertThresholdOre} setHighPriceAlertThresholdOre={setHighPriceAlertThresholdOre} consumptionBudgetAlerts={consumptionBudgetAlerts} setConsumptionBudgetAlerts={changeConsumptionBudgetAlerts} consumptionBudgetAlertStatus={consumptionBudgetAlertStatus} consumptionBudgetUnit={consumptionBudgetUnit} consumptionBudgetLimit={consumptionBudgetLimit} setConsumptionBudget={setConsumptionBudget} chargingWindowAlerts={chargingWindowAlerts} setChargingWindowAlerts={changeChargingWindowAlerts} chargingWindowAlertStatus={chargingWindowAlertStatus} chargingDurationHours={chargingDurationHours} chargingReadyByHour={chargingReadyByHour} setChargingWindow={setChargingWindow} monthlyEnergySummaryAlerts={monthlyEnergySummaryAlerts} setMonthlyEnergySummaryAlerts={changeMonthlyEnergySummaryAlerts} monthlyEnergySummaryHour={monthlyEnergySummaryHour} setMonthlyEnergySummary={setMonthlyEnergySummary} prices={prices} evModels={evModels} teslaConnected={tesla.connected} teslaVehicle={tesla.vehicle} teslaRefreshing={tesla.refreshing} teslaChargingCommandPending={tesla.chargingCommandPending} connectTesla={tesla.connect} refreshTesla={tesla.refresh} setTeslaCharging={tesla.setCharging} pairTeslaVirtualKey={tesla.pairVirtualKey} electricityUsage={electricityUsage} renderDeviceCard={renderDeviceCard} navigation={navigation} />;
 
   return (
-    <SafeAreaView style={styles.safeArea} edges={["top"]}>
+    <SafeAreaView style={styles.safeArea} edges={["top"]} onTouchStart={() => widgetDismiss.current?.()}>
       <StatusBar style="dark" />
       <ScrollView
         ref={rememberedScroll.scrollRef}
-        onLayout={rememberedScroll.onLayout}
-        onContentSizeChange={rememberedScroll.onContentSizeChange}
-        onScroll={rememberedScroll.onScroll}
-        scrollEventThrottle={100}
+        onLayout={event => { widgetViewportHeight.current = event.nativeEvent.layout.height; widgetMaxScroll.current = Math.max(0, widgetContentHeight.current - widgetViewportHeight.current); rememberedScroll.onLayout(event); }}
+        onContentSizeChange={(width, height) => { widgetContentHeight.current = height; widgetMaxScroll.current = Math.max(0, height - widgetViewportHeight.current); rememberedScroll.onContentSizeChange(width, height); }}
+        onScroll={event => { widgetScrollOffset.current = event.nativeEvent.contentOffset.y; if (!widgetDragging) rememberedScroll.onScroll(event); }}
+        scrollEventThrottle={widgetDragging ? 16 : 100}
         style={styles.dashboardScroll}
         contentContainerStyle={[styles.scrollContent, styles.scrollContentGrow]}
         nestedScrollEnabled
-        scrollEnabled={!chartScrubbing}
-        refreshControl={<RefreshControl refreshing={refreshing} onRefresh={() => void load(true)} tintColor={colors.primary} />}
+        removeClippedSubviews={false}
+        scrollEnabled={!chartScrubbing && !widgetDragging}
+        refreshControl={<RefreshControl enabled={!widgetDragging} refreshing={refreshing} onRefresh={() => { if (!widgetDragging) void load(true); }} tintColor={colors.primary} />}
       >
         <View style={[styles.container, isMobile && styles.containerMobile]}>
           <View style={styles.header}><Text style={styles.brand}>STRØMBLIK</Text></View>
@@ -150,38 +160,12 @@ function Dashboard() {
 
 
 
-          <View style={[styles.trendPanel, isMobile && styles.trendPanelMobile]}>
-            <View style={styles.sectionHeadingRow}>
-              <View>
-                <Text style={styles.eyebrow}>TIMEPRISER · OP TIL 7 DAGE</Text>
-                <Text style={styles.sectionTitle}>Prisens bevægelse</Text>
-              </View>
-              {loading ? <ActivityIndicator color={colors.primary} size="small" /> : <AppIcon name="trending-up" size={22} color={colors.coral} />}
-            </View>
-            <PriceChart points={prices} now={now} onScrubChange={setChartScrubbing} />
-          </View>
-
-          <View style={styles.dashboardDevicesSummary}>
-            <Text style={styles.pageEyebrow}>MIT HJEM</Text>
-            <Text style={styles.dashboardSummaryText}>Dine apparater ligger samlet i Mit hjem. Bilstatus finder du under Bil.</Text>
-            {quickDevices.filter((device) => device.showOnDashboard).length ? (
-              <View style={styles.quickDeviceList}>
-                {quickDevices.filter((device) => device.showOnDashboard).map((device) => (
-                  <DevicePlanCard
-                    key={device.id}
-                    device={device}
-                    points={prices}
-                    now={now}
-                    evModels={evModels}
-                    expanded={expandedQuickId === device.id}
-                    onToggle={() => toggleQuickExpanded(device.id)}
-                    onChange={(changes) => updateQuickDevice(device.id, changes)}
-                  />
-                ))}
-              </View>
-            ) : <Text style={styles.dashboardSummaryText}>Vælg “Vis på overblik” på en enhed i Mit hjem for hurtig adgang her.</Text>}
-            <Pressable onPress={() => setActiveTab("home")} style={styles.dashboardSummaryButton}><Text style={styles.dashboardSummaryButtonText}>Åbn Mit hjem</Text><AppIcon name="arrow-right" size={15} color={colors.white} /></Pressable>
-          </View>
+          <PinnedElectricityWidgets location="dashboard" preferences={widgetPreferences} data={widgetData} onManage={() => setActiveTab('electricity-widgets')} onOpen={openWidget}
+            dismissRef={widgetDismiss}
+            onScrubChange={setChartScrubbing}
+            dragScroll={{ ref: rememberedScroll.scrollRef, offset: widgetScrollOffset, maxOffset: widgetMaxScroll }}
+            onDragChange={dragging => { setWidgetDragging(dragging); if (!dragging) rememberScroll('dashboard', widgetScrollOffset.current); }} />
+          {!widgetPreferences.pins.dashboard.length ? <Pressable accessibilityRole="button" onPress={() => setActiveTab('electricity-widgets')} style={styles.dashboardSummaryButton}><Text style={styles.dashboardSummaryButtonText}>Vælg widgets til dit overblik</Text><AppIcon name="plus" size={18} color={colors.white} /></Pressable> : null}
 
 
         </View>

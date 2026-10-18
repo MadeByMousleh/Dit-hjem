@@ -2,10 +2,11 @@ import { StatusBar } from "expo-status-bar";
 import { AppIcon } from '../components/AppIcon';
 import { HomeCategories } from '../components/HomeCategories';
 import { useDashboardViewState, type DashboardTab } from '../hooks/useDashboardViewState';
-import { ReactNode, useEffect } from "react";
+import { ReactNode, useEffect, useState } from "react";
 import { BackHandler, Pressable, ScrollView, Text, View } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
 import { TeslaDetailsPage } from "../components/TeslaDetailsPage";
+import { ChargerEntry, ChargerPage } from '../components/ChargerPage';
 import { ElectricityUsageCard } from "../components/ElectricityUsageCard";
 import { ElectricityDetailsCard } from '../components/ElectricityDetailsCard';
 import { useElectricityUsage } from "../hooks/useElectricityUsage";
@@ -15,6 +16,7 @@ import { EvModel } from "../evData";
 import { GridSupplier, PricePoint } from "../prices";
 import { TeslaVehicle } from "../types/app";
 import { ElectricityPriceCard } from "../components/ElectricityPriceCard";
+import { PriceChart } from '../components/PriceChart';
 import { MonthlyUsageCard } from "../components/MonthlyUsageCard";
 import { HeatingPage } from '../components/HeatingPage';
 import { ProfilePage } from '../components/ProfilePage';
@@ -24,8 +26,15 @@ import type { HighPriceAlertStatus } from '../hooks/useHighPriceAlert';
 import type { ConsumptionBudgetAlertStatus } from '../hooks/useConsumptionBudgetAlert';
 import type { ChargingWindowAlertStatus } from '../hooks/useChargingWindowAlert';
 import type { ConsumptionBudgetUnit } from '../services/low-price-alert';
+import type { useElectricityWidgets } from '../hooks/useElectricityWidgets';
+import { WidgetsEntry, ElectricityWidgetsPage, PinnedElectricityWidgets, type ElectricityWidgetData } from '../components/ElectricityWidgets';
+import { SmartThingsEntry, SmartThingsPage } from '../components/SmartThingsPage';
+import type { useSmartThingsConnection } from '../hooks/useSmartThingsConnection';
 
 type SecondaryTabScreenProps = {
+  smartThings: ReturnType<typeof useSmartThingsConnection>;
+  widgetPreferences: ReturnType<typeof useElectricityWidgets>;
+  widgetData: ElectricityWidgetData;
   wasteContent: ReactNode;
   wasteReminder: ReturnType<typeof import('../hooks/useWasteReminder').useWasteReminder>;
   activeTab: Exclude<DashboardTab, 'dashboard'>;
@@ -75,6 +84,7 @@ type SecondaryTabScreenProps = {
   monthlyEnergySummaryHour: number;
   setMonthlyEnergySummary: (enabled: boolean, hour: number) => Promise<void> | void;
   prices: PricePoint[];
+  pricesAreSample?: boolean;
   evModels: EvModel[];
   teslaConnected: boolean;
   teslaVehicle: TeslaVehicle | null;
@@ -90,16 +100,20 @@ type SecondaryTabScreenProps = {
 };
 
 export function SecondaryTabScreen(props: SecondaryTabScreenProps) {
-  const { setActiveTab } = useDashboardViewState();
+  const { setActiveTab, openWidget, widgetDestination } = useDashboardViewState();
+  const [priceScrubbing, setPriceScrubbing] = useState(false);
   useEffect(() => {
     if (props.activeTab === 'home' || props.activeTab === 'profile') return;
     const subscription = BackHandler.addEventListener('hardwareBackPress', () => {
-      setActiveTab('home');
+      setActiveTab(props.activeTab === 'smartthings' ? 'appliances' : props.activeTab === 'charger' ? 'car' : props.activeTab === 'electricity-widgets' ? 'electricity' : 'home');
       return true;
     });
     return () => subscription.remove();
   }, [props.activeTab, setActiveTab]);
   const rememberedScroll = useRememberedScroll(props.activeTab);
+  useEffect(() => {
+    if (widgetDestination) rememberedScroll.scrollRef?.current?.scrollTo({ y: 0, animated: false });
+  }, [widgetDestination]);
   const {
     activeTab,
     now,
@@ -162,7 +176,7 @@ export function SecondaryTabScreen(props: SecondaryTabScreenProps) {
     navigation,
   } = props;
 
-  if (activeTab === 'profile') return <ProfilePage wasteReminder={props.wasteReminder} profileName={profileName} setProfileName={setProfileName} profileEmail={profileEmail}
+  if (activeTab === 'profile') return <ProfilePage openBudgetOnMount={widgetDestination?.section === 'budget'} wasteReminder={props.wasteReminder} profileName={profileName} setProfileName={setProfileName} profileEmail={profileEmail}
     profileSaved={profileSaved} profileSaving={profileSaving} profileError={profileError} saveProfile={saveProfile}
     address={address} setAddress={setAddress} addressSelected={addressSelected} addressSuggestions={addressSuggestions}
     chooseAddress={chooseAddress} addressLookupLoading={addressLookupLoading} addressError={addressError}
@@ -176,21 +190,30 @@ export function SecondaryTabScreen(props: SecondaryTabScreenProps) {
     chargingDurationHours={chargingDurationHours} chargingReadyByHour={chargingReadyByHour} setChargingWindow={setChargingWindow}
     monthlyEnergySummaryAlerts={monthlyEnergySummaryAlerts} setMonthlyEnergySummaryAlerts={setMonthlyEnergySummaryAlerts} monthlyEnergySummaryHour={monthlyEnergySummaryHour} setMonthlyEnergySummary={setMonthlyEnergySummary} navigation={navigation} />;
 
+  const usageCard = <ElectricityUsageCard {...electricityUsage} prices={prices} gridSupplierName={selectedSupplier?.name} gridSupplier={selectedSupplier} />;
+  const priceCard = <View style={{ backgroundColor: colors.white, borderRadius: 24, padding: 24, marginBottom: 20 }}><Text style={{ fontFamily: 'Nunito_700Bold', fontSize: 20, color: colors.ink, marginBottom: 16 }}>Elpriser</Text>{props.pricesAreSample ? <Text style={{ color: colors.muted }}>Aktuelle priser er utilgængelige. Prøv igen senere.</Text> : <PriceChart points={prices} now={now} onScrubChange={setPriceScrubbing} />}</View>;
   return (
     <SafeAreaView style={styles.safeArea} edges={["top"]}>
       <StatusBar style="dark" />
-      <ScrollView ref={rememberedScroll.scrollRef} onLayout={rememberedScroll.onLayout} onContentSizeChange={rememberedScroll.onContentSizeChange} onScroll={rememberedScroll.onScroll} scrollEventThrottle={100} style={{ flex: 1 }} contentContainerStyle={styles.scrollContent}>
+      <ScrollView ref={rememberedScroll.scrollRef} scrollEnabled={!priceScrubbing} onLayout={rememberedScroll.onLayout} onContentSizeChange={rememberedScroll.onContentSizeChange} onScroll={rememberedScroll.onScroll} scrollEventThrottle={100} style={{ flex: 1 }} contentContainerStyle={styles.scrollContent}>
         <View style={[styles.container, isMobile && styles.containerMobile]}>
           <View style={styles.header}><Text style={styles.brand}>STRØMBLIK</Text></View>
 
-          {activeTab !== 'home' ? <Pressable accessibilityRole="button" accessibilityLabel="Tilbage til Mit hjem" onPress={() => setActiveTab('home')} style={{ flexDirection: 'row', alignItems: 'center', gap: 8, paddingVertical: 14 }}><AppIcon name="arrow-left" size={18} color={colors.primary} /><Text style={{ fontFamily: 'Nunito_700Bold', color: colors.primary }}>Mit hjem</Text></Pressable> : null}
+          {activeTab !== 'home' ? <Pressable accessibilityRole="button" accessibilityLabel={activeTab === 'smartthings' ? 'Tilbage til Apparater' : activeTab === 'charger' ? 'Tilbage til Bil' : activeTab === 'electricity-widgets' ? 'Tilbage til El' : 'Tilbage til Mit hjem'} onPress={() => setActiveTab(activeTab === 'smartthings' ? 'appliances' : activeTab === 'charger' ? 'car' : activeTab === 'electricity-widgets' ? 'electricity' : 'home')} style={{ flexDirection: 'row', alignItems: 'center', gap: 8, paddingVertical: 14 }}><AppIcon name="arrow-left" size={18} color={colors.primary} /><Text style={{ fontFamily: 'Nunito_700Bold', color: colors.primary }}>{activeTab === 'smartthings' ? 'Apparater' : activeTab === 'charger' ? 'Bil' : activeTab === 'electricity-widgets' ? 'El' : 'Mit hjem'}</Text></Pressable> : null}
+          {activeTab === 'charger' ? <ChargerPage /> : null}
+          {activeTab === 'electricity-widgets' ? <ElectricityWidgetsPage preferences={props.widgetPreferences} data={props.widgetData} /> : null}
+          {activeTab === 'smartthings' ? <SmartThingsPage connection={props.smartThings} /> : null}
           {activeTab === 'waste' ? <><Text style={{ fontFamily: 'Nunito_600SemiBold', fontSize: 30, color: colors.ink, marginBottom: 8 }}>Affald</Text><Text style={{ fontFamily: 'Nunito_400Regular', color: colors.muted, marginBottom: 24 }}>Din kalender for de kommende tømninger.</Text>{props.wasteContent}</> : null}
           {activeTab === 'home' ? <HomeCategories onSelect={setActiveTab} /> : null}
           {activeTab === 'electricity' ? <Text style={{ fontFamily: 'Nunito_600SemiBold', fontSize: 30, color: colors.ink, marginBottom: 16 }}>El</Text> : null}
           {activeTab === "electricity" ? (
             <>
+              {widgetDestination?.section === 'usage' ? usageCard : widgetDestination?.section === 'prices' ? priceCard : null}
+              <WidgetsEntry onOpen={() => setActiveTab('electricity-widgets')} />
+              <PinnedElectricityWidgets location="electricity" preferences={props.widgetPreferences} data={props.widgetData} onManage={() => setActiveTab('electricity-widgets')} onOpen={openWidget} />
               {electricityUsage.connected === true ? <MonthlyUsageCard data={electricityUsage.monthlyUsage} currentMonthDays={electricityUsage.currentMonthDays} previousMonthDays={electricityUsage.previousMonthDays} loading={electricityUsage.monthlyLoading} error={electricityUsage.monthlyError} agreements={electricityUsage.agreements.records} gridSupplier={selectedSupplier} /> : null}
-              <ElectricityUsageCard {...electricityUsage} prices={prices} gridSupplierName={selectedSupplier.name} gridSupplier={selectedSupplier} />
+              {widgetDestination?.section !== 'usage' ? usageCard : null}
+              {widgetDestination?.section !== 'prices' ? priceCard : null}
               <ElectricityDetailsCard meters={electricityUsage.meters} />
               <ElectricityPriceCard key={electricityUsage.auth.householdId} householdId={electricityUsage.auth.householdId} agreements={electricityUsage.agreements} />
             </>
@@ -200,6 +223,7 @@ export function SecondaryTabScreen(props: SecondaryTabScreenProps) {
             </>
           ) : activeTab === "car" ? (
             <>
+              <ChargerEntry onOpen={() => setActiveTab('charger')} />
               <TeslaDetailsPage
                 vehicle={teslaVehicle}
                 refreshing={teslaRefreshing}
@@ -214,7 +238,7 @@ export function SecondaryTabScreen(props: SecondaryTabScreenProps) {
                 evModels={evModels}
               />
             </>
-          ) : activeTab === 'appliances' ? <FamilyPlanner points={prices} now={now} evModels={evModels} styles={styles} colors={colors} DeviceCard={renderDeviceCard} /> : null}
+          ) : activeTab === 'appliances' ? <><SmartThingsEntry onOpen={() => setActiveTab('smartthings')} /><FamilyPlanner points={prices} now={now} evModels={evModels} styles={styles} colors={colors} DeviceCard={renderDeviceCard} /></> : null}
 
         </View>
       </ScrollView>

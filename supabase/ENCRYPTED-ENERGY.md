@@ -1,5 +1,36 @@
 # Encrypted energy data: implementation and release boundaries
 
+## Native cache capacity repair (2026-10-15)
+
+APK 1.0.13 used AsyncStorage's compiled 6 MiB SQLite limit while sessions,
+profiles, prices and encrypted energy records shared that database. The native
+repair raises the cap to 64 MiB, budgets optional public prices at 2 MiB and
+encrypted period cache writes at 12 MiB, and retries Auth/profile writes after
+removing only replaceable public-price cache entries. Existing encrypted root
+and period caches/revision pins, remembered keys and credentials are not pruned.
+New local cache writes can be skipped at the budget; cloud data and encryption/
+signing formats are unchanged. See [LOCAL-STORAGE.md](../docs/LOCAL-STORAGE.md)
+for the failure reproduction, limits and physical-device evidence boundary.
+
+## Independent electricity period records (2026-10-14)
+
+New electricity imports use independently encrypted per-day hourly records and
+precomputed daily/monthly/yearly summary records, not the root snapshot. Migration
+`202610140001_electricity_period_records.sql` is applied and rollback-only SQL tests
+pass on dev `wsdomkzhnksyjrpxqfvn`. With explicit approval, the same migration is now
+applied to production `arkpfdsglgufnnukader`; read-only RLS/ACL checks pass.
+The existing key and pinned writer are reused, with a domain-separated signed
+batch protocol and atomic per-record revision checks. Record keys/dates and sizes
+are visible metadata; consumption and meter identities remain encrypted. Direct
+client writes are revoked. Separate phone-cache entries permit targeted chart reads.
+Old root history is retained intact and copied once; new history does not grow it.
+Record versions are retained but the old root restore UI does not restore them.
+See [ELECTRICITY-CACHE.md](../docs/ELECTRICITY-CACHE.md) for import, limits,
+verification and release boundaries. Production deployment
+`dpl_DEokBqtVMXHYygrbNPp66bmTo2KP` is READY; APK 1.0.12/versionCode 13 is installed
+on the paired Samsung with data retained. Full authenticated provider import and
+physical chart/cache behavior remain unverified.
+
 ## Managed-key rollout (production repair, 2026-10-12)
 
 Production migration `202610120001_managed_energy_vault_keys.sql` is now applied.

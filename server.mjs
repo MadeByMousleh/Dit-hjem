@@ -1,15 +1,26 @@
 import { createCipheriv, createDecipheriv, createHash, createHmac, randomBytes, randomUUID } from "node:crypto";
 import { createServer } from "node:http";
 import { findAddressSuggestionById, findAddressSuggestions } from './src/services/address-search.mjs';
+import { getBbrProperty } from './src/services/bbr-property-server.mjs';
+import { getHomePhotos } from './src/services/home-photos-server.mjs';
+import { getPublicValuation } from './src/services/property-valuation-server.mjs';
+import { getHomeGeometry, getHomeOrthophoto } from './src/services/home-geometry-server.mjs';
+import { getHomeAirQuality } from './src/services/home-air-quality-server.mjs';
+import { getHomeEnergyLabel } from './src/services/home-energy-label-server.mjs';
+import { getHomeHeights } from './src/services/home-height-server.mjs';
+import { getHomeModelPhotos } from './src/services/home-model-photos-server.mjs';
 import { readFileSync } from "node:fs";
 import { extname, join, normalize } from "node:path";
 import { thirdPartyConnectionResponse } from "./src/services/eloverblik-third-party-server.mjs";
 import { heatingConnectionResponse } from "./src/services/heating-connection-server.mjs";
 import { publicAuthConfig } from "./api/auth/config.mjs";
 import { vaultWriteResponse } from "./src/services/vault-write-server.mjs";
+import { electricityRecordWriteResponse } from "./src/services/electricity-record-server.mjs";
 import { managedVaultKeyResponse } from "./src/services/managed-vault-key-server.mjs";
+import { facadeAnalysisResponse } from './src/services/facade-analysis-server.mjs';
 import { MAX_WRITE_BYTES } from "./src/services/vault-signing.mjs";
 import { beginTeslaAuthorization, finishTeslaAuthorization, teslaStatus, teslaVehicles, TeslaError } from "./src/services/tesla-server.mjs";
+import smartThingsHandler from './api/smartthings/[action].mjs';
 
 const port = Number(process.env.EFORSYNING_PORT ?? 8787);
 const baseUrl = process.env.EFORSYNING_BASE_URL ?? "https://eforsyning.dk/";
@@ -557,6 +568,19 @@ export async function handler(request, response) {
   response.setHeader("Access-Control-Allow-Origin", "*");
   response.setHeader("Access-Control-Allow-Headers", "Content-Type, Authorization");
   if (request.method === "OPTIONS") { response.writeHead(204); response.end(); return; }
+  if (new URL(request.url ?? '/', 'http://localhost').pathname.startsWith('/api/smartthings/')) {
+    const adapter = {
+      setHeader(name, value) { response.setHeader(name, value); return adapter; },
+      status(code) { response.statusCode = code; return adapter; },
+      set statusCode(code) { response.statusCode = code; },
+      json(value) { response.setHeader('Content-Type', 'application/json'); response.end(JSON.stringify(value)); },
+      send(value) { response.setHeader('Content-Type', 'text/plain; charset=utf-8'); response.end(value); },
+      end() { response.end(); },
+    };
+    try { if (request.method === 'POST') request.body = await readJson(request); await smartThingsHandler(request, adapter); }
+    catch { adapter.status(400).json({ error: 'SmartThings-anmodningen kunne ikke behandles.' }); }
+    return;
+  }
   if (request.method === "GET" && request.url === "/api/auth/config") {
     response.writeHead(200, { "Content-Type": "application/json", "Cache-Control": "no-store" });
     response.end(JSON.stringify(publicAuthConfig()));
@@ -589,11 +613,13 @@ export async function handler(request, response) {
       }
       const body = JSON.parse(Buffer.concat(chunks).toString('utf8'));
       const req = new Request('http://localhost/api/energy/vault', { method: 'POST', headers: { authorization: request.headers.authorization ?? '' } });
-      const result = body?.action === 'managed-key'
+      const result = body?.operation === 'facade-analysis' ? await facadeAnalysisResponse(req,body) : body?.action === 'managed-key'
         ? await managedVaultKeyResponse(req, body)
         : body?.operation === 'heating'
           ? await heatingConnectionResponse(req, body)
-          : await vaultWriteResponse(req, body);
+          : body?.operation === 'electricity-records'
+            ? await electricityRecordWriteResponse(req, body.write)
+            : await vaultWriteResponse(req, body);
       response.writeHead(result.status, { 'Content-Type': 'application/json' }); response.end(JSON.stringify(result.body));
     } catch { response.writeHead(400); response.end(); }
     return;
@@ -618,6 +644,31 @@ export async function handler(request, response) {
     const params = new URL(request.url, `http://${request.headers.host}`).searchParams;
     const query = params.get('q')?.trim() ?? '';
     const id = params.get('id')?.trim() ?? '';
+    if (['model-photos','height','geometry','orthophoto','air','energy-label'].includes(params.get('mode'))) {
+      try {
+        const mode=params.get('mode');
+        const data=mode==='model-photos'?await getHomeModelPhotos({id}):mode==='height'?await getHomeHeights({id}):mode==='geometry'?await getHomeGeometry({id}):mode==='orthophoto'?await getHomeOrthophoto({bbox:params.get('bbox')}):mode==='air'?await getHomeAirQuality({id,x:params.get('x'),y:params.get('y')}):await getHomeEnergyLabel({buildingId:params.get('buildingId')});
+        response.writeHead(200,{'Content-Type':Buffer.isBuffer(data)?'image/jpeg':'application/json','Cache-Control':'no-store','X-Content-Type-Options':'nosniff'});response.end(Buffer.isBuffer(data)?data:JSON.stringify(data));
+      }catch(error){response.writeHead(error.status??502,{'Content-Type':'application/json','Cache-Control':'no-store'});response.end(JSON.stringify({error:'Boligens supplerende oplysninger kunne ikke hentes lige nu.',code:'HOME_DETAILS_UNAVAILABLE'}));}return;
+    }
+    if (params.get('mode') === 'valuation') {
+      try { const data = await getPublicValuation({ bfe: params.get('bfe') }); response.writeHead(200, { 'Content-Type':'application/json','Cache-Control':'no-store' }); response.end(JSON.stringify(data)); }
+      catch (error) { response.writeHead(error.status ?? 502, { 'Content-Type':'application/json','Cache-Control':'no-store' }); response.end(JSON.stringify({ error:'Den offentlige vurdering kunne ikke hentes lige nu.',code:'VALUATION_UNAVAILABLE' })); }
+      return;
+    }
+    if (params.get('mode') === 'photos') {
+      try {
+        const result = await getHomePhotos({ x: params.get('x'), y: params.get('y'), direction: params.get('direction') });
+        response.writeHead(200, { 'Content-Type': Buffer.isBuffer(result) ? 'image/jpeg' : 'application/json', 'Cache-Control': 'no-store', 'X-Content-Type-Options': 'nosniff' });
+        response.end(Buffer.isBuffer(result) ? result : JSON.stringify(result));
+      } catch (error) { response.writeHead(error.status ?? 502, { 'Content-Type': 'application/json', 'Cache-Control': 'no-store' }); response.end(JSON.stringify({ error: 'Boligbilleder kunne ikke hentes lige nu.', code: 'HOME_PHOTOS_UNAVAILABLE' })); }
+      return;
+    }
+    if (params.get('mode') === 'bbr') {
+      try { const property = await getBbrProperty({ id, address: query }); response.writeHead(200, { 'Content-Type': 'application/json', 'Cache-Control': 'no-store' }); response.end(JSON.stringify(property)); }
+      catch (error) { response.writeHead(error.status ?? 502, { 'Content-Type': 'application/json', 'Cache-Control': 'no-store' }); response.end(JSON.stringify({ error: error.message ?? 'BBR kunne ikke hentes.', code: error.code ?? 'BBR_UNAVAILABLE' })); }
+      return;
+    }
     if (id && !/^[0-9a-f-]{36}$/i.test(id)) { response.writeHead(400, { 'Content-Type': 'application/json' }); response.end(JSON.stringify({ error: 'Adresse-id er ugyldigt.' })); return; }
     if (query.length > 73) { response.writeHead(400, { 'Content-Type': 'application/json' }); response.end(JSON.stringify({ error: 'Adressen er for lang.' })); return; }
     try {

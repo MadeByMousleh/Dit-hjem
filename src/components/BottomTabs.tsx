@@ -18,7 +18,7 @@ export function BottomTabs({ activeTab, onSelect }: { activeTab: Tab; onSelect: 
   return <View style={[s.surface, { paddingBottom: Math.max(insets.bottom, 8), paddingLeft: Math.max(insets.left, 12), paddingRight: Math.max(insets.right, 12) }]}>
     <View accessibilityRole="tablist" style={s.row}>
       {tabs.map(tab => {
-        const selected = activeTab === tab.id || (tab.id === 'home' && (activeTab === 'electricity' || activeTab === 'appliances' || activeTab === 'waste'));
+        const selected = activeTab === tab.id || (tab.id === 'car' && activeTab === 'charger') || (tab.id === 'home' && (activeTab === 'electricity' || activeTab === 'electricity-widgets' || activeTab === 'appliances' || activeTab === 'smartthings' || activeTab === 'waste'));
         return <Pressable key={tab.id} accessibilityRole="tab" accessibilityLabel={tab.label} accessibilityState={{ selected }}
           onPress={() => onSelect(tab.id)} style={({ pressed }) => [s.tab, pressed && s.pressed]}>
           <View style={[s.icon, selected && s.selectedIcon]}>

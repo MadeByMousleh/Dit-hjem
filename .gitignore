@@ -15,3 +15,6 @@ supabase/.branches/
 
 .vercel
 .env*
+/.tmp/lidar-reference/
+/.tmp/lidar-parcel/
+/.tmp/

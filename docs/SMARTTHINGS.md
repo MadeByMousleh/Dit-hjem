@@ -1,8 +1,68 @@
 # SmartThings integration handoff
 
-Last updated: 2026-10-03. SmartThings endpoint code is deployed to Vercel production, but the API Access App integration is not configured or verified as working.
+Last updated: 2026-10-15. The customer-facing SmartThings page and OAuth-In repairs are deployed and included in test APK 1.0.13. Real Samsung login and physical-device control remain unverified.
+
+## Approved production/APK release, 2026-10-15
+
+### CLI scope correction release
+
+- Explicitly approved deployment `dpl_4NPAECmYNhaoWputwVZy87K467UV` is READY on both production domains. CLI mode requests the registered `r:locations:* r:devices:* x:devices:*` scopes; API Access mode retains `$` scopes. Fresh authorization is required. Read-only CLI verification confirmed those three registered scopes; no provider registration/credentials were changed.
+- Source comparison confirms only server helper and backend test changed, 335 files unchanged; all twelve functions in fra1. Backend/UI synthetic tests and public protection/callback/Auth checks pass. Rollback: `dpl_Bv8nqEuuU8eEqnFPnCcG7kJKvqZ4`. Evidence: `.tmp/smartthings-diagnostics-evidence/release.json`.
+- No APK, DB/auth/secret changes, commit or push. Actual device listing after reauthorization awaits the user's phone test.
+
+### Connection diagnostics follow-up, 2026-10-15
+
+- User reports successful Samsung login/location selection and return, followed by the generic reconnect error. Actual upstream rejection is not yet confirmed.
+- Explicitly approved deployment `dpl_Bv8nqEuuU8eEqnFPnCcG7kJKvqZ4` is READY on both production domains. Only `src/services/smartthings-server.mjs` and its synthetic test changed; 335 source files unchanged. All twelve functions remain in fra1; web bundle unchanged. Rollback: `dpl_1jU4pBPiPfJinwiLBo7R9eFCKGNf`.
+- Device-list 401 still requires reconnect; 403 now reports denied device permissions without marking the stored connection disconnected. Unreadable stored tokens have a separate message. No scope expansion or provider configuration change.
+- Diagnostic event `smartthings_connection` contains only fixed `stage` (`stored_token`, `token_refresh`, `token_exchange`, `device_list`) and numeric HTTP `status` (0 for unreadable stored tokens). No raw errors, payloads, URLs, identities, tokens or device details are logged by this diagnostic.
+- Backend/UI synthetic tests, TypeScript-only, source-hash comparison, public protected-route/callback checks and production Auth target checks pass. Evidence: `.tmp/smartthings-diagnostics-evidence/release.json`. No new APK required, DB/auth/secret changes, commit or push. Await a new user connection attempt to identify the actual rejection; this is diagnostic/error-handling repair, not confirmed provider-access repair.
+
+- Deployment `dpl_1jU4pBPiPfJinwiLBo7R9eFCKGNf` is READY on `https://huslyg.dk` and `https://dit-hjem-five.vercel.app`; both serve `AppEntry-a9846ebf34f6e4d2219cb02395bf4f59.js`. Production Auth remains selected. Five authenticated SmartThings endpoints reject unauthenticated requests with 401/no-store; callback without state is rejected with 400/no-store. Existing connection/public address/app-return checks pass.
+- Release staged from active deployment `dpl_68hGsdQ7WRdBK6WTzkVGvCCV7sPG`, whose source matched the preceding widget release exactly. Source hashes verify 323 unchanged files and only the fourteen allowlisted SmartThings/version/test additions or modifications; every uploaded source hash matches the staged release. All twelve API functions remain in fra1. The unrelated local charger UI was excluded.
+- Rollback checkpoint: `dpl_68hGsdQ7WRdBK6WTzkVGvCCV7sPG`. Redacted release evidence: `.tmp/smartthings-release-evidence/release.json`.
+- APK: `dist/Stromblik-1.0.13.apk`, versionCode 14, 78,088,454 bytes, SHA256 `746E5D4A23C6CB344C0826AD7191CF43DD748514EF8DF608344B6F01874BF2F5`. Gradle release build, metadata, APK v2 signature and certificate continuity with 1.0.12 verified. Existing debug/test certificate SHA256 `fac61745dc0903786fb9ede62a962b399f7348f0bb6f899b8332667591033b9c` retained.
+- Android bundle is built from the same isolated app sources as the web release using `.tmp/smartthings-production-release/index.native-release.js` and Gradle property `-Pstromblik.entryFile=C:/Users/mbm/source/Dit-hjem/.tmp/smartthings-production-release/index.native-release.js`. `EXPO_NO_DOTENV=1`, production `EXPO_PUBLIC_API_URL`, Java 17 and the existing Android SDK were explicitly selected. The packaged bundle equals the Gradle output; source maps confirm staged-only app sources and no ChargerPage. Production API, custom-scheme SmartThings return and widget markers are present; local SmartThings credential values are absent. The Android manifest retains the stromblik scheme and singleTask activity.
+- No DB migration, auth/secret/config change, commit or push. No physical installation or Samsung consent/device-command test was performed; these are the user's next phone tests. Test at Mit hjem → Apparater → SmartThings → Forbind SmartThings.
+
+## 2026-10-15 increment
+
+- The user created an OAuth-In app using SmartThings CLI and saved credentials privately. Presence-only checks confirm the three required local variables, the expected production callback, and corresponding Vercel Production/Preview variable registrations. Values were not printed or copied. Preview registrations alone do not establish an isolated dev environment.
+- CLI-created OAuth-In apps use `https://api.smartthings.com/oauth/authorize` and `/oauth/token`, per the current official [quickstart](https://developer.smartthings.com/docs/getting-started/quickstart). `SMARTTHINGS_OAUTH_MODE` defaults to `cli`; an actual newer API Access App can explicitly select `api-access` to retain the `/v1/oauth` endpoints. Device calls remain under `/v1` in both modes.
+- Apparater → SmartThings provides connect/select devices, refresh, selected-device statuses, supported switch controls and local connection removal. Parent/header/Android back returns to Apparater. OAuth return is handled at the persistent Dashboard level for web and warm/cold native intents. Initial native links are not replayed whenever the tab changes.
+- Daily use requires no raw tokens or networking setup. Devices are limited by the granted OAuth rights; see the CLI scope correction below. The backend follows bounded device pagination only on the SmartThings device-list origin/path; status is fetched separately for the legacy API, in groups of five with a 24-second aggregate budget and a 100-device cap. Missing device statuses are explicitly marked.
+- Initial controls only support the standard `switch` capability (`on`/`off`, zero arguments). The backend checks device ownership and the requested component's capabilities before forwarding. Other capabilities are read-only/unsupported until implemented from the actual device model. Command acceptance never changes the displayed physical state optimistically.
+- Tokens remain encrypted server-side. HMAC state validation uses timing-safe comparison and validates expiry; errors hide raw upstream/network/database detail. Refresh is deduplicated within a function instance. Cross-instance refresh rotation, server-persisted one-use authorization attempts, event subscriptions/signature verification and automatic uninstall cleanup remain follow-up work.
+- Removal deletes this user's saved connection from Strømblik. It does not claim provider-side revocation; the UI explains that authorization can also be removed under SmartThings Linked services. All seven routes still share the existing single Vercel function. The local server now routes those same handlers.
+- Read-only production schema verification confirms `smartthings_connections` exists, RLS is enabled, anon/authenticated cannot SELECT, and the backend service role can write. No migration or customer data access was performed. Public status endpoints return 401/no-store on both production domains.
+- `node scripts/test-smartthings.mjs` and `node scripts/test-smartthings-ui.mjs` pass with synthetic provider/storage/platform adapters; existing widget/charger tests and TypeScript-only checks pass. Local Expo web export passes at `.tmp/smartthings-web` with dotenv disabled and explicit dev API selection. No real credentials are embedded in that build.
+- The initial local preparation made no production/config/database changes; the subsequent approved deployment and APK are recorded above. Real OAuth and physical-device control must still be checked separately.
 
 ## Current status
+
+### Local compact cards, fallback energy catalog and program controls
+
+Subsequent approved release: production backend `dpl_42CT3yXX6u7dxUtxcYj2f677VBKe` READY on both domains, source comparison only server/test changed (335 unchanged), twelve functions in fra1, route/Auth/callback checks pass. Rollback `dpl_DBeQzeenj5mbNoHbHppYTRyx6j5F`. New UI is native-only; web bundle unchanged.
+
+APK `dist/Stromblik-1.0.18.apk`, versionCode 19, 74,382,070 bytes, SHA256 `07F35B4832965E9FDA1791F692AEB50943AA4EAA2844A4B0AA968F9EE859752A`. Gradle/aapt/v2 signature, existing debug/test certificate continuity, packaged-bundle equality, six SmartThings/catalog source-map matches and ten widget source-map checks pass. Production API embedded, unrelated ChargerPage excluded. Installed with data retained over Wi-Fi on Samsung SM_A576B; launch, running process and installed version verified. Real program selection/start and visual phone behavior remain unverified. No real appliances were started by the agent, no DB/auth/secret changes or commit/push. User requests automatic new APK build/install after app changes whenever the phone is connected.
+
+2026-10-15: Added compact appliance cards with reported power/operation/program and estimated kWh/period. Tap opens a scrollable modal with program selection, power controls, model, status time and estimate assumptions. Fourteen major appliance categories receive broad planning estimates when exact reviewed model/program data is missing; these are not measured averages. See [APPLIANCE-ENERGY.md](APPLIANCE-ENERGY.md) for ranges, assumptions and source boundaries.
+
+Program setting is limited to the two discovered producer program capabilities and provider-reported available programs. Start uses the discovered start/stop capability, requires current power-on/ready operation and expected selected program, and confirms before sending. Server rechecks live state; rejected/missing/changed programs and active/error/offline states cannot start. Provider ACCEPTED remains distinct from physical completion. No automatic chained power/program/start commands or actual device-control test occurred.
+
+Backend synthetic tests cover accepted program/start, unavailable program, missing component, running state, powered-off state and changed selection. Hook/JSX tests cover model-first/category fallback, fourteen categories, compact cards versus detail controls, disabled starts and account isolation. Local Chrome tests exercise actual JSX/modal/selection/estimates and switch/start sequencing at mobile widths using synthetic API only. TypeScript-only passes. No deployment, new APK, database/auth/secret changes, commit or push for this increment.
+
+### Local appliance/energy UI, 2026-10-15
+
+- Subsequent approved release: backend deployment `dpl_DBeQzeenj5mbNoHbHppYTRyx6j5F` READY on both domains; only backend/test changed (335 files unchanged), twelve functions in fra1, production Auth and public route protection verified. Rollback `dpl_4NPAECmYNhaoWputwVZy87K467UV`. Web UI remains the preceding release; the new UI is in the APK.
+- APK `dist/Stromblik-1.0.17.apk`, versionCode 18, 74,370,178 bytes, SHA256 `C5373693FC8152BB095A72678396242B777971E840530E5066858CA98C7EEA96`. Gradle, aapt, v2 signature with existing debug/test certificate, packaged bundle equality, production API and SmartThings/widget staged source-map checks pass. Built from `.tmp/storage-repair-release` preserving widget/storage repairs and excluding unrelated ChargerPage.
+- Installed with `adb install -r` over Wi-Fi on Samsung SM_A576B; launch and installed version verified. Data retained; authenticated UI/program estimates and visual phone behavior await user verification. No commit/push, database, auth or credential changes.
+
+- User confirms actual device discovery works following CLI scope correction. Read-only CLI discovery identified Bosch SMD6ZC804E and HBG9742B1S; commands were not executed.
+- Local backend now returns allowlisted manufacturer/model metadata and six discovered producer capabilities (program lists, selected program, operation, duration, pause and start/stop) with timestamps. No arbitrary metadata/status objects or credentials are returned.
+- Local UI identifies ovens/dishwashers/washers from capabilities, shows separate power/operation/program states, status timestamp and available programs. Status failures show unavailable rather than asserting on/off. Existing switch-only controls remain.
+- `src/utils/applianceEnergy.ts` contains the first reviewed exact manufacturer/model/program catalog entries: Bosch SMD6ZC804E Eco50 0.645 kWh and MachineCare 1.35 kWh, sourced from https://media3.bosch-home.com/Documents/9001914980_B.pdf (reviewed 2026-10-15). UI labels estimates as laboratory standard-program values, links the source and notes load/options can change consumption. No invented accuracy interval or multipliers. Ambiguous Auto/Kurz mappings and oven energy-label test cycles are not treated as program estimates.
+- This is an initial finite catalog, not automatic EPREL/manufacturer ingestion or broad model coverage. Unknown models/programs show unavailable. No price estimate, per-run measurement or personal calibration is implemented. Native clients require a rebuild; backend and web release have not been deployed for this increment.
 
 The following files are present locally and uncommitted:
 
@@ -19,7 +79,7 @@ The following files are present locally and uncommitted:
 
 On 2026-10-03, endpoint code was deployed with the current workspace to `https://huslyg.dk` and `https://dit-hjem-five.vercel.app`. All six URLs share one Vercel function, with handlers under `src/server/smartthings/`. Local routing checks passed for unauthenticated status/devices/authorize/command rejection, POST restrictions and unknown actions. Deployed status/devices returned 401 without credentials and webhook GET returned 405 on both production domains. These checks do not exercise OAuth or database storage.
 
-No SmartThings credentials, account connection, database migration, Vercel environment change, or SmartThings command has been performed. Do not report the integration as connected or verified.
+The statements below describe the original 2026-10-03 baseline unless superseded by the 2026-10-15 increment above. Credentials/table presence are now confirmed, but no real account connection or device command has been verified.
 
 The local checks completed so far are:
 
@@ -39,16 +99,16 @@ These are syntax/type checks only. No mocked SmartThings test, dev database migr
 
 ## Security model
 
-- Use an official SmartThings **API Access App** and OAuth 2.0 authorization-code flow. Do not use a Personal Access Token for a lasting integration; SmartThings documents PATs as short-lived testing credentials.
+- Use OAuth 2.0 authorization-code flow with an official CLI-created **OAuth-In App**, or the newer **API Access App** when available. Do not use a Personal Access Token for a lasting integration.
 - Tokens are AES-256-GCM encrypted before entering `smartthings_connections`. They are accessed only by the authenticated server through its Supabase admin client. The table has RLS enabled and no grants for `anon` or `authenticated`.
 - Never place `SMARTTHINGS_CLIENT_SECRET`, access tokens, refresh tokens, or device responses containing credentials in `EXPO_PUBLIC_*`, source control, client logs, fixtures, or chat.
-- The OAuth request deliberately asks for device-selection scopes, not all-device scopes:
+- OAuth scopes depend on the registered app type. On 2026-10-15 a read-only CLI check confirmed the user's API_ONLY app is registered with `r:locations:*`, `r:devices:*`, `x:devices:*`. The user explicitly approved matching those scopes after Samsung login succeeded but device listing returned 403. CLI mode requests:
 
   ```text
-  r:locations:* r:devices:$ x:devices:$
+  r:locations:* r:devices:* x:devices:*
   ```
 
-  SmartThings should prompt the user to select the devices it may read/control. The `$` scopes are important; do not silently broaden them to `*`.
+  This grants read/control access in the location approved by the customer. API Access mode retains device-selection scopes `r:locations:* r:devices:$ x:devices:$`. Existing tokens require a new authorization to obtain updated rights. Physical provider success remains pending the user's retry; the mismatch is verified but has not yet been proved the sole cause of the 403.
 - `smartThingsCommand` confirms that the requested device can be fetched using the user’s OAuth token before it submits a command. It accepts a structured component/capability/command request only; clients must not construct a URL.
 - SmartThings command responses marked `ACCEPTED` mean queued, not completed. The current implementation has no event subscription/UI state-confirmation yet. Refresh status after a command and add signed webhook/event handling before claiming real-time confirmation.
 - `src/server/smartthings/webhook.mjs` currently serves only registration confirmation. It permits an outgoing confirmation request solely to `https://api.smartthings.com/v1/apps/<app-id>/confirm-registration`. It returns `204` for other lifecycle events. Do not treat it as a finished webhook/event implementation.
@@ -84,23 +144,19 @@ the Developer Center and look specifically for **Service Integrations** and
 Integrations). This is the OAuth client type required to let a Dit-hjem user
 grant access to their existing SmartThings devices.
 
-### Current platform limitation (verified 2026-09-30)
+### Console availability and the CLI route (updated 2026-10-15)
 
 SmartThings' current API Access App documentation says that registration is
 "coming soon and is not yet available." This explains why the Developer Center
 does not show **Service Integrations** or **Register New App** for this
-account. Do not substitute a Schema App: it cannot provide the OAuth client
-credentials Dit-hjem needs. The OAuth endpoints in this repository are kept as
-the intended implementation, but cannot be completed or deployed as a working
-user-linking integration until Samsung enables API Access App registration.
+account. Do not substitute a Schema App: it is a different integration type.
+The official quickstart separately documents `smartthings apps:create` →
+`OAuth-In App` for obtaining OAuth credentials. The user has now completed
+that CLI registration. Console availability is therefore not a blocker to
+preparing this OAuth-In integration; real account approval remains unverified.
 
-The only interim option is a manually created SmartThings Personal Access Token
-(PAT) for short-lived development/testing. New PATs are valid for about 24
-hours, so they are not suitable for a user-facing or production integration:
-they would require each user to issue and enter a new secret every day. A PAT
-must be stored only as a server-side secret, never in the app, source control,
-logs, or chat. Do not implement a permanent "paste your PAT" product feature;
-wait for API Access App OAuth registration instead.
+A Personal Access Token (PAT) is only a short-lived development/testing option,
+not the customer connection flow. Keep OAuth for lasting connections.
 
 1. Sign in to the SmartThings Developer Center with the Samsung developer account.
 2. Create a **Service Integration / API Access App**.
@@ -164,6 +220,7 @@ All application-facing routes require the user's Supabase Bearer token except ca
 | `/api/smartthings/devices` | `GET` | Returns selected devices, components, capabilities and SmartThings-provided status. |
 | `/api/smartthings/command` | `POST` | Accepts `{ deviceId, component, capability, command, arguments }`; SmartThings must return `ACCEPTED`. |
 | `/api/smartthings/webhook` | `POST` | Handles Target URL `CONFIRMATION` only; lifecycle/event handling is pending. |
+| `/api/smartthings/disconnect` | `POST` | Removes the authenticated user's encrypted connection from Strømblik; does not claim provider-side revocation. |
 
 ## Repository and environment rules
 
