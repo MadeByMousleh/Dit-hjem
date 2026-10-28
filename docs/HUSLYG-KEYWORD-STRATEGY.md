@@ -89,7 +89,8 @@ content to chase broad queries unrelated to the product.
 
 ## Publication boundary
 
-All improvements remain in PR #2. Verify the real price API and the full build
-with its preserved legacy download before publishing the isolated public-site
-files. No database, Auth, SEO account, tracking script or production deployment
-has been changed. See HUSLYG-SEO-PAGES.md for the preceding checks and limitations.
+All improvements remain in PR #2. The public build script with its verified
+legacy download and the local price page using actual public API responses now
+pass; see HUSLYG-SEO-PAGES.md for the precise scope. Publish only the isolated
+public-site files and verify the final deployed pages. No database, Auth, SEO
+account, tracking script or production deployment has been changed.

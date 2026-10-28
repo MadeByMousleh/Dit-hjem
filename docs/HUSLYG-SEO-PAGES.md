@@ -70,14 +70,25 @@ tomorrow absence, retry, error/gap handling, table and no-JavaScript editorial
 fallback. Screenshots are in `.tmp/huslyg-guides/` and were visually reviewed.
 Browser price responses are synthetic, not live-provider verification.
 
-This workspace's shell network could not reach its configured proxy. Source and
-assets were obtained through the GitHub connector. The local static assembly ran
-the unchanged build's HTML/asset steps only; the full build's 86 MB legacy APK
-retrieval/hash verification and live API were not run. No production deployment,
-Search Console submission or ranking measurement was performed.
+Follow-up verification: network access succeeded with Node's configured proxy
+enabled (`NODE_USE_ENV_PROXY=1`). The unchanged public-site build script ran to
+completion in the isolated source assembly, retrieved the 86,167,075-byte legacy
+APK and verified its expected SHA256. Source and used marketing assets came
+through the GitHub connector; this is not a full native/backend repository build.
 
-Before publication, run the full build with the verified legacy download, check
-the real suppliers/prices endpoints and public pages, then submit the updated
+The actual production public API returned 200 for 35 suppliers and 192 price
+points each for N1 area 131/DK1 and Radius/DK2. The local mobile price page was
+then exercised against those actual responses, forwarded unchanged through the
+local test harness: initial prices, region/supplier switch and tomorrow prices
+passed with 96 displayed quarter-hour rows and no page errors. This verifies
+the new local page against live price data, not deployment of the new page.
+The reusable check is `scripts/test-public-price-live.mjs`; it accepts the same
+PLAYWRIGHT_MODULE and CHROMIUM_PATH variables as the fixture browser suite.
+No production deployment, Search Console submission or ranking measurement was
+performed.
+
+Before publication, rerun the build on the final isolated release source, verify
+the deployed public pages, then submit the updated
 sitemap in the owner's verified Search Console property. Deployment must follow
 the isolated-source requirements in `docs/HUSLYG-LANDING-PAGE.md`; do not publish
 unrelated dev work with these public files.
