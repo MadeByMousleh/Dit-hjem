@@ -39,13 +39,37 @@
     }
   ],
   "redirects": [
-    { "source": "/login", "destination": "/", "permanent": false },
-    { "source": "/dashboard", "destination": "/", "permanent": false },
-    { "source": "/profile", "destination": "/", "permanent": false },
-    { "source": "/app", "destination": "/", "permanent": false },
-    { "source": "/onboarding", "destination": "/", "permanent": false }
+    {
+      "source": "/login",
+      "destination": "/",
+      "permanent": false
+    },
+    {
+      "source": "/dashboard",
+      "destination": "/",
+      "permanent": false
+    },
+    {
+      "source": "/profile",
+      "destination": "/",
+      "permanent": false
+    },
+    {
+      "source": "/app",
+      "destination": "/",
+      "permanent": false
+    },
+    {
+      "source": "/onboarding",
+      "destination": "/",
+      "permanent": false
+    }
   ],
   "rewrites": [
+    {
+      "source": "/elpriser.html",
+      "destination": "/api/grid/lookup?operation=public-page"
+    },
     {
       "source": "/callback",
       "destination": "/api/tesla/callback"
@@ -53,7 +77,8 @@
   ],
   "functions": {
     "api/grid/lookup.mjs": {
-      "maxDuration": 60
+      "maxDuration": 60,
+      "includeFiles": "public/elpriser.html"
     },
     "api/address/search.mjs": {
       "maxDuration": 60

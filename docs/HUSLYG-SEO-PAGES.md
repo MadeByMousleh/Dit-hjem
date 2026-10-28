@@ -44,10 +44,11 @@ zero-baseline chart. Fetches time out, cancel on selection changes and reject
 stale completions. Previous results are hidden on refresh/failure; retry is
 available. Visible tabs refresh every five minutes.
 
-The website is static. Price values load with JavaScript; the price explanation,
-sources and related guides are in the initial HTML. No-JavaScript visitors get
-an explicit price-availability message and source link. This is not server-rendered
-or build-time indexed price data, and no ranking outcome is guaranteed.
+The original static price interaction described above is now enhanced by the
+authorized server-rendered public HTML route. Price values and table rows are
+available without JavaScript; the explanation, sources and related guides remain
+static content. See HUSLYG-SERVER-PRICE-PAGE.md for the runtime, routing, cache and
+failure behavior and follow-up verification. No ranking outcome is guaranteed.
 
 ## Verification
 

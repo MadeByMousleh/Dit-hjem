@@ -64,11 +64,10 @@ No claims are made about other assistants' private indexing/ranking behavior.
 4. Track visible citations and referral traffic where available. ChatGPT Search
    may add `utm_source=chatgpt.com`; no analytics or tracking was added here.
 
-The editorial/product information is readable in initial HTML. Current numerical
-prices still load through JavaScript. If the goal is for non-rendering assistants
-to quote changing price data, a separately reviewed server-rendered page or
-timestamped, publicly documented data representation is the next engineering
-step. Such a change must retain exact area, supplier, units, tax/tariff exclusions,
-freshness, attribution and missing-data behavior, and must not publish personal
-consumption data. The existing endpoint returning JSON alone does not guarantee
-that AI services discover or choose it.
+The editorial/product information is readable in initial HTML. The authorized
+follow-up now implements server-rendered numerical prices with exact area,
+supplier, units, tax/tariff exclusions, timestamps, attribution and missing-data
+behavior. It does not publish personal consumption. See
+HUSLYG-SERVER-PRICE-PAGE.md for implementation, tests and pending deployed-runtime
+verification. Initial HTML and the existing public JSON endpoint make the data
+accessible; they cannot guarantee that AI services discover, select or cite it.

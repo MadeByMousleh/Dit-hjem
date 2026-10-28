@@ -36,7 +36,7 @@ export function chartGeometry(points){
 export async function startPricePage(doc=document){
  const root=doc.querySelector('[data-price-page]');if(!root)return;
  const area=root.querySelector('#price-area'),supplier=root.querySelector('#price-supplier'),status=root.querySelector('#price-status'),results=root.querySelector('#price-results'),retry=root.querySelector('#price-retry');
- const days=[...root.querySelectorAll('[data-price-day]')];let selectedDay='today',suppliers=[],controller,revision=0,loadedDate='',lastFetch=0;
+ const days=[...root.querySelectorAll('button[data-price-day]')];let selectedDay=root.dataset.priceDay??'today',suppliers=[],controller,revision=0,loadedDate='',lastFetch=0;
  const money=v=>new Intl.NumberFormat('da-DK',{minimumFractionDigits:2,maximumFractionDigits:2}).format(v/100);
  const time=at=>new Intl.DateTimeFormat('da-DK',{timeZone:zone,hour:'2-digit',minute:'2-digit',hourCycle:'h23'}).format(new Date(at));
  const dated=at=>new Intl.DateTimeFormat('da-DK',{timeZone:zone,day:'numeric',month:'long',hour:'2-digit',minute:'2-digit'}).format(new Date(at));
@@ -44,7 +44,7 @@ export async function startPricePage(doc=document){
  const interval=at=>new Intl.DateTimeFormat('da-DK',{timeZone:zone,hour:'2-digit',minute:'2-digit',timeZoneName:'shortOffset',hourCycle:'h23'}).format(new Date(at))+' – '+time(at+900000);
  const setText=(selector,text)=>{root.querySelector(selector).textContent=text;};
  const request=async(url,signal)=>{const response=await fetch(url,{signal,credentials:'omit',headers:{Accept:'application/json'}});if(!response.ok)throw Error('Prisdata er midlertidigt utilgængelige. Prøv igen senere.');return response.json();};
- function populate(){const choices=suppliers.filter(s=>s.area===area.value);supplier.replaceChildren(...choices.map(s=>{const o=doc.createElement('option');o.value=s.id;o.textContent=s.name;return o;}));const preferred=area.value==='DK1'?'n1_c':'radius_c';if(choices.some(s=>s.id===preferred))supplier.value=preferred;}
+ function populate(){const previous=supplier.value,choices=suppliers.filter(s=>s.area===area.value);supplier.replaceChildren(...choices.map(s=>{const o=doc.createElement('option');o.value=s.id;o.textContent=s.name;return o;}));const preferred=choices.some(s=>s.id===previous)?previous:area.value==='DK1'?'n1_c':'radius_c';if(choices.some(s=>s.id===preferred))supplier.value=preferred;}
  async function load(){
   const currentRevision=++revision;controller?.abort();controller=new AbortController();const abort=controller;
   const timeout=setTimeout(()=>abort.abort(),30000);results.hidden=true;retry.hidden=true;root.setAttribute('aria-busy','true');status.textContent='Henter offentliggjorte elpriser…';
@@ -69,7 +69,7 @@ export async function startPricePage(doc=document){
   finally{clearTimeout(timeout);if(currentRevision===revision)root.setAttribute('aria-busy','false');}
  }
  area.addEventListener('change',()=>{populate();load();});supplier.addEventListener('change',()=>load());retry.addEventListener('click',()=>load());
- for(const button of days)button.addEventListener('click',()=>{selectedDay=button.dataset.priceDay;for(const b of days)b.setAttribute('aria-pressed',String(b===button));load();});
+ for(const button of days)button.addEventListener('click',event=>{event.preventDefault();selectedDay=button.dataset.priceDay;for(const b of days)b.setAttribute('aria-pressed',String(b===button));load();});
  const refresh=()=>{if(!doc.hidden&&(localDate(Date.now())!==loadedDate||Date.now()-lastFetch>=300000))load();};
  const timer=setInterval(refresh,300000);doc.addEventListener('visibilitychange',refresh);window.addEventListener('pagehide',()=>{clearInterval(timer);controller?.abort();},{once:true});
  await load();
