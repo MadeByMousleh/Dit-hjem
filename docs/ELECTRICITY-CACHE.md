@@ -1,5 +1,7 @@
 # Encrypted electricity period records
 
+**Local follow-up, 2026-10-23:** source-resolution `Actual` imports, original interval/quality retention, calendar-month backfill and setup progress are now implemented but not released. See [ELECTRICITY-HISTORY-IMPORT.md](ELECTRICITY-HISTORY-IMPORT.md). The older release description below refers to the Hour-only importer.
+
 Released with explicit approval on 2026-10-14. Migration and rollback-only SQL tests
 passed on dev `wsdomkzhnksyjrpxqfvn`; the same migration is now applied to production
 `arkpfdsglgufnnukader`. Deployment `dpl_DEokBqtVMXHYygrbNPp66bmTo2KP` is READY on

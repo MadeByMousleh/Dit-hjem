@@ -65,10 +65,19 @@ export function useElectricityUsage(active = true, now = Date.now()) {
   }, [auth.householdId, vault]);
 
   const load = useCallback(async (nextAggregation = aggregation, nextAnchor = anchor) => {
+    // A changed selection is loaded by the batch effect below. Starting a
+    // second request here races that effect and reads the same range twice.
+    if (nextAggregation !== aggregation || nextAnchor !== anchor) {
+      requestId.current++;
+      setAggregation(nextAggregation);
+      setAnchor(nextAnchor);
+      return;
+    }
     const id = ++requestId.current;
     setAggregation(nextAggregation);
     setAnchor(nextAnchor);
-    const selection = usagePeriod(nextAggregation, nextAnchor, availableYears);
+    const knownYears = cachedPrivateUsage(vault, usagePeriod('Month', nextAnchor)).availableYears;
+    const selection = usagePeriod(nextAggregation, nextAnchor, knownYears);
     const cached = cachedPrivateUsage(vault, selection);
     setUsage(cached.points.some(point => point.kwh !== null) ? cached : null);
     const currentDayView = nextAggregation === 'Day' && nextAnchor.slice(0, 7) === usageToday().slice(0, 7);
@@ -84,7 +93,7 @@ export function useElectricityUsage(active = true, now = Date.now()) {
     } finally {
       if (id === requestId.current) setLoading(false);
     }
-  }, [auth.householdId, aggregation, anchor, availableYears, vault]);
+  }, [auth.householdId, aggregation, anchor, vault]);
 
   const disconnect = useCallback(() => {
     requestId.current++;
@@ -104,7 +113,8 @@ export function useElectricityUsage(active = true, now = Date.now()) {
       { from: monthStart(-1), to: monthStart(0), aggregation: 'Day' as const },
       usagePeriod('Day', localDay),
     ];
-    const graphSelection = usagePeriod(aggregation, anchor);
+    const knownYears = cachedPrivateUsage(vault, usagePeriod('Month', anchor)).availableYears;
+    const graphSelection = usagePeriod(aggregation, anchor, knownYears);
     const graphIndex = selections.findIndex(selection => selection.from === graphSelection.from && selection.to === graphSelection.to && selection.aggregation === graphSelection.aggregation);
     if (graphIndex < 0) selections.push(graphSelection);
     const publish = (results: ElectricityUsage[]) => {

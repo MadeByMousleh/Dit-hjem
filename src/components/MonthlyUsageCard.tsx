@@ -1,6 +1,10 @@
+import {AppText as Text} from './AppText';
+import {AnimatedMetric} from './Motion';
+import {LoadingState} from './LoadingState';
+import {cardStyles} from '../styles/cards';
 import { AppIcon } from './AppIcon';
 import { useEffect, useMemo, useState } from 'react';
-import { ActivityIndicator, StyleSheet, Text, View } from 'react-native';
+import { StyleSheet, View } from 'react-native';
 import type { ElectricityAgreement } from '../hooks/useElectricityAgreements';
 import { fetchHistoricalPrices, type GridSupplier, type PricePoint } from '../prices';
 import type { ElectricityUsage } from '../services/eloverblik';
@@ -24,12 +28,14 @@ const firstOfMonth = (date: string, offset: number) => {
 export function MonthlyUsageCard({ data, currentMonthDays, previousMonthDays, loading, error, agreements, gridSupplier }: Props) {
   const currentStart = firstOfMonth(usageToday(), -1);
   const liveStart = firstOfMonth(usageToday(), 0);
-  const [prices, setPrices] = useState<PricePoint[]>([]);
+  const [snapshot,setSnapshot]=useState<{key:string;prices:PricePoint[]}>({key:'',prices:[]});
+  const priceKey=`${gridSupplier.area}:${gridSupplier.id}:${currentStart}`;
+  const prices=snapshot.key===priceKey?snapshot.prices:[];
   useEffect(() => {
     let active = true;
-    setPrices([]);
+    setSnapshot({key:priceKey,prices:[]});
     void fetchHistoricalPrices(gridSupplier.area, gridSupplier.id, midnight(currentStart), midnight(firstOfMonth(currentStart, 1)))
-      .then(result => { if (active) setPrices(result); }).catch(() => {});
+      .then(result => { if (active) setSnapshot({key:priceKey,prices:result}); }).catch(() => {});
     return () => { active = false; };
   }, [currentStart, gridSupplier.area, gridSupplier.id]);
 
@@ -110,8 +116,8 @@ export function MonthlyUsageCard({ data, currentMonthDays, previousMonthDays, lo
       <Text style={s.label}>Samlet forbrug i {monthName(`${currentStart}T12:00:00Z`)}</Text>
       {percentage !== null ? <View style={[s.badge, { backgroundColor: badgeTone.backgroundColor }]}><AppIcon name={badgeTone.icon} size={14} color={badgeTone.color} /><Text style={[s.badgeText, { color: badgeTone.color }]}>{monthName(`${liveStart}T12:00:00Z`).slice(0, 3)} {Math.round(percentage) > 0 ? '+' : ''}{Math.round(percentage)} %</Text></View> : null}
     </View>
-    {usable ? <View style={s.totalRow}><Text style={s.total}>{number(currentKwh!, 1)}</Text><Text style={s.unit}>kWh</Text></View>
-      : loading ? <ActivityIndicator color={colors.primary} style={s.loading} />
+    {usable ? <View style={s.totalRow}><AnimatedMetric style={s.total} value={number(currentKwh!,1)}/><Text style={s.unit}>kWh</Text></View>
+      : loading ? <LoadingState label="Henter månedens forbrug…" />
       : <Text style={s.missing}>Månedens målinger er endnu ikke komplette.</Text>}
     {usable ? <View style={s.details}>
       <View style={s.detailColumn}><Text style={s.detailLabel}>Estimeret pris</Text><Text style={s.price}>{estimate === null ? '—' : number(estimate)} <Text style={s.priceUnit}>kr.</Text></Text></View>
@@ -122,21 +128,21 @@ export function MonthlyUsageCard({ data, currentMonthDays, previousMonthDays, lo
 }
 
 const s = StyleSheet.create({
-  card: { borderRadius: 24, padding: 24, marginBottom: 24 },
-  top: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', gap: 10 },
-  label: { fontFamily: 'Nunito_500Medium', fontSize: 14, color: colors.ink, flex: 1 },
+  card: cardStyles.card,
+  top: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', flexWrap:'wrap', gap: 12 },
+  label: {...cardStyles.title,flex:1},
   badge: { flexDirection: 'row', alignItems: 'center', gap: 3, backgroundColor: colors.primarySoft, borderRadius: 16, paddingHorizontal: 10, paddingVertical: 5 },
   badgeText: { fontFamily: 'Nunito_700Bold', fontSize: 12, color: colors.primaryPressed },
   totalRow: { flexDirection: 'row', alignItems: 'baseline', gap: 7, marginTop: 4 },
-  total: { fontFamily: 'Nunito_700Bold', fontSize: 36, color: colors.ink, letterSpacing: -1 },
+  total: cardStyles.metric,
   unit: { fontFamily: 'Nunito_700Bold', fontSize: 19, color: colors.ink },
   loading: { marginVertical: 20 },
-  missing: { fontFamily: 'Nunito_400Regular', fontSize: 13, color: colors.muted, marginTop: 15 },
-  details: { flexDirection: 'row', gap: 14, borderRadius: 17, backgroundColor: 'rgba(203,216,255,0.4)', padding: 14, marginTop: 18 },
+  missing: {...cardStyles.note,marginTop:16},
+  details: { flexDirection: 'row', gap:16, borderRadius: 17, backgroundColor: 'rgba(203,216,255,0.4)', padding: 14, marginTop: 18 },
   detailColumn: { flex: 1 },
-  detailLabel: { fontFamily: 'Nunito_400Regular', color: colors.muted, fontSize: 12 },
+  detailLabel: cardStyles.label,
   price: { fontFamily: 'Nunito_700Bold', color: colors.ink, fontSize: 23, marginTop: 2, letterSpacing: -0.5 },
   priceUnit: { fontFamily: 'Nunito_400Regular', fontSize: 12 },
   comparison: { fontFamily: 'Nunito_700Bold', color: colors.primaryPressed, fontSize: 13, lineHeight: 18, marginTop: 6 },
-  error: { fontFamily: 'Nunito_400Regular', color: colors.coral, fontSize: 11, marginTop: 8 },
+  error: { fontFamily: 'Nunito_400Regular', color: colors.coral, fontSize:12, marginTop: 8 },
 });

@@ -1,11 +1,17 @@
+import {AppText as Text} from '../components/AppText';
+import {cardStyles} from '../styles/cards';
+import {AppModal as Modal} from '../components/AppModal';
+import {HapticPressable as Pressable} from '../components/HapticPressable';
+import {StatusBar} from 'expo-status-bar';
 import { useEffect, useRef, useState } from 'react';
-import { AccessibilityInfo, ActivityIndicator, Animated, Image, Keyboard, KeyboardAvoidingView, Linking, Modal, Platform, Pressable, ScrollView, StyleSheet, Text, TextInput, View, useWindowDimensions } from 'react-native';
+import { AccessibilityInfo, ActivityIndicator, Animated, Image, Keyboard, KeyboardAvoidingView, Linking, Platform, ScrollView, StyleSheet, TextInput, View, useWindowDimensions } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { AppIcon } from '../components/AppIcon';
 import { ExistingAuthorizationHelp } from '../components/EncryptedEnergyControls';
 import { useEnergyVault } from '../components/EnergyVaultGate';
 import { useHouseholdSession } from '../hooks/useHouseholdSession';
 import { usePowerSetup } from '../hooks/usePowerSetup';
+import {EloverblikDataInformation} from '../components/EloverblikDataInformation';
 import { hasPrivateHeatingConnection, syncHeating } from '../services/private-heating';
 import { getSupabase } from '../services/supabase';
 import { loadProfile } from '../services/storage';
@@ -13,6 +19,7 @@ import { findAddressGrid, isPreciseAddress, saveSetupProfile } from '../services
 import { resolveAddress, searchAddresses, type AddressSuggestion } from '../addresses';
 import { colors } from '../styles/theme';
 import { isEloverblikReturnUrl } from '../services/eloverblik-return';
+import {ElectricityImportProgress} from '../components/ElectricityImportProgress';
 
 const pages = [
   { title: 'Hvad\nhedder du?', description: 'Gør dit overblik personligt.', tint: '#F0ECFF', icon: 'user', image: require('../assets/onboarding-home.png') },
@@ -83,13 +90,13 @@ export function AccountSetup({ onFinish, previewMode = false }: { onFinish: () =
     return () => { active = false; listener.remove(); };
   }, []);
   useEffect(() => {
-    if (reduceMotion) { float.setValue(0); return; }
+    if (reduceMotion || intro===null) { float.setValue(0); return; }
     const animation = Animated.loop(Animated.sequence([
-      Animated.timing(float, { toValue: 1, duration: 2500, useNativeDriver: true, isInteraction: false }),
+      Animated.timing(float, { toValue: 1, duration: 1200, useNativeDriver: true, isInteraction: false }),
       Animated.timing(float, { toValue: 0, duration: 2500, useNativeDriver: true, isInteraction: false }),
-    ]));
+    ]),{iterations:2});
     animation.start(); return () => animation.stop();
-  }, [float, reduceMotion]);
+  }, [float, reduceMotion,intro]);
   useEffect(() => {
     scroll.current?.scrollTo({ y: 0, animated: false });
     setError(''); entry.setValue(reduceMotion ? 1 : 0); heroEntry.setValue(reduceMotion ? 1 : 0);
@@ -205,7 +212,7 @@ export function AccountSetup({ onFinish, previewMode = false }: { onFinish: () =
 
   return <Modal visible transparent animationType={reduceMotion ? 'none' : 'fade'} statusBarTranslucent onRequestClose={back}>
     <View style={[s.backdrop, { backgroundColor: page.tint }, browserStyle]}>
-      <SafeAreaView style={s.safe}>
+      <SafeAreaView style={s.safe}><StatusBar style="dark"/>
         <KeyboardAvoidingView style={s.page} behavior={Platform.select({ ios: 'padding', android: 'height' })}>
           <View style={s.top}>
             <View style={s.brand}>{!isIntro || intro > 0 ? <Pressable accessibilityRole="button" accessibilityLabel="Forrige trin" disabled={locked} onPress={back} style={s.backButton}><AppIcon name="arrow-left" size={22} color={colors.ink} /></Pressable> : <AppIcon name="home" size={24} color={colors.ink} />}<Text style={s.brandText}>strømblik</Text></View>
@@ -214,7 +221,7 @@ export function AccountSetup({ onFinish, previewMode = false }: { onFinish: () =
           <ScrollView ref={scroll} style={s.scroll} contentContainerStyle={s.scrollContent} keyboardShouldPersistTaps="handled" keyboardDismissMode="on-drag">
             <View style={s.body}>
               <Animated.View style={[s.hero, { height: heroHeight, opacity: heroEntry, transform: [{ translateY: heroEntry.interpolate({ inputRange: [0, 1], outputRange: [18, 0] }) }, { scale: heroEntry.interpolate({ inputRange: [0, 1], outputRange: [0.94, 1] }) }] }]} accessible={false} importantForAccessibility="no-hide-descendants">
-                <Animated.View style={[s.art, { transform: [{ translateY: float.interpolate({ inputRange: [0, 1], outputRange: [4, -7] }) }, { rotate: float.interpolate({ inputRange: [0, 1], outputRange: ['-0.7deg', '0.7deg'] }) }] }]}><Image source={page.image} resizeMode="contain" style={s.image} /></Animated.View>
+                <Animated.View style={[s.art, { transform: [{ translateY: float.interpolate({ inputRange: [0, 1], outputRange: [0, -3] }) }, { rotate: float.interpolate({ inputRange: [0, 1], outputRange: ['0deg', '0deg'] }) }] }]}><Image source={page.image} resizeMode="contain" style={s.image} /></Animated.View>
               </Animated.View>
               <Animated.View style={{ opacity: entry, transform: [{ translateY: entry.interpolate({ inputRange: [0, 1], outputRange: [16, 0] }) }] }}>
               <Text accessibilityRole="header" style={[s.title, width < 380 && s.smallTitle]}>{!isIntro && step === 5 && first ? `Velkommen hjem,\n${first}.` : page.title}</Text>
@@ -239,8 +246,10 @@ export function AccountSetup({ onFinish, previewMode = false }: { onFinish: () =
                   <Pressable accessibilityRole="button" disabled={locked || power.state === 'loading'} onPress={() => void (power.state === 'pending' ? power.check() : power.connect())} style={[s.action, (locked || power.state === 'loading') && s.disabled]}>{power.busy || power.state === 'loading' ? <ActivityIndicator color={colors.white} /> : <><Text style={s.actionText}>{power.state === 'pending' ? 'Kontrollér godkendelse' : 'Forbind med MitID'}</Text><AppIcon name="external-link" size={20} color={colors.white} /></>}</Pressable>
                   {power.state === 'pending' ? <Pressable disabled={locked} style={s.quiet} onPress={() => void power.connect()}><Text style={s.link}>Åbn Eloverblik igen</Text></Pressable> : null}
                 </>}
+                {power.state==='done'?<ElectricityImportProgress/>:null}
                 {power.message ? <Text accessibilityLiveRegion="polite" style={s.caption}>{power.message}</Text> : null}
                 {power.error ? <><Text accessibilityRole="alert" style={s.error}>{power.error}</Text><Pressable disabled={locked} style={s.quiet} onPress={() => void power.check()}><Text style={s.link}>Kontrollér igen</Text></Pressable></> : null}
+                <EloverblikDataInformation meterIds={vault.data.meters.map(meter=>meter.metering_point_id)} />
                 <Pressable accessibilityRole="button" accessibilityState={{ expanded: help }} style={s.quiet} onPress={() => setHelp(v => !v)}><Text style={s.link}>Har du allerede givet fuldmagt?</Text></Pressable>
                 {help ? <ExistingAuthorizationHelp /> : null}
               </View> : null}
@@ -264,9 +273,9 @@ export function AccountSetup({ onFinish, previewMode = false }: { onFinish: () =
           </ScrollView>
           <View style={s.footer}>
             <View style={s.footerRow}>
-              <View style={s.dots} accessibilityLabel={isIntro ? `Introduktion ${intro + 1} af 3` : `Opsætning ${step} af 5`}>{Array.from({length: isIntro ? 3 : 5}, (_, i) => <View key={i} style={[s.dot, i === (isIntro ? intro : step - 1) && s.activeDot]} />)}</View>
-              {!canSkip ? <Pressable accessibilityRole="button" accessibilityLabel={nextLabel} accessibilityState={{ disabled: nextDisabled, busy: !isIntro && busy }} disabled={nextDisabled} onPress={() => void next()} style={[s.nextButton, nextDisabled && s.disabled]}>
-                <View pointerEvents="none" style={s.nextTopLine} /><View pointerEvents="none" style={s.nextBottomLine} />
+              <View style={s.dots} accessibilityLabel={isIntro ? `Introduktion ${intro + 1} af 3` : `Opsætning ${step} af 5`}>{!isIntro?<Text style={s.caption}>Trin {step} af 5</Text>:Array.from({length:3}, (_, i) => <View key={i} style={[s.dot, i === (isIntro ? intro : step - 1) && s.activeDot]} />)}</View>
+              {!canSkip ? <Pressable accessibilityRole="button" accessibilityLabel={nextLabel} accessibilityState={{ disabled: nextDisabled, busy: !isIntro && busy }} disabled={nextDisabled} onPress={() => void next()} style={[s.nextButton,!isIntro&&{width:undefined,minWidth:156,paddingHorizontal:16,flexDirection:'row',gap:8,borderRadius:14},nextDisabled&&s.disabled]}>
+                {isIntro?<><View pointerEvents="none" style={s.nextTopLine}/><View pointerEvents="none" style={s.nextBottomLine}/></>:<Text style={s.actionText}>{nextLabel}</Text>}
                 {!isIntro && busy ? <ActivityIndicator color={colors.primary} /> : <AppIcon name="chevron-right" size={23} color={colors.ink} />}
               </Pressable> : <View style={s.nextPlaceholder} />}
             </View>
@@ -283,7 +292,7 @@ const s = StyleSheet.create({
   scroll: { flex: 1 }, scrollContent: { flexGrow: 1, justifyContent: 'center', paddingBottom: 20 }, body: { width: '100%', maxWidth: 540, alignSelf: 'center' },
   hero: { width: '100%', alignItems: 'center', justifyContent: 'center', marginBottom: 16 }, art: { width: '100%', height: '100%' }, image: { width: '100%', height: '100%' },
   title: { fontFamily: 'Nunito_700Bold', fontSize: 38, lineHeight: 43, letterSpacing: -1.3, color: colors.ink }, smallTitle: { fontSize: 32, lineHeight: 37 }, description: { fontFamily: 'Nunito_400Regular', fontSize: 16, lineHeight: 24, color: colors.ink, marginTop: 14 },
-  form: { marginTop: 20, gap: 10 }, fieldLabel: { fontFamily: 'Nunito_700Bold', fontSize: 14, color: colors.ink, marginTop: 4 }, input: { minHeight: 54, borderWidth: 1, borderColor: colors.inputBorder, borderRadius: 16, paddingHorizontal: 16, paddingVertical: 12, backgroundColor: colors.white, fontFamily: 'Nunito_500Medium', fontSize: 16, color: colors.ink },
+  form: { marginTop: 20, gap:16 }, fieldLabel: { fontFamily: 'Nunito_700Bold', fontSize: 14, color: colors.ink, marginTop: 4 }, input: { minHeight: 54, borderWidth: 1, borderColor: colors.inputBorder, borderRadius: 16, paddingHorizontal: 16, paddingVertical: 12, backgroundColor: colors.white, fontFamily: 'Nunito_500Medium', fontSize: 16, color: colors.ink },
   suggestion: { flexDirection: 'row', alignItems: 'center', gap: 10, padding: 16, minHeight: 56, backgroundColor: colors.white, borderRadius: 14 }, suggestionText: { flex: 1, fontFamily: 'Nunito_600SemiBold', fontSize: 15, lineHeight: 22, color: colors.ink },
   panel: { flexDirection: 'row', alignItems: 'center', gap: 12, padding: 16, borderRadius: 18, backgroundColor: 'rgba(255,255,255,0.8)' }, panelTitle: { fontFamily: 'Nunito_700Bold', fontSize: 15, color: colors.ink, flexShrink: 1 }, flex: { flex: 1 }, row: { flexDirection: 'row', alignItems: 'center', gap: 10 },
   caption: { fontFamily: 'Nunito_400Regular', fontSize: 13, lineHeight: 20, color: colors.muted }, error: { fontFamily: 'Nunito_600SemiBold', fontSize: 14, lineHeight: 22, color: colors.error, marginTop: 8 }, link: { fontFamily: 'Nunito_700Bold', color: colors.primary, fontSize: 14 }, quiet: { minHeight: 48, justifyContent: 'center', paddingHorizontal: 6 },

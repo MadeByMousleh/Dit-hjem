@@ -1,10 +1,16 @@
+import {AppText as Text} from './AppText';
+import {useSafeAreaInsets} from 'react-native-safe-area-context';
+import {cardStyles} from '../styles/cards';
+import {AppModal as Modal} from './AppModal';
+import {HapticPressable as Pressable} from './HapticPressable';
 import { useEffect, useState } from 'react';
-import { ActivityIndicator, Image, Linking, Modal, Pressable, StyleSheet, Text, View } from 'react-native';
+import { ActivityIndicator, Image, Linking, StyleSheet, View } from 'react-native';
 import { API_URL } from '../services/supabase';
 import { colors } from '../styles/theme';
 import { getCachedPhoto, photoCacheKey, readPhotoManifest, savePhotoManifest, type HomePhoto as Photo } from '../services/home-photo-cache';
 const labels: Record<string, string> = { south: 'Syd', east: 'Øst', north: 'Nord', west: 'Vest', nadir: 'Ovenfra' };
 export function HomePhotoGallery({ x, y, viewerUrl }: { x: number; y: number; viewerUrl: string }) {
+  const insets=useSafeAreaInsets();
   const [photos, setPhotos] = useState<Photo[]>([]), [selected, setSelected] = useState(0);
   const [loading, setLoading] = useState(true), [failed, setFailed] = useState(false), [expanded, setExpanded] = useState(false), [refresh, setRefresh] = useState(0);
   const [uris, setUris] = useState<Record<string, string>>({}), [loaded, setLoaded] = useState('');
@@ -61,7 +67,7 @@ export function HomePhotoGallery({ x, y, viewerUrl }: { x: number; y: number; vi
       <Pressable accessibilityRole="link" onPress={() => void Linking.openURL(viewerUrl).catch(() => setFailed(true))} style={s.link}><Text style={s.action}>Zoom ind i den officielle fotoviser ↗</Text></Pressable>
       {failed ? <Pressable accessibilityRole="button" onPress={() => setRefresh(value => value+1)} style={s.link}><Text style={s.action}>Prøv igen</Text></Pressable> : null}
     </View>
-    <Modal visible={expanded && !!photo} onRequestClose={() => setExpanded(false)} animationType="fade"><View style={s.modal}><Pressable accessibilityRole="button" onPress={() => setExpanded(false)} style={s.close}><Text style={s.action}>Luk</Text></Pressable><View style={s.fullStage} onLayout={event => setFullSize(event.nativeEvent.layout)}><View style={[s.frame,fullSize.width > 0 && fullSize.height > 0 ? { width: Math.min(fullSize.width,fullSize.height*4/3) } : null]}><Image source={{ uri: image }} resizeMode="contain" style={s.image} />{pin}</View></View><Text style={s.note}>Omtrentligt adressepunkt · © Klimadatastyrelsen</Text></View></Modal>
+    <Modal visible={expanded && !!photo} onRequestClose={() => setExpanded(false)} animationType="fade"><View style={[s.modal,{paddingTop:Math.max(insets.top,16),paddingBottom:Math.max(insets.bottom,16)}]}><Pressable accessibilityRole="button" onPress={() => setExpanded(false)} style={s.close}><Text style={s.action}>Luk</Text></Pressable><View style={s.fullStage} onLayout={event => setFullSize(event.nativeEvent.layout)}><View style={[s.frame,fullSize.width > 0 && fullSize.height > 0 ? { width: Math.min(fullSize.width,fullSize.height*4/3) } : null]}><Image source={{ uri: image }} resizeMode="contain" style={s.image} />{pin}</View></View><Text style={s.note}>Omtrentligt adressepunkt · © Klimadatastyrelsen</Text></View></Modal>
   </View>;
 }
 const s = StyleSheet.create({
@@ -70,11 +76,11 @@ const s = StyleSheet.create({
   pin: { position: 'absolute', width: 32, height: 32, borderRadius: 16, backgroundColor: 'rgba(224,53,63,0.2)', alignItems: 'center', justifyContent: 'center', transform: [{ translateX: -16 },{ translateY: -16 }] },
   pinDot: { width: 14, height: 14, borderRadius: 7, backgroundColor: '#DF3543', borderWidth: 3, borderColor: '#FFFFFF' },
   badge: { position: 'absolute', left: 12, top: 12, flexDirection: 'row', alignItems: 'center', gap: 6, paddingHorizontal: 10, paddingVertical: 7, borderRadius: 12, backgroundColor: 'rgba(255,255,255,0.94)' },
-  legendDot: { width: 7, height: 7, borderRadius: 4, backgroundColor: '#DF3543' }, badgeText: { fontFamily: 'Nunito_700Bold', color: colors.ink, fontSize: 11 },
-  details: { padding: 20, gap: 10 }, title: { fontFamily: 'Nunito_700Bold', fontSize: 22, color: colors.ink },
+  legendDot: { width: 7, height: 7, borderRadius: 4, backgroundColor: '#DF3543' }, badgeText: { fontFamily: 'Nunito_700Bold', color: colors.ink, fontSize:12 },
+  details: { padding: 20, gap:16 }, title: cardStyles.title,
   note: { fontFamily: 'Nunito_400Regular', fontSize: 12, lineHeight: 18, color: colors.muted }, empty: { minHeight: 160, padding: 20, gap: 12, alignItems: 'center', justifyContent: 'center' },
-  directions: { flexDirection: 'row', flexWrap: 'wrap', gap: 8 }, chip: { minHeight: 44, paddingHorizontal: 14, borderRadius: 14, justifyContent: 'center', backgroundColor: colors.paper },
+  directions: { flexDirection: 'row', flexWrap: 'wrap', gap: 8 }, chip: { minHeight:48, paddingHorizontal: 14, borderRadius: 14, justifyContent: 'center', backgroundColor: colors.paper },
   chipSelected: { backgroundColor: colors.primary }, chipText: { fontFamily: 'Nunito_700Bold', color: colors.ink, fontSize: 13 }, chipTextSelected: { color: colors.white },
-  link: { minHeight: 44, justifyContent: 'center' }, action: { fontFamily: 'Nunito_700Bold', fontSize: 13, color: colors.primary },
+  link: { minHeight:48, justifyContent: 'center' }, action: { fontFamily: 'Nunito_700Bold', fontSize: 13, color: colors.primary },
   modal: { flex: 1, backgroundColor: colors.paper, padding: 24, paddingTop: 48 }, close: { minHeight: 48, justifyContent: 'center', alignSelf: 'flex-end', paddingHorizontal: 16 }, fullStage: { flex: 1, justifyContent: 'center', alignItems: 'center' },
 });

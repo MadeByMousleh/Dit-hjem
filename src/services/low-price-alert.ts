@@ -3,6 +3,7 @@ import AsyncStorage from '@react-native-async-storage/async-storage';
 import { Platform } from 'react-native';
 import type { PricePoint } from '../prices';
 import type * as Notifications from 'expo-notifications';
+import {getNotificationSession, isPrivateNotification, notificationBelongsTo, notificationOwnerKey, withNotificationSession, type NotificationOwner} from './notification-session';
 
 export const LOW_PRICE_ALERT_THRESHOLD_ORE = 150;
 export const HIGH_PRICE_ALERT_THRESHOLD_ORE = 250;
@@ -18,7 +19,6 @@ const CONSUMPTION_ALERT_KIND = 'consumption-budget-alert';
 const CHARGING_ALERT_KIND = 'charging-window-alert';
 const CONSUMPTION_ALERT_KEY = 'stromblik.consumption-budget-alert.v1';
 const PRICE_ALERT_SCHEDULE_KEY = 'stromblik.price-alert-schedule.v1';
-const scheduleQueues = new Map<string, Promise<unknown>>();
 
 export type LowPriceWindow = {
   startsAt: Date;
@@ -36,7 +36,7 @@ export type ChargingWindow = { startsAt: Date; endsAt: Date; averageOrePerKwh: n
 export type ChargingWindowAlertSchedule = 'scheduled' | 'no-window' | 'unsupported';
 type NotificationModule = typeof Notifications;
 type PriceAlertKind = typeof ALERT_KIND | typeof HIGH_ALERT_KIND | typeof CHARGING_ALERT_KIND;
-type ScheduledPriceAlert = { day: string; identifier: string };
+type ScheduledPriceAlert = { day: string; identifier: string; triggerAt: number };
 type PriceAlertContent = { title: string; body: string; data: { kind: PriceAlertKind; tab: 'home' | 'car' }; sound: 'default' };
 
 export function localPriceAlertsSupported() {
@@ -152,61 +152,46 @@ export function priceAlertDay(value: number) {
   return `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, '0')}-${String(date.getDate()).padStart(2, '0')}`;
 }
 
-function scheduleKey(kind: PriceAlertKind) { return `${PRICE_ALERT_SCHEDULE_KEY}.${kind}`; }
-
-async function serialiseSchedule<T>(kind: PriceAlertKind, action: () => Promise<T>): Promise<T> {
-  const previous = scheduleQueues.get(kind) ?? Promise.resolve();
-  const task = previous.catch(() => undefined).then(action);
-  scheduleQueues.set(kind, task);
-  try { return await task; }
-  finally { if (scheduleQueues.get(kind) === task) scheduleQueues.delete(kind); }
-}
+function scheduleKey(kind: PriceAlertKind, owner: NotificationOwner) { return `${PRICE_ALERT_SCHEDULE_KEY}.v2.${notificationOwnerKey(owner)}.${kind}`; }
 
 function readScheduledPriceAlert(value: string | null): ScheduledPriceAlert | null {
   try {
     const parsed = JSON.parse(value ?? 'null');
-    return typeof parsed?.day === 'string' && typeof parsed.identifier === 'string' ? parsed : null;
+    return typeof parsed?.day === 'string' && typeof parsed.identifier === 'string' && Number.isFinite(parsed.triggerAt) ? parsed : null;
   } catch { return null; }
 }
 
-function notificationIsLowPriceAlert(request: Notifications.NotificationRequest) {
-  return request.content.data?.kind === ALERT_KIND;
-}
-
-function notificationIsHighPriceAlert(request: Notifications.NotificationRequest) {
-  return request.content.data?.kind === HIGH_ALERT_KIND;
-}
-
-function notificationIsChargingWindowAlert(request: Notifications.NotificationRequest) {
-  return request.content.data?.kind === CHARGING_ALERT_KIND;
-}
-
-async function cancelScheduledPriceAlerts(notifications: NotificationModule, kind: PriceAlertKind, matches: (request: Notifications.NotificationRequest) => boolean) {
-  await serialiseSchedule(kind, async () => {
+async function cancelScheduledPriceAlerts(owner: NotificationOwner, kind: PriceAlertKind) {
+  await withNotificationSession(owner, async notifications => {
     const requests = await notifications.getAllScheduledNotificationsAsync();
-    await Promise.all(requests.filter(matches).map((request) => notifications.cancelScheduledNotificationAsync(request.identifier)));
+    await Promise.all(requests.filter(request => request.content.data?.kind === kind && notificationBelongsTo(request.content.data, owner)).map(request => notifications.cancelScheduledNotificationAsync(request.identifier)));
+    const presented = await notifications.getPresentedNotificationsAsync();
+    await Promise.all(presented.filter(item => item.request.content.data?.kind === kind && notificationBelongsTo(item.request.content.data, owner)).map(item => notifications.dismissNotificationAsync(item.request.identifier)));
   });
 }
 
-async function schedulePriceAlert(notifications: NotificationModule, kind: PriceAlertKind, triggerAt: number, content: PriceAlertContent) {
-  await serialiseSchedule(kind, async () => {
+async function schedulePriceAlert(owner: NotificationOwner, kind: PriceAlertKind, triggerAt: number, content: PriceAlertContent) {
+  await withNotificationSession(owner, async (notifications, valid) => {
     const day = priceAlertDay(triggerAt);
-    const previous = readScheduledPriceAlert(await AsyncStorage.getItem(scheduleKey(kind)));
+    const previous = readScheduledPriceAlert(await AsyncStorage.getItem(scheduleKey(kind, owner)));
     const requests = await notifications.getAllScheduledNotificationsAsync();
-    const sameKind = requests.filter((request) => request.content.data?.kind === kind);
+    if (!valid()) return;
+    const sameKind = requests.filter(request => request.content.data?.kind === kind && notificationBelongsTo(request.content.data, owner));
     const pendingForDay = sameKind.some((request) => request.identifier === previous?.identifier || request.content.data?.alertDay === day);
 
     // A delivered notification no longer appears in Expo's scheduled list. Its
     // marker prevents another copy of the same price alert later that day.
-    if (previous?.day === day && !pendingForDay) return;
+    if (previous?.day === day && previous.triggerAt <= Date.now() && !pendingForDay) return;
 
     await Promise.all(sameKind.map((request) => notifications.cancelScheduledNotificationAsync(request.identifier)));
     await prepareChannel(notifications);
+    if (!valid()) return;
     const identifier = await notifications.scheduleNotificationAsync({
-      content: { ...content, data: { ...content.data, alertDay: day } },
+      content: { ...content, data: { ...content.data, userId: owner.userId, householdId: owner.householdId, alertDay: day } },
       trigger: { type: notifications.SchedulableTriggerInputTypes.DATE, date: triggerAt, channelId: CHANNEL_ID },
     });
-    await AsyncStorage.setItem(scheduleKey(kind), JSON.stringify({ day, identifier }));
+    if (!valid()) { await notifications.cancelScheduledNotificationAsync(identifier); await notifications.dismissNotificationAsync(identifier); return; }
+    if (valid()) await AsyncStorage.setItem(scheduleKey(kind, owner), JSON.stringify({ day, identifier, triggerAt }));
   });
 }
 
@@ -236,21 +221,19 @@ export async function requestLowPriceAlertPermission() {
 
 export const requestPriceAlertPermission = requestLowPriceAlertPermission;
 
-export async function cancelLowPriceAlerts() {
-  const notifications = await notificationModule();
-  if (!notifications) return;
-  await cancelScheduledPriceAlerts(notifications, ALERT_KIND, notificationIsLowPriceAlert);
+export async function cancelLowPriceAlerts(owner: NotificationOwner) {
+  await cancelScheduledPriceAlerts(owner, ALERT_KIND);
 }
 
-export async function scheduleLowPriceAlert(points: PricePoint[], thresholdOrePerKwh = LOW_PRICE_ALERT_THRESHOLD_ORE): Promise<LowPriceAlertSchedule> {
+export async function scheduleLowPriceAlert(owner: NotificationOwner, points: PricePoint[], thresholdOrePerKwh = LOW_PRICE_ALERT_THRESHOLD_ORE): Promise<LowPriceAlertSchedule> {
   const notifications = await notificationModule();
   if (!notifications) return 'unsupported';
   const window = findLowPriceWindow(points, Date.now(), thresholdOrePerKwh);
-  if (!window) { await cancelLowPriceAlerts(); return 'no-window'; }
+  if (!window) { await cancelLowPriceAlerts(owner); return 'no-window'; }
 
   const triggerAt = window.startsAt.getTime() - ALERT_LEAD_MS;
   if (triggerAt <= Date.now()) return 'no-window';
-  await schedulePriceAlert(notifications, ALERT_KIND, triggerAt, {
+  await schedulePriceAlert(owner, ALERT_KIND, triggerAt, {
       title: 'Billig strøm på vej',
       body: `Fra kl. ${time(window.startsAt)} til ${time(window.endsAt)} er strømmen ned til ${price(window.lowestOrePerKwh)}.`,
       data: { kind: ALERT_KIND, tab: 'home' },
@@ -259,21 +242,19 @@ export async function scheduleLowPriceAlert(points: PricePoint[], thresholdOrePe
   return 'scheduled';
 }
 
-export async function cancelHighPriceAlerts() {
-  const notifications = await notificationModule();
-  if (!notifications) return;
-  await cancelScheduledPriceAlerts(notifications, HIGH_ALERT_KIND, notificationIsHighPriceAlert);
+export async function cancelHighPriceAlerts(owner: NotificationOwner) {
+  await cancelScheduledPriceAlerts(owner, HIGH_ALERT_KIND);
 }
 
-export async function scheduleHighPriceAlert(points: PricePoint[], thresholdOrePerKwh = HIGH_PRICE_ALERT_THRESHOLD_ORE): Promise<HighPriceAlertSchedule> {
+export async function scheduleHighPriceAlert(owner: NotificationOwner, points: PricePoint[], thresholdOrePerKwh = HIGH_PRICE_ALERT_THRESHOLD_ORE): Promise<HighPriceAlertSchedule> {
   const notifications = await notificationModule();
   if (!notifications) return 'unsupported';
   const point = findHighPricePoint(points, Date.now(), thresholdOrePerKwh);
-  if (!point) { await cancelHighPriceAlerts(); return 'no-rise'; }
+  if (!point) { await cancelHighPriceAlerts(owner); return 'no-rise'; }
 
   const triggerAt = point.startsAt.getTime() - HIGH_ALERT_LEAD_MS;
   if (triggerAt <= Date.now()) return 'no-rise';
-  await schedulePriceAlert(notifications, HIGH_ALERT_KIND, triggerAt, {
+  await schedulePriceAlert(owner, HIGH_ALERT_KIND, triggerAt, {
       title: 'Elprisen stiger snart',
       body: `Kl. ${time(point.startsAt)} stiger strømmen til ${price(point.orePerKwh)}. Brug strøm inden da, hvis det passer dig.`,
       data: { kind: HIGH_ALERT_KIND, tab: 'home' },
@@ -282,20 +263,18 @@ export async function scheduleHighPriceAlert(points: PricePoint[], thresholdOreP
   return 'scheduled';
 }
 
-export async function cancelChargingWindowAlerts() {
-  const notifications = await notificationModule();
-  if (!notifications) return;
-  await cancelScheduledPriceAlerts(notifications, CHARGING_ALERT_KIND, notificationIsChargingWindowAlert);
+export async function cancelChargingWindowAlerts(owner: NotificationOwner) {
+  await cancelScheduledPriceAlerts(owner, CHARGING_ALERT_KIND);
 }
 
-export async function scheduleChargingWindowAlert(points: PricePoint[], durationHours = 4, readyByHour = 7): Promise<ChargingWindowAlertSchedule> {
+export async function scheduleChargingWindowAlert(owner: NotificationOwner, points: PricePoint[], durationHours = 4, readyByHour = 7): Promise<ChargingWindowAlertSchedule> {
   const notifications = await notificationModule();
   if (!notifications) return 'unsupported';
   const window = findBestChargingWindow(points, Date.now(), durationHours, readyByHour);
-  if (!window) { await cancelChargingWindowAlerts(); return 'no-window'; }
+  if (!window) { await cancelChargingWindowAlerts(owner); return 'no-window'; }
   const triggerAt = window.startsAt.getTime() - ALERT_LEAD_MS;
   if (triggerAt <= Date.now()) return 'no-window';
-  await schedulePriceAlert(notifications, CHARGING_ALERT_KIND, triggerAt, {
+  await schedulePriceAlert(owner, CHARGING_ALERT_KIND, triggerAt, {
       title: 'Dit billigste opladningsvindue',
       body: `Oplad fra kl. ${time(window.startsAt)} til ${time(window.endsAt)}. Gennemsnitsprisen er ${price(window.averageOrePerKwh)}.`,
       data: { kind: CHARGING_ALERT_KIND, tab: 'car' },
@@ -304,33 +283,39 @@ export async function scheduleChargingWindowAlert(points: PricePoint[], duration
   return 'scheduled';
 }
 
-export async function sendConsumptionBudgetAlert({ progress, unit, limit, monthKey }: { progress: ConsumptionBudgetProgress; unit: ConsumptionBudgetUnit; limit: number; monthKey: string }): Promise<'sent' | 'not-needed' | 'already-sent' | 'unsupported'> {
-  const notifications = await notificationModule();
-  if (!notifications) return 'unsupported';
+export async function sendConsumptionBudgetAlert({ owner, progress, unit, limit, monthKey }: { owner: NotificationOwner; progress: ConsumptionBudgetProgress; unit: ConsumptionBudgetUnit; limit: number; monthKey: string }): Promise<'sent' | 'not-needed' | 'already-sent' | 'unsupported'> {
   if (!progress.level) return 'not-needed';
-  const dedupeKey = `${CONSUMPTION_ALERT_KEY}.${monthKey}.${unit}.${limit}.${progress.level}`;
+  return await withNotificationSession(owner, async (notifications, valid) => {
+  const dedupeKey = `${CONSUMPTION_ALERT_KEY}.v2.${notificationOwnerKey(owner)}.${monthKey}.${unit}.${limit}.${progress.level}`;
   if (await AsyncStorage.getItem(dedupeKey)) return 'already-sent';
   await prepareChannel(notifications);
+  if (!valid()) return 'unsupported';
   const unitLabel = unit === 'dkk' ? 'kr.' : 'kWh';
   const forecast = Math.round(progress.forecast).toLocaleString('da-DK');
   const limitLabel = Math.round(limit).toLocaleString('da-DK');
-  await notifications.scheduleNotificationAsync({
+  const identifier = await notifications.scheduleNotificationAsync({
     content: {
       title: progress.level === '100' ? 'Dit elbudget er ved at blive overskredet' : 'Du nærmer dig dit elbudget',
       body: `Dit forventede månedsforbrug er ${forecast} ${unitLabel} mod din grænse på ${limitLabel} ${unitLabel}.`,
-      data: { kind: CONSUMPTION_ALERT_KIND, tab: 'home' },
+      data: { kind: CONSUMPTION_ALERT_KIND, tab: 'home', userId: owner.userId, householdId: owner.householdId },
       sound: 'default',
     },
     trigger: null,
   });
-  await AsyncStorage.setItem(dedupeKey, new Date().toISOString());
-  return 'sent';
+  if (!valid()) { await notifications.cancelScheduledNotificationAsync(identifier); await notifications.dismissNotificationAsync(identifier); return 'unsupported'; }
+  if (valid()) await AsyncStorage.setItem(dedupeKey, new Date().toISOString());
+  return 'sent' as const;
+  }) ?? 'unsupported';
 }
 
 export async function configureLowPriceAlertPresentation() {
   const notifications = await notificationModule();
   if (!notifications) return;
   notifications.setNotificationHandler({
-    handleNotification: async () => ({ shouldPlaySound: true, shouldSetBadge: false, shouldShowBanner: true, shouldShowList: true }),
+    handleNotification: async notification => {
+      const data = notification.request.content.data;
+      const allowed = !isPrivateNotification(data) || notificationBelongsTo(data, getNotificationSession());
+      return {shouldPlaySound: allowed, shouldSetBadge: false, shouldShowBanner: allowed, shouldShowList: allowed};
+    },
   });
 }

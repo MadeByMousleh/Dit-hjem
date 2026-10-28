@@ -129,9 +129,9 @@ let failRequest = Infinity, providerRequests = 0;
 const provider = async body => {
   apiCalls.push(clone(body));
   if (body.action === 'history') return { meters: [{ metering_point_id: meter.metering_point_id, from: '2026-08-01', to: null }] };
-  assert.equal(body.action, 'timeseries'); assert.equal(body.aggregation, 'Hour');
+  assert.equal(body.action, 'timeseries'); assert.equal(body.aggregation, 'Actual');
   if (++providerRequests === failRequest) throw new Error('synthetic provider outage');
-  return { result: [{ success: true, MyEnergyData_MarketDocument: { TimeSeries: [{ businessType: 'A04', 'MarketEvaluationPoint.mRID': { name: meter.metering_point_id }, 'measurement_Unit.name': 'KWH', Period: [{ resolution: 'PT1H', timeInterval: { start: consumption.midnight(body.from), end: consumption.midnight(body.to) }, Point: consumption.expectedIntervals(body.from, body.to, 'hour').map((_, index) => ({ position: index + 1, 'out_Quantity.quantity': 1 })) }] }] } }] };
+  return { result: [{ success: true, MyEnergyData_MarketDocument: { TimeSeries: [{ businessType: 'A04', 'MarketEvaluationPoint.mRID': { name: meter.metering_point_id }, 'measurement_Unit.name': 'KWH', Period: [{ resolution: 'PT15M', timeInterval: { start: consumption.midnight(body.from), end: consumption.midnight(body.to) }, Point: consumption.expectedIntervals(body.from, body.to, 'quarter').map((_, index) => ({ position: index + 1, 'out_Quantity.quantity': .25,'out_Quantity.quality':'A01' })) }] }] } }] };
 };
 const monthView = { from: '2026-01-01', to: '2027-01-01', aggregation: 'Month' };
 await Promise.all([history.readElectricityPeriods(vault, [monthView]), history.readElectricityPeriods(vault, [monthView])]);
@@ -168,7 +168,7 @@ assert.equal(apiCalls.length, callCount, 'Cold cache reads requested DB periods,
 const oldHourRevision = cloud.get('hour/2026-10-13').revision;
 now = Date.parse('2026-10-15T15:15:00Z');
 history.startElectricityHistory(vault, provider); await history.waitForElectricityHistory(vault); await new Promise(resolve => setImmediate(resolve));
-assert.deepEqual(apiCalls.at(-1), { action: 'timeseries', meteringPointId: meter.metering_point_id, from: '2026-10-14', to: '2026-10-15', aggregation: 'Hour' });
+assert.deepEqual(apiCalls.at(-1), { action: 'timeseries', meteringPointId: meter.metering_point_id, from: '2026-10-14', to: '2026-10-15', aggregation: 'Actual' });
 assert.equal(apiCalls.length, callCount + 1, 'Only the newly available day is fetched');
 assert.equal(cloud.get('hour/2026-10-13').revision, oldHourRevision);
 assert.equal(history.storedElectricityPoints(vault, monthView, '2026-10-15')[9].kwh, 14 * 24);
@@ -188,8 +188,8 @@ history.startElectricityHistory(vault, provider);
 await assert.rejects(history.waitForElectricityHistory(vault), /synthetic provider outage/);
 await new Promise(resolve => setImmediate(resolve));
 const completed = [...cloud.values()].filter(row => row.record_key.startsWith('hour/')).map(row => [row.record_key, row.revision]);
-assert.equal(completed.length, 31);
-assert.equal(vault.cachedElectricityRecord('state/import').meters[0].cursor, '2026-09-13');
+assert.equal(completed.length, 13);
+assert.equal(vault.cachedElectricityRecord('state/import').meters[0].cursor, '2026-10-01');
 assert.match(history.electricityImportStatus(vault).error, /provider outage/);
 vault.close(); vault = await open(); apiCalls.length = 0; failRequest = Infinity;
 await history.readElectricityPeriods(vault, [monthView]);
@@ -219,7 +219,7 @@ assert.equal(apiCalls.length, beforeParallel + 1);
 assert.equal(history.storedElectricityPoints(second, monthView, '2026-10-16')[9].kwh, 15 * 24);
 second.close(); vault.close();
 
-// Existing hourly snapshot data migrates once, without root deletion or refetch.
+// Existing hourly snapshot data remains intact while source intervals are backfilled.
 cloud.clear(); versions.clear();
 for (const name of [...phoneCache.keys()]) if (name.includes('.period.')) phoneCache.delete(name);
 const legacySnapshot = { ...snapshot, readings: consumption.expectedIntervals('2026-10-13', '2026-10-14', 'hour').map(interval => ({ ...interval, meter_id: meter.id, resolution: 'hour', kwh: 1 })) };
@@ -228,9 +228,13 @@ now = Date.parse('2026-10-14T15:15:00Z'); apiCalls.length = 0;
 vault = await open();
 const legacyProvider = async body => body.action === 'history' ? (apiCalls.push(body), { meters: [{ metering_point_id: meter.metering_point_id, from: '2026-10-13', to: null }] }) : provider(body);
 history.startElectricityHistory(vault, legacyProvider); await history.waitForElectricityHistory(vault); await new Promise(resolve => setImmediate(resolve));
-assert.equal(apiCalls.filter(call => call.action === 'timeseries').length, 0);
+assert.equal(apiCalls.filter(call => call.action === 'timeseries').length, 1);
 assert.equal(vault.data.readings.length, 24);
 assert.equal(vault.cachedElectricityRecord('hour/2026-10-13').meters[meter.id].values.length, 24);
+const source=vault.cachedElectricityRecord('hour/2026-10-13').meters[meter.id].source;
+assert.equal(source.intervals.length,96);assert.deepEqual(source.intervals[0].slice(2),['quarter',.25,'A01',.25,.25]);
+vault.close();vault=await open();await history.readElectricityPeriods(vault,[{from:'2026-10-13',to:'2026-10-14',aggregation:'Hour'}]);
+assert.deepEqual(vault.cachedElectricityRecord('hour/2026-10-13').meters[meter.id].source,source,'Original quarters and quality survive encrypted save and reopening');
 assert.equal(vault.cachedElectricityRecord('state/import').legacyComplete, true);
 assert.equal(history.storedElectricityPoints(vault, { from: '2026-10-13', to: '2026-10-14', aggregation: 'Hour' }, '2026-10-14').reduce((sum, point) => sum + point.kwh, 0), 24);
 for (const [day, count] of [['2026-03-29', 23], ['2026-10-25', 25]]) {

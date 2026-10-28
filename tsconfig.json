@@ -1,7 +1,9 @@
 {
   "extends": "expo/tsconfig.base",
   "compilerOptions": {
+    "allowJs": false,
     "strict": true,
     "noUncheckedIndexedAccess": true
-  }
+  },
+  "exclude": ["node_modules", ".tmp", "side-projects", "update_page.js"]
 }

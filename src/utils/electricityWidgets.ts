@@ -75,7 +75,7 @@ export function widgetPriceStatus(prices: PricePoint[], now: number) {
 
 export function widgetShortcut(id: ElectricityWidgetId, anchor?: string) {
   return id === 'budget' ? { tab: 'profile' as const, section: 'budget' as const, anchor }
-    : ['price', 'cheapest', 'priceChart'].includes(id) ? { tab: 'electricity' as const, section: 'prices' as const, anchor }
+    : ['price', 'cheapest', 'priceChart'].includes(id) ? { tab: 'dashboard' as const, section: 'prices' as const, anchor }
     : { tab: 'electricity' as const, section: 'usage' as const, anchor, aggregation: id === 'latest' ? 'Hour' as const : 'Day' as const };
 }
 

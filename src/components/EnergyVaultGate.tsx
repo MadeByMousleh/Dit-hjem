@@ -1,5 +1,8 @@
+import {AppText as Text} from './AppText';
+import {cardStyles} from '../styles/cards';
+import {HapticPressable as Pressable} from './HapticPressable';
 import { createContext, useContext, useEffect, useRef, useState, ReactNode } from 'react';
-import { ActivityIndicator, Pressable, ScrollView, StyleSheet, Text, TextInput, View } from 'react-native';
+import { ActivityIndicator, ScrollView, StyleSheet, TextInput, View } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { EnergyVault } from '../services/energy-vault';
 import { useHouseholdSession } from '../hooks/useHouseholdSession';
@@ -70,8 +73,8 @@ function VaultSession({ householdId, userId, children }: { householdId: string; 
 }
 
 const styles = StyleSheet.create({
-  page: { flex: 1, backgroundColor: colors.paper }, container: { flexGrow: 1, justifyContent: 'center', padding: 20 }, card: { width: '100%', maxWidth: 520, alignSelf: 'center', padding: 24, backgroundColor: colors.white, borderRadius: 24 },
+  page: { flex: 1, backgroundColor: colors.paper }, container: { flexGrow: 1, justifyContent: 'center', padding: 20 }, card: { width: '100%', maxWidth: 520, alignSelf: 'center', padding:20, backgroundColor: colors.white, borderRadius: 24 },
   title: { marginTop: 16, fontFamily: 'Nunito_600SemiBold', fontSize: 28, color: colors.ink }, copy: { marginTop: 12, fontFamily: 'Nunito_400Regular', fontSize: 15, lineHeight: 22, color: colors.muted },
-  input: { minHeight: 48, borderWidth: 1, borderColor: colors.line, borderRadius: 12, paddingHorizontal: 12, marginTop: 20, color: colors.ink }, button: { minHeight: 48, justifyContent: 'center', alignItems: 'center', backgroundColor: colors.primary, borderRadius: 24, marginTop: 16 },
+  input: {fontFamily:'Nunito_500Medium',fontSize:16, minHeight: 48, borderWidth: 1, borderColor: colors.line, borderRadius: 12, paddingHorizontal: 12, marginTop: 20, color: colors.ink }, button: { minHeight: 48, justifyContent: 'center', alignItems: 'center', backgroundColor: colors.primary, borderRadius: 24, marginTop: 16 },
   disabled: { opacity: 0.5 }, buttonText: { fontFamily: 'Nunito_700Bold', color: colors.white }, error: { marginTop: 14, color: colors.coral, lineHeight: 20 },
 });

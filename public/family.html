@@ -1,0 +1,10 @@
+<!doctype html>
+<html lang="da"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><meta name="referrer" content="no-referrer"><meta name="robots" content="noindex"><title>Velkommen til familiens hjem · Huslyg</title><style>
+body{margin:0;background:#F5F5F2;color:#3C3246;font:16px/1.5 system-ui,sans-serif;min-height:100svh;display:grid;place-items:center}main{box-sizing:border-box;background:white;border:1px solid #E8E8EE;border-radius:24px;padding:28px;max-width:440px;margin:20px}h1{font-size:28px;line-height:1.2;letter-spacing:-.6px}p{color:#6158A4}a{display:block;box-sizing:border-box;text-decoration:none;text-align:center;padding:14px;border-radius:14px;margin-top:12px;background:#4158D8;color:white;font-weight:600}.secondary{background:#EEF1FF;color:#4158D8}.quiet{background:none;color:#6158A4;font-size:14px}.brand{font-weight:700;letter-spacing:2px;font-size:14px}.note{font-size:13px}a:focus-visible{outline:3px solid #897AFF;outline-offset:3px}[hidden]{display:none!important}
+</style></head><body><main><div class="brand">HUSLYG</div><h1>Velkommen til familiens hjem</h1><p id="message">Få adgang til familiens bolig og fælles data med din egen profil. Log ind med den e-mailadresse, invitationen blev sendt til.</p><div id="actions" hidden><a id="open">Åbn Huslyg</a><a class="secondary" href="/downloads/Stromblik.apk" download>Hent Android-testversionen</a><p class="note">Har du ikke appen, kan du installere den og derefter åbne invitationen igen. Invitationen gælder i 7 dage. Dette er en testversion; adgang kræver login og din accept.</p></div></main><script>
+const home=new URL(location.href).searchParams.get('home');
+if(/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(home||'')){
+ document.getElementById('open').href='stromblik://family?home='+encodeURIComponent(home);
+ document.getElementById('actions').hidden=false;
+}else document.getElementById('message').textContent='Invitationen er ugyldig. Bed familien sende dig en ny invitation.';
+</script></body></html>

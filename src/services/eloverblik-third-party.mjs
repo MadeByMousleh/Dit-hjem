@@ -111,7 +111,7 @@ export async function meteringPointAccessForAuthorization(authorizationId, env =
 }
 
 export async function meteringPointReadings(authorizationId, meteringPointId, from, to, aggregation, env = process.env, dependencies = {}) {
-  if (!/^\d{18}$/.test(String(meteringPointId)) || !/^\d{4}-\d{2}-\d{2}$/.test(String(from)) || !/^\d{4}-\d{2}-\d{2}$/.test(String(to)) || !['Quarter', 'Hour', 'Day', 'Month', 'Year'].includes(aggregation)) {
+  if (!/^\d{18}$/.test(String(meteringPointId)) || !/^\d{4}-\d{2}-\d{2}$/.test(String(from)) || !/^\d{4}-\d{2}-\d{2}$/.test(String(to)) || !['Actual', 'Quarter', 'Hour', 'Day', 'Month', 'Year'].includes(aggregation)) {
     throw new ThirdPartyError(400, 'Ugyldig forespørgsel til Eloverblik.');
   }
   const allowed = await meteringPointsForAuthorization(authorizationId, env, dependencies);
@@ -122,4 +122,22 @@ export async function meteringPointReadings(authorizationId, meteringPointId, fr
   }, dependencies);
 }
 
+export async function meteringPointGridDetails(authorizationId,env=process.env,dependencies={}){
+ const access=await meteringPointAccessForAuthorization(authorizationId,env,dependencies);
+ const allowed=access.filter(m=>!m.typeOfMP||m.typeOfMP==='E17');
+ if(!allowed.length)return [];
+ if(allowed.length>50)throw new ThirdPartyError(409,'For mange målere til et sikkert netselskabsopslag.');
+ const token=await dataAccessToken(env,dependencies),ids=allowed.map(m=>m.meteringPointId);
+ const payload=await request('/meteringpoint/getdetails',token,{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({meteringPoints:{meteringPoint:ids}})},dependencies);
+ if(!Array.isArray(payload?.result)||payload.result.length!==ids.length)throw new ThirdPartyError(502,'Målerens netselskab kunne ikke bekræftes.');
+ const found=new Map();
+ for(const row of payload.result){
+  const meter=row?.result,id=String(meter?.meteringPointId??row?.id??'');
+  if(row?.success!==true||!ids.includes(id)||found.has(id)||(row.id&&row.id!==id))throw new ThirdPartyError(502,'Ugyldige netselskabsoplysninger fra Eloverblik.');
+  if(meter.typeOfMP!=='E17')throw new ThirdPartyError(409,'Måleren er ikke et forbrugsmålepunkt.');
+  const text=(v,max=140)=>typeof v==='string'&&v.trim().length<=max?v.trim():null;
+  found.set(id,{meteringPointId:id,typeOfMP:'E17',gridOperatorName:text(meter.gridOperatorName),gridOperatorId:text(meter.gridOperatorID,80),gridArea:text(meter.meteringGridAreaIdentification,40),darReference:text(meter.darReference,40)});
+ }
+ return [...found.values()];
+}
 export const __testing = { clearCache: () => { accessTokens.clear(); meterAccess.clear(); } };

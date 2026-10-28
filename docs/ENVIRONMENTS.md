@@ -2,6 +2,12 @@
 
 Last verified: 2026-09-22. This describes repository behavior and verified database setup, not a guarantee about current deployed services. Contains no credentials.
 
+27 October 2026 follow-up: the architecture below is a historical baseline. Native Auth-session encryption, managed household-key preservation on account deletion, and the explicitly approved production account-deletion migration/backend are documented in [ACCOUNT-PRIVACY-IMPLEMENTATION.md](ACCOUNT-PRIVACY-IMPLEMENTATION.md). Native candidate 1.0.124 also prevents paused integrations from making client calls; it is built but not installed or published on the web. See [PAUSED-INTEGRATION-CONTROL.md](PAUSED-INTEGRATION-CONTROL.md). The separately approved erasure-journal migrations and mail activation are now active in production under [FAMILY-MAIL-AND-ERASURE-RELEASE.md](FAMILY-MAIL-AND-ERASURE-RELEASE.md); no account was deleted or restored by this release. These changes do not switch the CLI link or make Preview settings appropriate for Production.
+
+27 October 2026 electricity-source release: the explicitly approved public Energinet cache migration and 14-file production release are active, with source hashes and production Auth verified on both domains. Native 1.0.126 is installed and its version/start verified on the known Samsung; older APKs retain their bundled provider. See [ENERGINET-PRICE-MIGRATION.md](ENERGINET-PRICE-MIGRATION.md). The separately approved forecast endpoint and additive cache-key migration are active, and native 1.0.127 is installed with data retained; source hashes, production Auth, both forecast areas and installed package/start are verified. Physical chart gestures remain unverified; see [PRICE-FORECAST-RELEASE.md](PRICE-FORECAST-RELEASE.md). No private electricity storage, Auth settings or secrets changed.
+
+27 October 2026 cloud forecast audit: explicitly approved migration 005 and five-file release are active. Prospective raw DK1/DK2 forecast snapshots, actual-price comparison/training views and persistent job logs are server-protected; five Vercel cron definitions and production source hashes/Auth were verified. First snapshot was initialized through the database function; scheduled production execution is observed separately through the job log. No app/phone is required. See [FORECAST-ACCURACY-CLOUD.md](FORECAST-ACCURACY-CLOUD.md).
+
 ## Environment map
 
 ### Explicit Expo startup

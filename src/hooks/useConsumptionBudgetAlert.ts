@@ -1,4 +1,5 @@
 import { useEffect, useMemo, useState } from 'react';
+import {useNotificationOwner} from './useNotificationOwner';
 import type { PricePoint } from '../prices';
 import type { ElectricityUsage } from '../services/eloverblik';
 import { consumptionBudgetProgress, localPriceAlertsSupported, requestPriceAlertPermission, sendConsumptionBudgetAlert, type ConsumptionBudgetUnit } from '../services/low-price-alert';
@@ -12,6 +13,7 @@ function daysInMonth(month: string) { return new Date(Date.UTC(Number(month.slic
 export function useConsumptionBudgetAlert({ enabled, unit, limit, usage, prices, now = Date.now() }: {
   enabled: boolean; unit: ConsumptionBudgetUnit; limit: number; usage: ElectricityUsage | null; prices: PricePoint[]; now?: number;
 }) {
+  const owner = useNotificationOwner();
   const [status, setStatus] = useState<ConsumptionBudgetAlertStatus>(enabled ? 'watching' : 'off');
   const month = localMonth(now);
   const progress = useMemo(() => {
@@ -30,17 +32,18 @@ export function useConsumptionBudgetAlert({ enabled, unit, limit, usage, prices,
   }, [limit, month, now, prices, unit, usage]);
 
   useEffect(() => {
+    if (!owner) { setStatus('off'); return; }
     if (!enabled) { setStatus('off'); return; }
     if (!localPriceAlertsSupported()) { setStatus('development-build-required'); return; }
     if (!progress) { setStatus('no-data'); return; }
     let active = true;
     setStatus(progress.level ? 'near-limit' : 'watching');
-    void sendConsumptionBudgetAlert({ progress, unit, limit, monthKey: month }).then(result => {
+    void sendConsumptionBudgetAlert({ owner, progress, unit, limit, monthKey: month }).then(result => {
       if (!active) return;
       setStatus(result === 'sent' ? 'sent' : result === 'unsupported' ? 'unsupported' : progress.level ? 'near-limit' : 'watching');
     }).catch(() => { if (active) setStatus('error'); });
     return () => { active = false; };
-  }, [enabled, limit, month, progress, unit]);
+  }, [owner, enabled, limit, month, progress, unit]);
 
   const requestConsumptionBudgetAlertPermission = async () => {
     if (!localPriceAlertsSupported()) { setStatus('development-build-required'); return false; }

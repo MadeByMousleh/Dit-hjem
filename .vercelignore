@@ -1,5 +1,5 @@
 # Native Gradle output is installed directly on test devices; Vercel only needs
-# the Expo web build and API source files.
+# the public static website and API source files.
 android/
 .tmp/
 dist/
@@ -7,3 +7,5 @@ dist/
 .ENV
 .env.*
 secrets/
+side-projects/
+web-build/

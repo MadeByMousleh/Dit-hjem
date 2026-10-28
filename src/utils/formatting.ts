@@ -1,5 +1,11 @@
+const priceFormatters = new Map<number, Intl.NumberFormat>();
 export function formatPrice(value: number, digits = 0) {
-  return value.toLocaleString("da-DK", { maximumFractionDigits: digits, minimumFractionDigits: digits });
+  let formatter = priceFormatters.get(digits);
+  if (!formatter) {
+    formatter = new Intl.NumberFormat("da-DK", { maximumFractionDigits: digits, minimumFractionDigits: digits });
+    priceFormatters.set(digits, formatter);
+  }
+  return formatter.format(value);
 }
 
 export function formatDuration(hours: number) {

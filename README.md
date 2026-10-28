@@ -1,4 +1,9 @@
-# Strømblik
+# Huslyg
+
+For the current development setup and remote-work handoff, start with
+[AGENTS.md](AGENTS.md), [Remote development](docs/REMOTE-DEVELOPMENT.md) and
+[Environments](docs/ENVIRONMENTS.md). The older notes below describe earlier
+Strømblik behavior; the current public website is a static app landing page.
 
 En dansk elpris-app til iPhone, iPad, Android-telefoner og Android-tablets. Appen viser den aktuelle og kommende samlede elpris i kr/kWh for N1/DK1, inklusive moms, elafgift og transporttariffer. Timegrafen kan bladre gennem op til syv dage og markerer fremtidige modelpriser som prognoser.
 

@@ -1,6 +1,10 @@
+import {AppText as Text} from './AppText';
+import {cardStyles} from '../styles/cards';
+import {LoadingState} from './LoadingState';
+import {HapticPressable as Pressable} from './HapticPressable';
 import { AppIcon } from './AppIcon';
-import { useMemo, useState } from 'react';
-import { Platform, Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
+import { useMemo, useRef, useState } from 'react';
+import { Platform, ScrollView, StyleSheet, View } from 'react-native';
 import Svg, { Circle, Line, Path } from 'react-native-svg';
 import { useEforsyning } from '../hooks/useEforsyning';
 import { useDashboardViewState } from '../hooks/useDashboardViewState';
@@ -10,6 +14,8 @@ import { dailyHeatPoints } from '../utils/heatingChart';
 import { dailyTemperaturePoints, temperatureChartPoints, type TemperaturePeriod } from '../utils/heatingTemperature';
 import { HeatingUsageCard } from './HeatingUsageCard';
 import { UsageDatePicker } from './UsageDatePicker';
+import { useBarScrub } from '../hooks/useBarScrub';
+import { tickSelection } from '../utils/barScrub';
 
 const number = new Intl.NumberFormat('da-DK', { maximumFractionDigits: 2 });
 const gj = (kwh: number | null | undefined) => kwh == null ? '–' : `${number.format(kwh * 0.0036)} GJ`;
@@ -37,7 +43,7 @@ export function HeatingPage() {
   const missingDetails = expectedYear === null || !hasTemperatures;
 
   return <>
-    {history ? <HeatingCustomerCard customer={history.customer ?? null} installation={history.installation} /> : null}
+
     {history ? <View style={s.overview}>
       <View style={s.overviewHeading}>
         <View><Text style={s.sectionTitle}>Årets varme</Text><Text style={s.muted}>Afregningsår {history.year}</Text></View>
@@ -62,7 +68,9 @@ export function HeatingPage() {
       <Text style={s.updated}>Opdateret {new Date(history.fetchedAt).toLocaleDateString('da-DK')}</Text>
     </View> : null}
     <HeatingUsageCard heat={heat} />
+    {!history&&!heat.error&&(heat.loading||heat.connected===null)?<View style={s.temperatureCard}><LoadingState label="Henter frem- og returtemperatur…" variant="line-chart"/></View>:null}
     {history ? <HeatingTemperatureChart readings={readings} /> : null}
+    {history ? <HeatingCustomerCard customer={history.customer ?? null} installation={history.installation} /> : null}
   </>;
 }
 
@@ -86,11 +94,10 @@ function HeatingCustomerCard({ customer, installation }: { customer: HeatCustome
   </View>;
 }
 
-function HeatingTemperatureChart({ readings }: { readings: HeatReading[] }) {
+export function HeatingTemperatureChart({ readings }: { readings: HeatReading[] }) {
   const { temperaturePeriod: period, setTemperaturePeriod: setPeriod, temperatureDate: date, setTemperatureDate: setDate } = useDashboardViewState();
   const [picker, setPicker] = useState(false);
   const [width, setWidth] = useState(0);
-  const [overview, setOverview] = useState(true);
   const [selected, setSelected] = useState('');
   const daily = useMemo(() => dailyTemperaturePoints(readings).filter(point => point.flowC !== null && point.returnC !== null), [readings]);
   const earliest = daily[0]?.date;
@@ -102,15 +109,28 @@ function HeatingTemperatureChart({ readings }: { readings: HeatReading[] }) {
   }, [earliest, latest, anchor]);
   const points = useMemo(() => temperatureChartPoints(readings, period, anchor), [readings, period, anchor]);
   const current = selected ? points.find(point => point.date === selected) : [...points].reverse().find(point => point.flowC !== null && point.returnC !== null);
-  const values = points.flatMap(point => [point.flowC, point.returnC]).filter((value): value is number => value !== null);
+  const values = useMemo(() => points.flatMap(point => [point.flowC, point.returnC]).filter((value): value is number => value !== null), [points]);
   const min = values.length ? Math.max(0, Math.floor((Math.min(...values) - 5) / 10) * 10) : 0;
   const max = values.length ? Math.max(min + 10, Math.ceil((Math.max(...values) + 5) / 10) * 10) : 100;
-  const slotWidth = overview && width ? Math.max(8, (width - 16) / points.length) : 24;
+  const slotWidth = width ? Math.max(1, width - 16) / Math.max(1, points.length) : 24;
   const graphWidth = slotWidth * points.length;
   const labelEvery = Math.max(1, Math.ceil(38 / slotWidth));
   const selectedIndex = points.findIndex(point => point.date === selected);
+  const selectedIndexRef = useRef(selectedIndex);
+  selectedIndexRef.current = selectedIndex;
+  const chartScrollRef = useRef<ScrollView>(null);
+  const selectPoint = (index: number, initial = false) => {
+    const point = points[index];
+    if (!point || (!initial && selectedIndexRef.current === index)) return;
+    selectedIndexRef.current = index;
+    setSelected(point.date);
+    tickSelection();
+  };
+  const chartScrub = useBarScrub({ count: points.length, stride: slotWidth, inset: 8, viewportWidth: width,
+    contentWidth: graphWidth + 16, scrollRef: chartScrollRef, onSelect: selectPoint });
   const y = (value: number) => chartHeight - 9 - (value - min) / (max - min) * 110;
-  const pathFor = (field: 'flowC' | 'returnC') => {
+  const paths = useMemo(() => {
+   const pathFor = (field: 'flowC' | 'returnC') => {
     let connected = false;
     return points.map((point, index) => {
       if (point[field] === null) { connected = false; return ''; }
@@ -118,7 +138,9 @@ function HeatingTemperatureChart({ readings }: { readings: HeatReading[] }) {
       connected = true;
       return segment;
     }).join(' ');
-  };
+   };
+   return {flowC: pathFor('flowC'), returnC: pathFor('returnC')};
+  }, [points, slotWidth, min, max]);
   const navigate = (direction: number) => {
     const nextDate = new Date(`${anchor}T12:00:00Z`);
     nextDate.setUTCDate(1);
@@ -152,38 +174,44 @@ function HeatingTemperatureChart({ readings }: { readings: HeatReading[] }) {
     </View>
     {values.length ? <>
       <Text style={s.scale}>{min}–{max} °C</Text>
-      <View onLayout={event => setWidth(event.nativeEvent.layout.width)}><ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={s.chart}>
+      <View ref={chartScrub.viewportRef} collapsable={false} {...chartScrub.panHandlers} onTouchEnd={chartScrub.end}
+        onTouchCancel={chartScrub.end} onLayout={event => setWidth(event.nativeEvent.layout.width)}>
+        <ScrollView ref={chartScrollRef} horizontal scrollEnabled={!chartScrub.isScrubbing} showsHorizontalScrollIndicator={false}
+          onScroll={event => chartScrub.setScrollX(event.nativeEvent.contentOffset.x)} scrollEventThrottle={16} contentContainerStyle={s.chart}>
         <View style={{ width: graphWidth, height: 160 }}>
           <Svg width={graphWidth} height={chartHeight} accessible={false}>
             {[0, 0.5, 1].map(level => <Line key={level} x1={0} x2={graphWidth} y1={9 + 110 * level} y2={9 + 110 * level} stroke={colors.line} strokeWidth={1} />)}
-            <Path d={pathFor('flowC')} stroke={flowColor} strokeWidth={3} strokeLinecap="round" strokeLinejoin="round" fill="none" />
-            <Path d={pathFor('returnC')} stroke={returnColor} strokeWidth={3} strokeLinecap="round" strokeLinejoin="round" fill="none" />
+            <Path d={paths.flowC} stroke={flowColor} strokeWidth={3} strokeLinecap="round" strokeLinejoin="round" fill="none" />
+            <Path d={paths.returnC} stroke={returnColor} strokeWidth={3} strokeLinecap="round" strokeLinejoin="round" fill="none" />
             {points.map((point, index) => point.flowC === null ? null : <Circle key={`flow-${point.date}`} cx={slotWidth * (index + 0.5)} cy={y(point.flowC)} r={point.date === selected ? 4 : 2.5} fill={flowColor} />)}
             {points.map((point, index) => point.returnC === null ? null : <Circle key={`return-${point.date}`} cx={slotWidth * (index + 0.5)} cy={y(point.returnC)} r={point.date === selected ? 4 : 2.5} fill={returnColor} />)}
           </Svg>
           <View style={s.slotRow}>{points.map((point, index) => {
             const isSelected = point.date === selected;
             const showLabel = isSelected || (index % labelEvery === 0 && (selectedIndex < 0 || Math.abs(index - selectedIndex) >= labelEvery));
-            return <Pressable key={point.date} accessibilityRole="button" accessibilityLabel={`${point.date}: fremløb ${degrees(point.flowC)}, retur ${degrees(point.returnC)}`} accessibilityState={{ selected: isSelected }} onPress={() => setSelected(isSelected ? '' : point.date)} style={[s.slot, { width: slotWidth }]}><Text numberOfLines={1} style={[s.tick, isSelected && s.selectedTick]}>{showLabel ? period === 'month' ? point.date.slice(5) : point.date.slice(8) : ''}</Text></Pressable>;
+            return <Pressable key={point.date} accessibilityRole="button" accessibilityLabel={`${point.date}: fremløb ${degrees(point.flowC)}, retur ${degrees(point.returnC)}`} accessibilityState={{ selected: isSelected }}
+              accessibilityHint="Tryk for at vælge. Hold og træk for at følge temperaturerne."
+              delayLongPress={25} onLongPress={event => chartScrub.begin(index, event.nativeEvent.pageX)}
+              onPress={() => { if (!chartScrub.shouldIgnorePress()) selectPoint(index); }}
+              style={[s.slot, { width: slotWidth }]}><Text numberOfLines={1} style={[s.tick, isSelected && s.selectedTick]}>{showLabel ? period === 'month' ? point.date.slice(5) : point.date.slice(8) : ''}</Text></Pressable>;
           })}</View>
         </View>
       </ScrollView></View>
-      {period === 'day' ? <Pressable accessibilityRole="button" onPress={() => setOverview(value => !value)} style={s.zoom}><Text style={s.zoomText}>{overview ? 'Større graf' : 'Vis hele perioden'}</Text></Pressable> : null}
     </> : <Text style={s.noData}>Opdater varmeforbruget for at hente temperaturer.</Text>}
   </View>;
 }
 
 const s = StyleSheet.create({
-  customerCard: { padding: 24, marginBottom: 24, borderRadius: 24, backgroundColor: colors.white },
-  overview: { padding: 20, marginBottom: 18, borderRadius: 20, backgroundColor: colors.white },
+  customerCard: cardStyles.card,
+  overview: cardStyles.card,
   overviewHeading: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' },
-  sectionTitle: { fontFamily: 'Nunito_700Bold', fontSize: 17, color: colors.ink, letterSpacing: -0.2 },
-  muted: { fontFamily: 'Nunito_500Medium', fontSize: 10, color: colors.muted, marginTop: 4 },
-  annualCard: { marginTop: 16, borderRadius: 24, backgroundColor: colors.primarySoft, padding: 24 },
+  sectionTitle: cardStyles.title,
+  muted: { fontFamily: 'Nunito_500Medium', fontSize:12, color: colors.muted, marginTop: 4 },
+  annualCard: { marginTop: 16, borderRadius: 24, backgroundColor: colors.primarySoft, padding:20 },
   annualValue: { fontFamily: 'Nunito_700Bold', fontSize: 28, color: colors.primary, marginTop: 4, letterSpacing: -0.8 },
-  metricRow: { flexDirection: 'row', gap: 10, marginTop: 10 },
+  metricRow: { flexDirection: 'row', gap:16, marginTop: 10 },
   metricCard: { flex: 1, minWidth: 0, borderRadius: 24, backgroundColor: colors.paper, padding: 12 },
-  metricLabel: { fontFamily: 'Nunito_500Medium', fontSize: 11, color: colors.muted },
+  metricLabel: { fontFamily: 'Nunito_500Medium', fontSize:12, color: colors.muted },
   metricValue: { fontFamily: 'Nunito_700Bold', fontSize: 19, color: colors.ink, marginTop: 5, letterSpacing: -0.4 },
   progressWrap: { marginTop: 15 },
   progressTrack: { height: 7, backgroundColor: colors.paper, borderRadius: 4, overflow: 'hidden', marginBottom: 5 },
@@ -191,21 +219,21 @@ const s = StyleSheet.create({
   missingDetails: { marginTop: 12 },
   refreshButton: { marginTop: 9, flexDirection: 'row', alignItems: 'center', gap: 7, alignSelf: 'flex-start', paddingVertical: 8 },
   refreshText: { fontFamily: 'Nunito_700Bold', fontSize: 12, color: colors.primary },
-  updated: { fontFamily: 'Nunito_400Regular', fontSize: 10, color: colors.muted, marginTop: 12 },
+  updated: { fontFamily: 'Nunito_400Regular', fontSize:12, color: colors.muted, marginTop: 12 },
   addressRow: { flexDirection: 'row', alignItems: 'flex-start', gap: 7, marginTop: 15 },
   address: { flex: 1, fontFamily: 'Nunito_500Medium', fontSize: 13, color: colors.ink, lineHeight: 18 },
-  customerGrid: { flexDirection: 'row', flexWrap: 'wrap', gap: 10, marginTop: 14 },
+  customerGrid: { flexDirection: 'row', flexWrap: 'wrap', gap:16, marginTop: 14 },
   customerMetric: { width: '47%', paddingVertical: 7 },
   customerValue: { fontFamily: 'Nunito_700Bold', fontSize: 13, color: colors.ink, marginTop: 3 },
-  customerHint: { fontFamily: 'Nunito_400Regular', fontSize: 10, color: colors.muted, marginTop: 12, lineHeight: 15 },
-  temperatureCard: { padding: 24, marginBottom: 24, borderRadius: 24, backgroundColor: colors.white },
+  customerHint: { fontFamily: 'Nunito_400Regular', fontSize:12, color: colors.muted, marginTop: 12, lineHeight:18 },
+  temperatureCard: cardStyles.card,
   tabs: { flexDirection: 'row', padding: 4, backgroundColor: colors.paper, borderRadius: 16, marginTop: 18 },
-  tab: { flex: 1, alignItems: 'center', justifyContent: 'center', minHeight: 42, borderRadius: 12 },
+  tab: { flex: 1, alignItems: 'center', justifyContent: 'center', minHeight:48, borderRadius: 12 },
   activeTab: { backgroundColor: colors.primary },
   tabText: { color: colors.ink, fontFamily: 'Nunito_700Bold', fontSize: 12 },
   activeTabText: { color: colors.white },
   periodRow: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', marginVertical: 14 },
-  arrow: { width: 42, height: 42, borderRadius: 21, backgroundColor: colors.paper, alignItems: 'center', justifyContent: 'center' },
+  arrow: { width:48, height:48, borderRadius: 21, backgroundColor: colors.paper, alignItems: 'center', justifyContent: 'center' },
   disabled: { opacity: 0.3 },
   periodButton: { flexDirection: 'row', alignItems: 'center', gap: 7, paddingHorizontal: 12, minHeight: 48 },
   periodText: { color: colors.ink, fontFamily: 'Nunito_700Bold', fontSize: 15, textTransform: 'capitalize' },
@@ -219,7 +247,5 @@ const s = StyleSheet.create({
   slot: { height: 160, justifyContent: 'flex-end', alignItems: 'center' },
   tick: { width: 38, textAlign: 'center', fontSize: 9, color: colors.muted },
   selectedTick: { color: colors.primary, fontFamily: 'Nunito_700Bold' },
-  zoom: { alignSelf: 'flex-end', marginTop: 10, paddingHorizontal: 10, paddingVertical: 7, borderRadius: 12, backgroundColor: colors.primarySoft },
-  zoomText: { color: colors.primary, fontFamily: 'Nunito_700Bold', fontSize: 11 },
-  noData: { fontFamily: 'Nunito_400Regular', fontSize: 11, color: colors.muted, marginTop: 16 },
+  noData: { fontFamily: 'Nunito_400Regular', fontSize:12, color: colors.muted, marginTop: 16 },
 });

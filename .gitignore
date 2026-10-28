@@ -18,3 +18,7 @@ supabase/.branches/
 /.tmp/lidar-reference/
 /.tmp/lidar-parcel/
 /.tmp/
+
+# Local experiment/runtime caches are not project source.
+__pycache__/
+*.py[cod]

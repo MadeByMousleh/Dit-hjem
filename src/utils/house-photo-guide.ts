@@ -5,7 +5,7 @@ const directions=['nord','nordøst','øst','sydøst','syd','sydvest','vest','nor
 // multiple main-building footprints each get their own real exterior edges.
 export function housePhotoFaces(data:HomeGeometry):HousePhotoFace[]{
  const faces:HousePhotoFace[]=[];
- for(const building of data.buildings.filter(b=>b.main)){
+ for(const building of data.buildings.filter(b=>b.main||b.associated)){
   const ring=building.rings[0]?.filter((p,i,r)=>i===0||p[0]!==r[i-1]![0]||p[1]!==r[i-1]![1]).slice()??[];
   if(ring.length>1&&ring[0]![0]===ring.at(-1)![0]&&ring[0]![1]===ring.at(-1)![1])ring.pop();
   if(ring.length<3)continue;
@@ -21,7 +21,7 @@ export function housePhotoFaces(data:HomeGeometry):HousePhotoFace[]{
    const a=ring[i]!,b=ring[(i+1)%ring.length]!,dx=b[0]-a[0],dy=b[1]-a[1],length=Math.hypot(dx,dy);if(length<0.75)continue;
    const bearing=(Math.atan2(dy,-dx)*180/Math.PI+360)%360;
    const coordinates=[a,b].map(p=>p.map(v=>v.toFixed(2)).join(',')).sort().join('|');let hash=0;for(const c of coordinates)hash=(Math.imul(hash,31)+c.charCodeAt(0))|0;
-   faces.push({id:`${building.id}-${(hash>>>0).toString(16)}`,buildingId:building.id,label:`Facade ${faces.length+1} · ${directions[Math.round(bearing/45)%8]}`,bearing,a,b,height:building.height,length});
+   faces.push({id:`${building.id}-${(hash>>>0).toString(16)}`,buildingId:building.id,label:`${building.main?'Facade':'Garage/udhus'} ${faces.length+1} · ${directions[Math.round(bearing/45)%8]}`,bearing,a,b,height:building.height,length});
   }
  }
  return faces;

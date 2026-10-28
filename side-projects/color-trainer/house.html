@@ -1,0 +1,23 @@
+<!doctype html>
+<html lang="da">
+<head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>BoligDNA · Det oprindelige hus</title><link rel="stylesheet" href="/style.css"></head>
+<body>
+<header><div><small>BOLIGDNA / LOKALT LABORATORIUM</small><h1>Lær modellen at afgrænse hovedhuset</h1></div><div id="progress">Indlæser …</div></header>
+<nav class="training-nav" aria-label="Træningssider"><a href="/facade">Facadefarve</a><a href="/hus" aria-current="page">Det oprindelige hus</a><a href="http://127.0.0.1:8792/" target="_blank" rel="noopener noreferrer">Automatisk l?ring ?</a></nav>
+<main>
+<div class="toolbar"><button id="next">Næste hus</button><button id="trainHouse">Træn husmodellen</button><select id="history" aria-label="Genåbn et hus"><option value="">Genåbn tidligere hus</option></select><a href="/api/parts/export">Eksportér godkendte bygningsdele</a></div>
+<section aria-label="Husmodellens læring"><h2>Modellens læring</h2><p id="trainingStatus" role="status">Indlæser træningsstatus …</p><p id="trainingMetrics"></p><p>Træningen lærer hovedhus kontra det, der skal udelades. Alle fotos af samme hus holdes samlet. Valideringshuse vælger modellen; særskilte testhuse bruges til før/efter-målingen.</p></section>
+<p id="status" role="status" aria-live="polite">Indlæser huse …</p>
+<h2 id="address">Det oprindelige hus</h2>
+<p><a id="googleMaps" target="_blank" rel="noopener noreferrer" hidden>Se huset i Google Maps ↗ (ny fane)</a></p>
+<p id="proposalInfo"></p>
+<p>Markér den oprindelige hovedbygning. Tilbygning, garage, carport og udhus kan markeres som separate dele. Umarkerede pixels forbliver ukendte.</p>
+<div class="actions"><button id="ai" disabled>Find hus og bygningsdele med AI</button><button id="discardAI" hidden>Skjul AI-forslag</button><button id="edit" disabled>Ret omrids i fuld skærm</button><button id="approve" class="primary" disabled>Godkend forslag og næste hus</button><button id="skip" disabled>Kan ikke vurderes · spring over</button></div>
+<label class="sampling-toggle"><input id="wholeMain" type="checkbox" checked> Omridsene viser hele hovedhuset på de markerede fotos · udenfor er ikke hovedhus</label>
+<label>Foto<select id="photo" disabled></select></label>
+<p>Vælg et foto og tryk “Find hus og bygningsdele med AI”. Analysen kører på din computer. Du kan godkende resultatet eller rette det i fuld skærm.</p>
+<p id="legend">Blå: automatisk forslag · grøn: gemt hovedhus · andre farver: separate bygningsdele.</p>
+<div id="preview" class="house-preview"></div><div id="previewTools"></div>
+<p>© Klimadatastyrelsen · Skråfoto · <a href="https://creativecommons.org/licenses/by/4.0/" target="_blank" rel="noreferrer">CC BY 4.0</a>. Forslag gemmes først, når du godkender eller gemmer en kladde. Denne side har sine egne godkendelser; farvemodellen trænes på den anden side.</p>
+</main><script type="module" src="/house.js"></script>
+</body></html>

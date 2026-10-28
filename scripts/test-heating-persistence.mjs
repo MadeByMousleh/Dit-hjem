@@ -107,7 +107,7 @@ try {
 } finally { globalThis.fetch = originalFetch; }
 
 const states = [], effects = [], listeners = {};
-let stateIndex = 0, statusFails = false, syncRejects = false;
+let stateIndex = 0, statusFails = false, syncRejects = false, statusCalls = 0;
 const hookModule = { exports: {} };
 const hookJs = ts.transpileModule(readFileSync(new URL('../src/hooks/useEforsyning.ts', import.meta.url), 'utf8'), { compilerOptions: { module: ts.ModuleKind.CommonJS, target: ts.ScriptTarget.ES2022 } }).outputText;
 const hooks = {
@@ -115,7 +115,7 @@ const hooks = {
   'react-native': { Platform: { OS: 'android' }, AppState: { addEventListener: (_, fn) => { listeners.foreground = fn; return { remove() {} }; } } },
   '../components/EnergyVaultGate': { useEnergyVault: () => ({ data: { heating: [] } }) },
   '../services/private-heating': {
-    hasPrivateHeatingConnection: async () => { if (statusFails) throw new Error('Network unavailable'); return true; },
+    hasPrivateHeatingConnection: async () => { statusCalls++; if (statusFails) throw new Error('Network unavailable'); return true; },
     syncHeating: async () => { if (syncRejects) throw new module.exports.HeatingRequestError('Supplier rejected login', 'HEATING_CREDENTIALS_REJECTED'); },
     heatingNeedsReconnect: module.exports.heatingNeedsReconnect,
   },
@@ -124,6 +124,7 @@ vm.runInThisContext(`(function(require,module,exports){${hookJs}\n})`)(name => h
 const hook = hookModule.exports.useEforsyning(); const cleanup = effects.map(fn => fn());
 const flush = async () => { for (let i = 0; i < 4; i++) await new Promise(resolve => setImmediate(resolve)); };
 await flush(); assert.equal(states[5], true);
+assert.equal(statusCalls, 1, 'A freshly verified connection is not checked again after a cached sync');
 statusFails = true; listeners.foreground('active'); await flush();
 assert.equal(states[5], true, 'Status outage preserves a saved connection');
 statusFails = false; syncRejects = true; await hook.refresh();

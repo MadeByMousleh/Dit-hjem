@@ -1,10 +1,12 @@
 import { useCallback, useEffect, useState } from 'react';
+import {useNotificationOwner} from './useNotificationOwner';
 import type { PricePoint } from '../prices';
 import { cancelChargingWindowAlerts, localPriceAlertsSupported, requestPriceAlertPermission, scheduleChargingWindowAlert, type ChargingWindowAlertSchedule } from '../services/low-price-alert';
 
 export type ChargingWindowAlertStatus = 'off' | 'scheduled' | 'no-window' | 'sample-prices' | 'unsupported' | 'development-build-required' | 'error';
 
 export function useChargingWindowAlert({ enabled, points, samplePrices, durationHours, readyByHour }: { enabled: boolean; points: PricePoint[]; samplePrices: boolean; durationHours: number; readyByHour: number }) {
+  const owner = useNotificationOwner();
   const [status, setStatus] = useState<ChargingWindowAlertStatus>(enabled ? 'no-window' : 'off');
 
   const requestPermission = useCallback(async () => {
@@ -18,13 +20,14 @@ export function useChargingWindowAlert({ enabled, points, samplePrices, duration
 
   useEffect(() => {
     let active = true;
-    if (!enabled) { setStatus('off'); void cancelChargingWindowAlerts().catch(() => undefined); return; }
+    if (!owner) { setStatus('off'); return; }
+    if (!enabled) { setStatus('off'); void cancelChargingWindowAlerts(owner).catch(() => { if (active) setStatus('error'); }); return () => { active = false; }; }
     if (samplePrices) { setStatus('sample-prices'); return; }
-    void scheduleChargingWindowAlert(points, durationHours, readyByHour).then((next: ChargingWindowAlertSchedule) => {
+    void scheduleChargingWindowAlert(owner, points, durationHours, readyByHour).then((next: ChargingWindowAlertSchedule) => {
       if (active) setStatus(next);
     }).catch(() => { if (active) setStatus('error'); });
     return () => { active = false; };
-  }, [durationHours, enabled, points, readyByHour, samplePrices]);
+  }, [owner, durationHours, enabled, points, readyByHour, samplePrices]);
 
   return { chargingWindowAlertStatus: status, requestChargingWindowAlertPermission: requestPermission };
 }

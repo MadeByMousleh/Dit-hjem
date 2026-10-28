@@ -1,0 +1,12 @@
+import{readFile,writeFile,mkdir}from'node:fs/promises';import{ENERGINET_GRID_SUPPLIERS as suppliers}from'../src/services/energinet-tariff-catalog.mjs';import{calculateEnerginetPrices}from'../src/services/energinet-prices-core.mjs';import{fetchStromligningReference}from'../scripts/helpers/stromligning-reference.mjs';
+const dir='.tmp/energinet-migration';await mkdir(dir+'/references',{recursive:true});const tariffRows=JSON.parse(await readFile(dir+'/selected-tariffs.json')).records,spotRows=JSON.parse(await readFile(dir+'/spot-comparison.json')).records;
+const from='2026-10-26T23:00:00Z',to='2026-10-27T23:00:00Z',results=[];
+for(const supplier of suppliers){
+ try{
+  let reference;const path=dir+'/references/'+encodeURIComponent(supplier.id)+'.json';try{reference=JSON.parse(await readFile(path));}catch{reference=await fetchStromligningReference({supplierId:supplier.id,area:supplier.area,from,to});await writeFile(path,JSON.stringify(reference));}
+  const actual=calculateEnerginetPrices({supplierId:supplier.id,area:supplier.area,from,to,tariffRows,spotRows}),byTime=new Map(actual.map(p=>[p.startsAt,p]));let maxOre=0,maxSpotOre=0,example;
+  reference.prices=reference.prices.filter(p=>Date.parse(p.date)>=Date.parse(from)&&Date.parse(p.date)<Date.parse(to)); for(const p of reference.prices){const n=byTime.get(p.date);if(!n)throw Error('Manglende referenceinterval '+p.date);const delta=Math.abs(n.totalOrePerKwh-p.price.total*100),spot=Math.abs(n.priceDkkMwh/10-p.details.electricity.value*100);if(delta>maxOre){maxOre=delta;example={at:p.date,ours:n.totalOrePerKwh,reference:p.price.total*100,distribution:p.details.distribution,components:n.components};}maxSpotOre=Math.max(maxSpotOre,spot);}
+  const result={id:supplier.id,intervals:actual.length,referenceIntervals:reference.prices.length,maxDifferenceOre:maxOre,maxSpotDifferenceOre:maxSpotOre,pass:maxOre<=.02&&actual.length===reference.prices.length};if(!result.pass)result.example=example;results.push(result);console.log(JSON.stringify({id:result.id,maxDifferenceOre:Math.round(maxOre*1e6)/1e6,pass:result.pass}));
+ }catch(error){results.push({id:supplier.id,pass:false,error:error.message});console.log(JSON.stringify({id:supplier.id,error:error.message}));if(error.status===429)break;}
+}
+await writeFile(dir+'/provider-comparison.json',JSON.stringify({from,to,results},null,2));console.log(JSON.stringify({providers:results.length,pass:results.filter(r=>r.pass).length,failed:results.filter(r=>!r.pass)}));

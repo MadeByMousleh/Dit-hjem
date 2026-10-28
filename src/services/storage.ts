@@ -6,6 +6,8 @@ import { resilientStorage } from './local-storage-cache.mjs';
 export const DEVICES_STORAGE_KEY = "stromblik.household-devices.v1";
 export const PROFILE_STORAGE_KEY = "stromblik.profile.v1";
 export const ELECTRICITY_PLAN_STORAGE_KEY = "stromblik.electricity-plan.v1";
+const profileListeners=new Set<(userId?:string)=>void>();
+export function subscribeProfileChanges(listener:(userId?:string)=>void){profileListeners.add(listener);return()=>{profileListeners.delete(listener);};}
 export type ElectricityPlan = { supplierId: string; supplierName: string; priceType: "spot" | "fixed"; markupOre: string; subscription: string; startDate: string };
 export async function loadElectricityPlan() { const stored = await AsyncStorage.getItem(ELECTRICITY_PLAN_STORAGE_KEY); return stored ? JSON.parse(stored) as ElectricityPlan : undefined; }
 export async function saveElectricityPlan(plan: ElectricityPlan) { await AsyncStorage.setItem(ELECTRICITY_PLAN_STORAGE_KEY, JSON.stringify(plan)); }
@@ -18,6 +20,7 @@ export type StoredProfile = {
   addressY?: number;
   gridSupplierId?: string;
   gridSupplierName?: string;
+  gridSupplierOverrideId?: string;
   name?: string;
   email?: string;
   address?: string;
@@ -44,7 +47,10 @@ function userProfileKey(userId: string) {
   return `${PROFILE_STORAGE_KEY}.${userId}`;
 }
 
-export async function loadProfile(userId?: string, accountEmail?: string) {
+const sharedProfiles=new Map<string,Partial<StoredProfile>>();
+export function bindSharedHome(userId:string,home:Partial<StoredProfile>|null){sharedProfiles.clear();if(home)sharedProfiles.set(userId,home);}
+export async function loadProfile(userId?:string,accountEmail?:string){const profile=await loadPersonalProfile(userId,accountEmail);const shared=userId?sharedProfiles.get(userId):undefined;return shared?{...profile,...shared}:profile;}
+async function loadPersonalProfile(userId?: string, accountEmail?: string) {
   if (userId) {
     const scoped = await AsyncStorage.getItem(userProfileKey(userId));
     if (scoped) return JSON.parse(scoped) as StoredProfile;
@@ -64,6 +70,7 @@ export async function loadProfile(userId?: string, accountEmail?: string) {
 
 export async function saveProfile(profile: StoredProfile, userId?: string) {
   await resilientStorage(AsyncStorage).setItem(userId ? userProfileKey(userId) : PROFILE_STORAGE_KEY, JSON.stringify(profile));
+  profileListeners.forEach(listener=>listener(userId));
 }
 
 export async function updateProfile(changes: Partial<StoredProfile>) {

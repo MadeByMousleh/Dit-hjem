@@ -4,8 +4,10 @@ const dateFormatter = new Intl.DateTimeFormat("sv-SE", { timeZone: "Europe/Copen
 export const usageToday = (now = Date.now()) => dateFormatter.format(new Date(now));
 export function usagePeriod(aggregation: UsageAggregation, anchor: string, availableYears: number[] = []): UsageSelection {
   if (aggregation === 'Year') {
-    const year = Number(anchor.slice(0, 4));
-    return { from: `${year}-01-01`, to: `${year + 1}-01-01`, aggregation };
+    const currentYear = Number(usageToday().slice(0, 4));
+    const years = availableYears.filter(year => Number.isInteger(year) && year <= currentYear);
+    const firstYear = years.length ? Math.min(...years) : currentYear - 5;
+    return { from: `${firstYear}-01-01`, to: `${currentYear + 1}-01-01`, aggregation };
   }
   const date = new Date(anchor + "T12:00:00Z");
   if (aggregation === "Month") date.setUTCMonth(0, 1);

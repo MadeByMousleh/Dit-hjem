@@ -1,6 +1,7 @@
 import proj4 from 'proj4';
 import { getBbrProperty } from './bbr-property-server.mjs';
 import { findAddressSuggestionById } from './address-search.mjs';
+import {getBbrRoofMaterials} from './bbr-roof-materials-server.mjs';
 
 const utm = '+proj=utm +zone=32 +ellps=GRS80 +units=m +no_defs';
 const cache = new Map();
@@ -12,10 +13,11 @@ function polygon(wkt) {
   const rings=[...wkt.matchAll(/\(([^()]+)\)/g)].map(match=>match[1].split(',').map(pair=>pair.trim().split(/\s+/).map(Number).slice(0,2)));
   return rings.length&&rings.every(ring=>ring.length>=4&&ring.length<=2000&&ring.every(p=>p.length===2&&p.every(Number.isFinite)))?rings:null;
 }
-export async function getHomeGeometry({id},{apiKey=process.env.DATAFORDELER_API_KEY,fetcher=fetch}={}) {
+export async function getHomeGeometry({id,surroundings},{apiKey=process.env.DATAFORDELER_API_KEY,fetcher=fetch}={}) {
   if(typeof id!=='string'||! /^[0-9a-f-]{36}$/i.test(id))throw problem(400);
+  if(surroundings!==undefined&&surroundings!=='1')throw problem(400);
   if(!apiKey?.trim())throw problem(503);
-  const saved=cache.get(id);if(saved&&Date.now()-saved.at<(saved.value.warnings.length?60000:3600000))return saved.value;
+  const key=`${id}:${surroundings??'home'}`,saved=cache.get(key);if(saved&&Date.now()-saved.at<(saved.value.warnings.length?60000:3600000))return saved.value;
   const signal=AbortSignal.timeout(26000);
   const [property,address]=await Promise.all([getBbrProperty({id},{apiKey,fetcher}),findAddressSuggestionById(id,fetcher)]);
   const now=new Date().toISOString(),warnings=[];
@@ -43,14 +45,15 @@ export async function getHomeGeometry({id},{apiKey=process.env.DATAFORDELER_API_
   const extent=near.length?near:[point];
   const cx=(Math.min(...extent.map(p=>p[0]))+Math.max(...extent.map(p=>p[0])))/2;
   const cy=(Math.min(...extent.map(p=>p[1]))+Math.max(...extent.map(p=>p[1])))/2;
-  const width=Math.max(52,Math.max(...extent.map(p=>p[0]))-Math.min(...extent.map(p=>p[0]))+12,(Math.max(...extent.map(p=>p[1]))-Math.min(...extent.map(p=>p[1]))+12)*4/3);
+  const homeWidth=Math.max(52,Math.max(...extent.map(p=>p[0]))-Math.min(...extent.map(p=>p[0]))+12,(Math.max(...extent.map(p=>p[1]))-Math.min(...extent.map(p=>p[1]))+12)*4/3);
+  const width=surroundings==='1'?Math.min(500,Math.max(320,homeWidth*6)):homeWidth;
   const bbox=[cx-width/2,cy-width*3/8,cx+width/2,cy+width*3/8];
-  const box=`POLYGON((${bbox[0]} ${bbox[1]},${bbox[2]} ${bbox[1]},${bbox[2]} ${bbox[3]},${bbox[0]} ${bbox[3]},${bbox[0]} ${bbox[1]}))`;
+  const boxes=surroundings==='1'?[[bbox[0],bbox[1],cx,cy],[cx,bbox[1],bbox[2],cy],[bbox[0],cy,cx,bbox[3]],[cx,cy,bbox[2],bbox[3]]]:[bbox];
   let buildings=[];
   try{
     const ids=[...new Set(associated.flatMap(r=>[r.id.toUpperCase(),r.id.toLowerCase()]))];
     const fields='id_lokalId BBRUUID status geometri{wkt} maalestedBygning';
-    const sets=await Promise.allSettled([query('GEODKV','GEODKV_Bygning',`{BBRUUID:{in:${quote(ids)}}}`,fields),query('GEODKV','GEODKV_Bygning',`{geometri:{intersects:{wkt:${quote(box)},crs:25832}}}`,fields)]);
+    const sets=await Promise.allSettled([query('GEODKV','GEODKV_Bygning',`{BBRUUID:{in:${quote(ids)}}}`,fields),...boxes.map(bounds=>{const box=`POLYGON((${bounds[0]} ${bounds[1]},${bounds[2]} ${bounds[1]},${bounds[2]} ${bounds[3]},${bounds[0]} ${bounds[3]},${bounds[0]} ${bounds[1]}))`;return query('GEODKV','GEODKV_Bygning',`{geometri:{intersects:{wkt:${quote(box)},crs:25832}}}`,fields);})]);
     if(sets.some(s=>s.status==='rejected'))warnings.push('Nogle bygningsomrids kunne ikke hentes.');
     const rows=[...new Map(sets.flatMap(s=>s.status==='fulfilled'?s.value:[]).map(r=>[r.id_lokalId,r])).values()];
     buildings=rows.filter(r=>r.status==='Anlagt').map(r=>{
@@ -59,10 +62,14 @@ export async function getHomeGeometry({id},{apiKey=process.env.DATAFORDELER_API_
       return {id:r.id_lokalId,bbrId:r.BBRUUID,main:main.some(b=>b.id.toLowerCase()===r.BBRUUID?.toLowerCase()),associated:!!bbr,rings:polygon(r.geometri?.wkt),height:Math.max(2.5,Math.min(60,Number.isFinite(floors)&&floors>0?floors*3:3)),heightSource:bbr&&floors>0?'BBR-etager × 3 m':'Antaget 3 m',outlineSource:r.maalestedBygning};
     }).filter(b=>b.rings);
   }catch{warnings.push('Bygningsomrids kunne ikke hentes.');}
+  const roofs=await getBbrRoofMaterials(buildings.map(b=>b.bbrId),{apiKey,fetcher,now}).catch(()=>({materials:{},partial:true}));
+  for(const building of buildings)building.roofMaterial=roofs.materials[building.bbrId?.toLowerCase()]??null;
+  if(roofs.partial)warnings.push('Nogle BBR-tagmaterialer kunne ikke hentes.');
   if(!parcels.length)warnings.push('Ingen gældende matrikelrelation fundet for bygningen.');
   if(!buildings.some(b=>b.main))warnings.push('Boligens bygning kunne ikke matches til GeoDanmark.');
-  const value={addressId:id,point,bbox,longitude:address.x,latitude:address.y,parcels,buildings,fetchedAt:now,source:'Matriklen · GeoDanmark · KDS via Datafordeleren · CC BY 4.0',warnings,notice:'Registreret areal for bygningens jordstykke(r), ikke nødvendigvis hele ejendommen eller din private have. Kortets skel er vejledende. Bygningsomrids kan være målt ved taget.'};
-  if(cache.size>=100)cache.delete(cache.keys().next().value);cache.set(id,{at:Date.now(),value});return value;
+  const value={roofMaterialVersion:1,addressId:id,point,bbox,longitude:address.x,latitude:address.y,parcels,buildings,fetchedAt:now,source:'Matriklen · GeoDanmark · KDS via Datafordeleren · CC BY 4.0',warnings,notice:'Registreret areal for bygningens jordstykke(r), ikke nødvendigvis hele ejendommen eller din private have. Kortets skel er vejledende. Bygningsomrids kan være målt ved taget.'};
+  if(surroundings==='1')value.surroundings=true;
+  if(cache.size>=100)cache.delete(cache.keys().next().value);cache.set(key,{at:Date.now(),value});return value;
 }
 
 export async function getHomeOrthophoto({bbox},{token=process.env.DATAFORSYNINGEN_TOKEN||process.env.DATAFORSYNING_API_KEY,fetcher=fetch}={}) {

@@ -1,0 +1,11 @@
+import assert from 'node:assert/strict';
+import {build} from 'esbuild';
+const b=await build({entryPoints:['src/web/facade-photo-colors.ts'],bundle:true,platform:'node',format:'esm',write:false});
+const {combineFacadeViews}=await import(`data:text/javascript;base64,${Buffer.from(b.outputFiles[0].text).toString('base64')}`);
+const v=(faceId,viewId,rgb)=>({faceId,viewId,rgb,count:80,year:'2025'});
+assert.equal(combineFacadeViews([v('a','one',[200,170,90])]),null);
+const same=combineFacadeViews([v('a','one',[200,170,90]),v('a','two',[160,136,72])]);assert.equal(same.uniform,true);assert.equal(same.faces.a,'#c8aa5a');
+const distinct=combineFacadeViews([v('a','one',[200,170,90]),v('a','two',[200,170,90]),v('extension','one',[150,50,30]),v('extension','two',[150,50,30])]);assert.equal(distinct.uniform,false);assert.notEqual(distinct.faces.a,distinct.faces.extension);
+assert.equal(combineFacadeViews([v('a','one',[200,170,90]),v('a','two',[30,100,200])]),null);
+const garage=combineFacadeViews([v('shadow','one',[100,100,105]),v('shadow','two',[105,105,110]),v('wall','one',[182,170,156]),v('wall','two',[170,158,147])],true);assert.equal(garage.color,'#b6aa9c');
+console.log('Direct facade photos: independent-view agreement, brighter real sample, distinct materials and conflicting-view abstention pass.');

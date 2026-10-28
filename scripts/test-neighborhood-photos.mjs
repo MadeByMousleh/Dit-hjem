@@ -1,0 +1,15 @@
+﻿import assert from 'node:assert/strict';
+import {neighborhoodPhotoPlan} from '../src/services/neighborhood-photo-plan.mjs';
+import {getNeighborhoodModelPhotos} from '../src/services/home-neighborhood-photos-server.mjs';
+const id='11111111-1111-1111-1111-111111111111';
+const building=(id,x,y,main=false,associated=false)=>({id,main,associated,height:5,rings:[[[x,y],[x+10,y],[x+10,y+10],[x,y+10],[x,y]]]});
+const geometry={addressId:id,bbox:[500000,6100000,500320,6100320],buildings:[building('main',500010,6100010,true),building('carport',500030,6100010,false,true),building('near',500050,6100050),building('far',500250,6100250)]};
+const plan=neighborhoodPhotoPlan(geometry);assert.deepEqual(plan.tiles.map(t=>t.buildingIds),[['near'],['far']]);assert.throws(()=>neighborhoodPhotoPlan({...geometry,bbox:[0,0,502,502]}));
+let read=0,height=0,sources=0;
+const options={apiKey:'synthetic',token:'synthetic',useCache:false,geometryLoader:async args=>{assert.equal(args.surroundings,'1');return geometry;},heightLoader:async()=>{height++;return {terrain:[null,8,9,10]};},sourceLoader:async()=>{sources++;return ['north','south','east','west','nadir'].map(direction=>({direction}));},photoReader:async(item,corners)=>{read++;assert.ok(corners.every(p=>p[0]>=500250&&p[0]<=500260),'Crop covers the requested neighbor, not the main house');return {direction:item.direction};}};
+const result=await getNeighborhoodModelPhotos({id},options);assert.equal(result.status,'plan');assert.equal(read,0);assert.equal(height,0);assert.equal(sources,0);
+const tile=await getNeighborhoodModelPhotos({id,tile:'3-3'},options);assert.equal(tile.status,'available');assert.equal(tile.photos.length,4);assert.equal(read,4);
+await assert.rejects(getNeighborhoodModelPhotos({id,tile:'9-9'},options),{status:400});
+const partial=await getNeighborhoodModelPhotos({id,tile:'3-3'},{...options,photoReader:async()=>{throw Error('Provider failure');}});assert.equal(partial.status,'partial');assert.equal(partial.photos.length,0);
+await assert.rejects(getNeighborhoodModelPhotos({id},{...options,token:''}),{status:503});
+console.log('PASS neighbor-only plan, exact tile crop, bounded cardinal views, no imagery in plan, rejected invalid tile, partial provider failure');

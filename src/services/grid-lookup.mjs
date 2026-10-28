@@ -15,9 +15,10 @@ function pointInRing(point, ring) {
   return inside;
 }
 
-function pointInGeometry(point, geometry) {
-  if (geometry?.type === "Polygon") return geometry.coordinates.some((ring) => pointInRing(point, ring));
-  if (geometry?.type === "MultiPolygon") return geometry.coordinates.some((polygon) => polygon.some((ring) => pointInRing(point, ring)));
+export function pointInGeometry(point, geometry) {
+  const inside=polygon=>polygon.length>0&&pointInRing(point,polygon[0])&&!polygon.slice(1).some(ring=>pointInRing(point,ring));
+  if (geometry?.type === "Polygon") return inside(geometry.coordinates);
+  if (geometry?.type === "MultiPolygon") return geometry.coordinates.some(inside);
   return false;
 }
 
@@ -45,11 +46,15 @@ export async function findGridSupplier(x, y) {
   const cvr = Number(feature?.properties?.CVR);
   if (!Number.isInteger(cvr) || cvr <= 0) throw new Error("Ingen netselskabsomraade fundet for adressen");
 
-  const filter = encodeURIComponent(`ExternalSupplierId eq ${cvr}`);
-  const response = await fetch(`${SUPPLIERS_URL}?$filter=${filter}`);
-  if (!response.ok) throw new Error(`Netselskabsopslaget svarede med ${response.status}`);
-  const suppliers = await response.json();
-  const supplier = Array.isArray(suppliers) ? suppliers[0] : undefined;
-  if (!supplier?.name) throw new Error("Netselskabet kunne ikke identificeres");
+  let request=supplierRequests.get(cvr);
+  if(!request){request=(async()=>{
+    const filter = encodeURIComponent(`ExternalSupplierId eq ${cvr}`);
+    const response = await fetch(`${SUPPLIERS_URL}?$filter=${filter}`,{signal:AbortSignal.timeout(12000)});
+    if (!response.ok) throw new Error(`Netselskabsopslaget svarede med ${response.status}`);
+    const suppliers = await response.json();
+    if(!Array.isArray(suppliers)||suppliers.length!==1||!suppliers[0]?.name)throw Error('Netselskabet kunne ikke identificeres entydigt');return suppliers[0];
+  })().catch(error=>{supplierRequests.delete(cvr);throw error;});supplierRequests.set(cvr,request);}
+  const supplier=await request;
   return { name: supplier.name, cvr: String(cvr) };
 }
+const supplierRequests=new Map();

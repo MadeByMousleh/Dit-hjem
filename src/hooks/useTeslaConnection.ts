@@ -4,7 +4,7 @@ import { getTeslaAuthorizationUrl, getTeslaStatus, getTeslaVehicles, setTeslaCha
 import { updateProfile } from "../services/storage";
 import { TeslaVehicle } from "../types/app";
 
-export function useTeslaConnection(refreshKey: string) {
+export function useTeslaConnection(refreshKey: string, enabled = true) {
   const [connected, setConnected] = useState(false);
   const [vehicle, setVehicle] = useState<TeslaVehicle | null>(null);
   const [refreshing, setRefreshing] = useState(false);
@@ -15,6 +15,7 @@ export function useTeslaConnection(refreshKey: string) {
   const pendingRefresh = useRef<Promise<void> | null>(null);
 
   const refresh = useCallback((force = true): Promise<void> => {
+    if (!enabled) return Promise.resolve();
     if (pendingRefresh.current) return pendingRefresh.current;
     if (!force && lastRefresh.current !== null && Date.now() - lastRefresh.current < 60_000) return Promise.resolve();
     setRefreshing(true);
@@ -40,23 +41,24 @@ export function useTeslaConnection(refreshKey: string) {
     })();
     pendingRefresh.current = request;
     return request;
-  }, []);
+  }, [enabled]);
 
   useEffect(() => {
     if (refreshKey === 'home' || refreshKey === 'car') void refresh(false);
   }, [refreshKey, refresh]);
 
   useEffect(() => {
-    if (Platform.OS === 'web') return;
+    if (!enabled || Platform.OS === 'web') return;
     const complete = ({ url }: { url: string }) => {
       if (url.startsWith('stromblik://tesla/connected')) void refresh();
     };
     const subscription = Linking.addEventListener('url', complete);
     void Linking.getInitialURL().then(url => { if (url) complete({ url }); });
     return () => subscription.remove();
-  }, [refresh]);
+  }, [refresh, enabled]);
 
   const connect = useCallback(async () => {
+    if (!enabled) return;
     try {
       const authorizationUrl = await getTeslaAuthorizationUrl(Platform.OS !== 'web');
       if (Platform.OS === 'web') window.location.assign(authorizationUrl);
@@ -65,14 +67,16 @@ export function useTeslaConnection(refreshKey: string) {
       const message = error instanceof Error ? error.message : 'Tesla-login kunne ikke startes.';
       Alert.alert('Tesla kunne ikke forbindes', message);
     }
-  }, []);
+  }, [enabled]);
 
   const setDashboardVisibility = useCallback((value: boolean) => {
+    if (!enabled) return;
     setShowOnDashboard(value);
     void updateProfile({ teslaShowOnDashboard: value });
-  }, []);
+  }, [enabled]);
 
   const pairVirtualKey = useCallback(async () => {
+    if (!enabled) return;
     if (!vehicle?.vin || !virtualKeyPairingUrl) {
       Alert.alert('Virtuel nøgle er ikke klar', 'Opdatér Tesla-forbindelsen og prøv igen.');
       return;
@@ -83,10 +87,10 @@ export function useTeslaConnection(refreshKey: string) {
     } catch {
       Alert.alert('Tesla-appen kunne ikke åbnes', 'Installér eller opdatér Tesla-appen, og prøv igen.');
     }
-  }, [vehicle?.vin, virtualKeyPairingUrl]);
+  }, [vehicle?.vin, virtualKeyPairingUrl, enabled]);
 
   const setCharging = useCallback(async (action: 'start' | 'stop') => {
-    if (!vehicle?.vin || chargingCommandPending) return;
+    if (!enabled || !vehicle?.vin || chargingCommandPending) return;
     setChargingCommandPending(true);
     try {
       await setTeslaCharging(vehicle.vin, action);
@@ -105,7 +109,7 @@ export function useTeslaConnection(refreshKey: string) {
     } finally {
       setChargingCommandPending(false);
     }
-  }, [chargingCommandPending, pairVirtualKey, refresh, vehicle?.vin, virtualKeyPairingUrl]);
+  }, [chargingCommandPending, pairVirtualKey, refresh, vehicle?.vin, virtualKeyPairingUrl, enabled]);
 
   return { connected, vehicle, refreshing, chargingCommandPending, showOnDashboard, setShowOnDashboard, refresh, connect, setCharging, pairVirtualKey, setDashboardVisibility };
 }

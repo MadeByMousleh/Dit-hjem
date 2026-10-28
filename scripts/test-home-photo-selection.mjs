@@ -10,3 +10,7 @@ assert.equal(sources.length,5);assert.equal(calls.length,5);
 assert.ok(sources.every(p=>p.capturedAt==='2025-05-12T12:00:00Z'));
 assert.ok(sources.some(p=>p.direction==='nadir'&&p.properties['pers:interior_orientation'].sensor_array_dimensions[0]===20544));
 console.log('Date-window selection, unsorted results and large nadir sensor: passed.');
+const multiple=await getHomePhotos({x:9.825,y:54.926},{token:'synthetic',fetcher,sourcesOnly:true,facadeViews:true});
+assert.equal(multiple.length,9);for(const direction of ['north','east','south','west'])assert.equal(multiple.filter(p=>p.direction===direction).length,2);
+assert.equal(multiple.filter(p=>p.direction==='nadir').length,1);
+console.log('Facade analysis receives two views per direction without changing gallery selection.');

@@ -48,6 +48,12 @@ export async function privateMeterStatus(vault: EnergyVault) {
   catch (error) { if (statuses.get(vault) === entry) statuses.delete(vault); throw error; }
 }
 export async function hasPrivateMeterConnection(vault: EnergyVault) { return (await privateMeterStatus(vault)).connected; }
+const gridPending=new WeakMap<EnergyVault,Promise<{meters:import('../utils/meter-grid').MeterGrid[];checkedAt:string}>>();
+export async function privateMeterGrid(vault:EnergyVault){
+ const current=gridPending.get(vault);if(current)return current;
+ const work=thirdPartyRequest<{meters:import('../utils/meter-grid').MeterGrid[];checkedAt:string}>(vault,{action:'grid'});gridPending.set(vault,work);
+ try{return await work;}finally{if(gridPending.get(vault)===work)gridPending.delete(vault);}
+}
 export async function disconnectPrivateMeter(_vault: EnergyVault) { throw new Error('Afbrydelse af tredjepartsfuldmagt håndteres i Eloverblik.'); }
 export async function connectPrivateMeter(_vault: EnergyVault, _token: string) { throw new Error('Token-login er erstattet af Eloverblik-fuldmagt.'); }
 

@@ -1,5 +1,9 @@
+import {AppText as Text} from './AppText';
+import {cardStyles} from '../styles/cards';
+import {AppModal as Modal} from './AppModal';
+import {HapticPressable as Pressable} from './HapticPressable';
 import { useState } from 'react';
-import { Modal, Pressable, ScrollView, Text, TextInput, View, ActivityIndicator } from 'react-native';
+import { ScrollView, TextInput, View, ActivityIndicator } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { AppIcon } from './AppIcon';
 import { colors } from '../styles/theme';

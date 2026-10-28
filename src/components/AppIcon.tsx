@@ -1,5 +1,7 @@
 import { HugeiconsIcon, type HugeiconsProps } from '@hugeicons/react-native';
 import Activity01Icon from '@hugeicons/core-free-icons/Activity01Icon';
+import PlayIcon from '@hugeicons/core-free-icons/PlayIcon';
+import PauseIcon from '@hugeicons/core-free-icons/PauseIcon';
 import ArrowLeft01Icon from '@hugeicons/core-free-icons/ArrowLeft01Icon';
 import ArrowRight01Icon from '@hugeicons/core-free-icons/ArrowRight01Icon';
 import ArrowRight02Icon from '@hugeicons/core-free-icons/ArrowRight02Icon';
@@ -54,6 +56,8 @@ import WashingMachineIcon from '@hugeicons/core-free-icons/WashingMachineIcon';
 import RefrigeratorIcon from '@hugeicons/core-free-icons/RefrigeratorIcon';
 
 const icons = {
+  'play': PlayIcon,
+  'pause': PauseIcon,
   'oven': OvenIcon,
   'washing-machine': WashingMachineIcon,
   'refrigerator': RefrigeratorIcon,

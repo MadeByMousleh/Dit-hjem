@@ -1,9 +1,9 @@
 import type { EnergyVault } from './energy-vault';
 import type { UsageSelection } from './eloverblik';
 import * as Crypto from 'expo-crypto';
-import { advance, danishDate, expectedIntervals, meterReadings } from './consumption-data.mjs';
+import { advance, danishDate, expectedIntervals, meterReadings,sourceHours } from './consumption-data.mjs';
 import { electricityIndex } from './electricity-cache.mjs';
-import { daysBetween, eligibleThrough, hourComplete, mergeDayRecords, nextImportBatch, periodKeys, selectionPoints, updateKeys } from './electricity-periods.mjs';
+import { daysBetween, eligibleThrough, hourComplete, mergeDayRecords, nextImportBatch, periodKeys, selectionPoints, updateKeys,sourceFetched,importProgress } from './electricity-periods.mjs';
 
 type Provider = (body: Record<string, unknown>) => Promise<any>;
 export type ElectricityImportStatus = { running: boolean; error: string; initialComplete: boolean };
@@ -16,7 +16,7 @@ const retryTimers = new WeakMap<EnergyVault, ReturnType<typeof setTimeout>>();
 const watched = new WeakMap<EnergyVault, Set<string>>();
 const status = (vault: EnergyVault) => statuses.get(vault) ?? { running: false, error: '', initialComplete: false };
 const emit = (vault: EnergyVault) => listeners.get(vault)?.forEach(listener => listener());
-export const electricityImportStatus = status;
+export const electricityImportStatus = (vault:EnergyVault)=>({...status(vault),...importProgress(vault.cachedElectricityRecord('state/import'))});
 export function subscribeElectricityHistory(vault: EnergyVault, listener: () => void) {
   const set = listeners.get(vault) ?? new Set(); set.add(listener); listeners.set(vault, set);
   return () => { set.delete(listener); };
@@ -119,16 +119,16 @@ async function initialize(vault: EnergyVault, provider: Provider, owner: string)
   let state = vault.cachedElectricityRecord('state/import');
   const rootMeters = vault.data.meters.map(meter => meter.metering_point_id).sort().join(',');
   const changedMeters = state.rootMeters !== rootMeters;
-  if (!state.initialized || changedMeters || nextImportBatch(state, Date.now())) {
+  if (!state.initialized || state.sourceVersion!==1 || changedMeters || nextImportBatch(state, Date.now())) {
     await vault.loadElectricityRecords(['state/import'], true);
     state = vault.cachedElectricityRecord('state/import');
-    if (!state.initialized || state.rootMeters !== rootMeters || nextImportBatch(state, Date.now())) {
+    if (!state.initialized || state.sourceVersion!==1 || state.rootMeters !== rootMeters || nextImportBatch(state, Date.now())) {
       if (!await claimLease(vault, owner)) return false;
       state = vault.cachedElectricityRecord('state/import');
     }
     await readKeys(vault, [...(watched.get(vault) ?? [])].filter(key => key !== 'state/import'), true);
   }
-  if (!state.initialized || state.rootMeters !== rootMeters) {
+  if (!state.initialized || state.sourceVersion!==1 || state.rootMeters !== rootMeters) {
     await checkLease(vault, owner);
     const bounds = await provider({ action: 'history' });
     if (!Array.isArray(bounds.meters) || !bounds.meters.length) throw new Error('Ingen tilgængelige forbrugsmålere blev fundet.');
@@ -140,9 +140,9 @@ async function initialize(vault: EnergyVault, provider: Provider, owner: string)
         const old = (current.meters ?? []).find((meter: any) => meter.metering_point_id === bound.metering_point_id);
         const root = vault.data.meters.find(meter => meter.metering_point_id === bound.metering_point_id);
         const end = bound.to && bound.to < through ? bound.to : through;
-        return old ? { ...old, from: bound.from, to: bound.to, cursor: old.cursor < end ? old.cursor : end } : { ...bound, id: root?.id ?? bound.metering_point_id, cursor: end, importedTo: end };
+        return old ? { ...old, from: bound.from, to: bound.to, cursor:current.sourceVersion===1?(old.cursor < end ? old.cursor : end):end } : { ...bound, id: root?.id ?? bound.metering_point_id, cursor: end, importedTo: end };
       });
-      return { 'state/import': { ...current, initialized: true, rootMeters, meters } };
+      return { 'state/import': { ...current, initialized: true, sourceVersion:1, rootMeters, meters } };
     });
   }
   // Another device may already have imported the new day: consult the DB before
@@ -156,19 +156,22 @@ async function importBatch(vault: EnergyVault, provider: Provider, batch: NonNul
   let state = vault.cachedElectricityRecord('state/import');
   const requestedMeters = batch.direction === 'gap' ? state.meters.filter((meter: any) => meter.from <= batch.from && (!meter.to || meter.to > batch.from)) : [batch.meter];
   const imported: any[] = [];
+  const original: any[] = [];
   const checked = new Map<string, string[]>();
   let finished = false;
   try {
   for (const meter of requestedMeters) {
-    const missing = days.filter(day => !hourComplete(vault.cachedElectricityRecord(`hour/${day}`), meter.id, day));
+    const missing = days.filter(day => !hourComplete(vault.cachedElectricityRecord(`hour/${day}`), meter.id, day)||!sourceFetched(vault.cachedElectricityRecord(`hour/${day}`),meter.id));
     // Split around complete cached days; never include them in provider ranges.
     for (let index = 0; index < missing.length;) {
       let end = index + 1;
       while (end < missing.length && missing[end] === advance(missing[end - 1]!, 'day')) end++;
       const from = missing[index]!, to = advance(missing[end - 1]!, 'day');
       await checkLease(vault, owner);
-      const result = await provider({ action: 'timeseries', meteringPointId: meter.metering_point_id, from, to, aggregation: 'Hour' });
-      imported.push(...meterReadings(result, meter.metering_point_id, 'hour').map(row => ({ ...row, meter_id: meter.id, resolution: 'hour' })));
+      const result = await provider({ action: 'timeseries', meteringPointId: meter.metering_point_id, from, to, aggregation: 'Actual' });
+      const source=meterReadings(result,meter.metering_point_id,'actual');
+      original.push(...source.map(row=>({...row,meter_id:meter.id})));
+      imported.push(...sourceHours(source).map(row => ({ ...row, meter_id: meter.id, resolution: 'hour' })));
       for (const day of missing.slice(index, end)) checked.set(day, [...(checked.get(day) ?? []), meter.id]);
       index = end;
     }
@@ -180,7 +183,7 @@ async function importBatch(vault: EnergyVault, provider: Provider, batch: NonNul
     if (latest['state/import'].lease?.owner !== owner) throw new Error('Historikken opdateres på en anden enhed.');
     const updates: Record<string, any> = {};
     for (const day of savedDays) {
-      const merged = mergeDayRecords({ ...latest, ...updates }, day, imported, latest['state/import'].meters, checked.get(day) ?? [], Date.now());
+      const merged = mergeDayRecords({ ...latest, ...updates }, day, imported, latest['state/import'].meters, checked.get(day) ?? [], Date.now(),original);
       Object.assign(updates, merged);
     }
     state = updates['state/import'];
@@ -188,6 +191,7 @@ async function importBatch(vault: EnergyVault, provider: Provider, batch: NonNul
     const meter = state.meters.find((item: any) => item.id === batch.meter.id);
     if (finished && batch.direction === 'history' && meter.cursor > batch.from) meter.cursor = batch.from;
     if (finished && batch.direction === 'new' && meter.importedTo < batch.to) meter.importedTo = batch.to;
+    if(finished){state.lastImportedFrom=batch.from;state.lastImportedTo=batch.to;}
     return updates;
   });
   emit(vault);

@@ -1,0 +1,11 @@
+import assert from 'node:assert/strict';
+import {analyzeAerialOpenings} from '../src/services/aerial-openings-server.mjs';
+process.env.GEMINI_API_KEY='synthetic-only';
+const quad=[[.1,.2],[.3,.2],[.3,.5],[.1,.5]],patches=[{viewId:'photo-0',image:'synthetic'}];
+const run=raw=>analyzeAerialOpenings(patches,async(_url,options)=>{assert.equal(options.headers['x-goog-api-key'],'synthetic-only');const input=JSON.parse(options.body);assert.ok(input.generationConfig.responseSchema);return {ok:true,json:async()=>({candidates:[{finishReason:'STOP',content:{parts:[{text:JSON.stringify(raw)}]}}]})};});
+const opening={kind:'window',quad,confidence:.9,frameColor:'#ffffff',panelColor:'#344e60'};
+const result=await run({version:1,views:[{viewId:'photo-0',openings:[opening,{...opening,confidence:.5}]}]});assert.equal(result.views[0].openings.length,1);
+await assert.rejects(run({version:1,views:[{viewId:'invented',openings:[opening]}]}));
+await assert.rejects(run({version:1,views:[{viewId:'photo-0',openings:[{...opening,quad:[[2,0],[1,0],[1,1],[0,1]]}]}]}));
+await assert.rejects(run({version:1,views:[{viewId:'photo-0',openings:[{...opening,kind:'rooflight'}]}]}));
+console.log('Aerial analysis: strict schema, source-view binding, normalized contours, confidence and kinds pass. Synthetic provider only.');

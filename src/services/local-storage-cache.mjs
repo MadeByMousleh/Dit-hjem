@@ -3,7 +3,7 @@
 export const PUBLIC_CACHE_BUDGET = 2 * 1024 * 1024;
 export const PERIOD_CACHE_BUDGET = 12 * 1024 * 1024;
 export const isStorageFull = error => /SQLITE_FULL|database or disk is full|code\s*13\b|quota.?exceeded/i.test(String(error?.message ?? error));
-const publicKey = key => key.startsWith('stromblik.public-history.v1.') || key.startsWith('stromblik.public-prices.v1.');
+const publicKey = key => /^stromblik\.public-(history|prices)\.(v1|energinet-v1)\./.test(key);
 const periodKey = key => /^stromblik\.vault\.[a-zA-Z0-9_-]+\.[a-zA-Z0-9_-]+\.period\.(?:(?:hour|day|month|year)\/\d{4}(?:-\d{2}){0,2}|state\/import)$/.test(key);
 const size = (key, value) => (key.length + value.length) * 2 + 256;
 const policies = new WeakMap();

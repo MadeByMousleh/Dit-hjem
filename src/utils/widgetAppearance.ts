@@ -1,3 +1,4 @@
+import {validPriceLimits,type PriceLimits} from './priceLimits';
 import { colors } from '../styles/theme';
 import { electricityWidgetIds, type ElectricityWidgetId } from './electricityWidgets';
 import type { WidgetSpan } from './widgetDrag';
@@ -13,9 +14,11 @@ export const widgetBackgrounds = [
   { id: 'charcoal', label: 'Koksgrå', color: '#292D35' },
 ] as const;
 export type WidgetSize = 'normal' | 'medium' | 'tiny';
-export type WidgetAppearance = { background: typeof widgetBackgrounds[number]['id']; text: 'auto' | 'dark' | 'white'; size?: WidgetSize | 'compact' | 'large'; columns?: number; rows?: number; gridVersion?: 2 | 3 };
+export type WidgetAppearance = { priceMode?: "total"|"spot"; priceLimits?: PriceLimits; background: typeof widgetBackgrounds[number]['id']; text: 'auto' | 'dark' | 'white'; size?: WidgetSize | 'compact' | 'large'; columns?: number; rows?: number; gridVersion?: 2 | 3 };
 export const widgetSize = (appearance?: WidgetAppearance): WidgetSize => appearance?.size === 'tiny' ? 'tiny' : appearance?.size === 'medium' || appearance?.size === 'compact' ? 'medium' : 'normal';
+export const fixedSizeWidget=(id:string)=>['price','priceChart','usageChart'].includes(id);
 export function widgetSpan(id: ElectricityWidgetId, appearance?: WidgetAppearance): WidgetSpan {
+  if(fixedSizeWidget(id))return {columns:12,rows:id==='price'?18:id==='priceChart'?40:48};
   const size = widgetSize(appearance);
   const min = widgetMinimumSpan(id);
   const columns = appearance?.columns === undefined ? size === 'tiny' ? 6 : 12 : appearance.gridVersion === 3 ? appearance.columns : appearance.columns * (appearance.gridVersion === 2 ? 3 : 6);
@@ -51,7 +54,7 @@ export function parseWidgetAppearances(raw: string | null): WidgetAppearances {
   for (const id of electricityWidgetIds) {
     const value = source?.[id];
     if (widgetBackgrounds.some(item => item.id === value?.background) && ['auto', 'dark', 'white'].includes(value?.text)) {
-      result[id] = { background: value.background, text: value.text, ...(['compact', 'large', 'normal', 'medium', 'tiny'].includes(value.size) ? { size: widgetSize(value) } : {}), ...(Number.isInteger(value.columns) && value.columns >= 1 && value.columns <= (value.gridVersion === 3 ? 24 : value.gridVersion === 2 ? 8 : 2) ? { columns: value.columns } : {}), ...(Number.isInteger(value.rows) && value.rows >= 1 && value.rows <= (value.gridVersion === 3 ? 96 : value.gridVersion === 2 ? 24 : 3) ? { rows: value.rows } : {}), ...([2, 3].includes(value.gridVersion) ? { gridVersion: value.gridVersion } : {}) };
+      result[id] = { ...(["total","spot"].includes(value.priceMode)?{priceMode:value.priceMode}:{}), background: value.background, text: value.text, ...(validPriceLimits(value.priceLimits)?{priceLimits:value.priceLimits}:{}), ...(['compact', 'large', 'normal', 'medium', 'tiny'].includes(value.size) ? { size: widgetSize(value) } : {}), ...(Number.isInteger(value.columns) && value.columns >= 1 && value.columns <= (value.gridVersion === 3 ? 24 : value.gridVersion === 2 ? 8 : 2) ? { columns: value.columns } : {}), ...(Number.isInteger(value.rows) && value.rows >= 1 && value.rows <= (value.gridVersion === 3 ? 96 : value.gridVersion === 2 ? 24 : 3) ? { rows: value.rows } : {}), ...([2, 3].includes(value.gridVersion) ? { gridVersion: value.gridVersion } : {}) };
     }
   }
   return result;

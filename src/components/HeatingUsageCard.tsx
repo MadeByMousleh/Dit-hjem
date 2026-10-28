@@ -1,6 +1,10 @@
+import {AppText as Text} from './AppText';
+import {cardStyles} from '../styles/cards';
+import {LoadingState} from './LoadingState';
+import {HapticPressable as Pressable} from './HapticPressable';
 import { AppIcon } from './AppIcon';
 import { useMemo, useRef, useState } from 'react';
-import { ActivityIndicator, Pressable, ScrollView, StyleSheet, Text, TextInput, View } from 'react-native';
+import { ActivityIndicator, ScrollView, StyleSheet, TextInput, View } from 'react-native';
 import Svg, { Circle, Line, Path, Rect } from 'react-native-svg';
 import { useEforsyning } from '../hooks/useEforsyning';
 import { useDashboardViewState } from '../hooks/useDashboardViewState';
@@ -25,7 +29,6 @@ export function HeatingUsageCard({ heat, widget = false, onScrubChange }: { heat
   const [selected, setSelected] = useState('');
   const [width, setWidth] = useState(0);
   const [picker, setPicker] = useState(false);
-  const [overview, setOverview] = useState(true);
   const history = useMemo(() => [...heat.histories].sort((a, b) => b.fetchedAt.localeCompare(a.fetchedAt))[0], [heat.histories]);
   const readings = useMemo(() => heat.histories.filter(item => item.installation === history?.installation && item.supplier === history?.supplier)
     .sort((a, b) => a.fetchedAt.localeCompare(b.fetchedAt)).flatMap(item => item.readings), [heat.histories, history]);
@@ -46,8 +49,8 @@ export function HeatingUsageCard({ heat, widget = false, onScrubChange }: { heat
   const expected = chosen ? chosen.expected : measured.length && measured.every(point => point.expected !== null) ? measured.reduce((sum, point) => sum + point.expected!, 0) : null;
   const cost = estimateHeatingVariableCostFromGj(total);
   const expectedCost = estimateHeatingVariableCostFromGj(expected);
-  const max = Math.max(0.001, ...points.flatMap(point => [point.actual ?? 0, point.expected ?? 0]));
-  const slotWidth = overview && width ? Math.max(7, (width - 16) / Math.max(1, points.length)) : 21;
+  const max = useMemo(() => Math.max(0.001, ...points.flatMap(point => [point.actual ?? 0, point.expected ?? 0])), [points]);
+  const slotWidth = width ? Math.max(1, width - 16) / Math.max(1, points.length) : 21;
   const chartWidth = slotWidth * points.length;
   const barWidth = Math.max(2, Math.min(32, slotWidth - 2));
   const selectedIndex = points.findIndex(point => point.date === selected);
@@ -65,13 +68,15 @@ export function HeatingUsageCard({ heat, widget = false, onScrubChange }: { heat
     contentWidth: chartWidth + 16, scrollRef: chartScrollRef, onSelect: selectBar, onScrubChange });
   const labelEvery = Math.max(1, Math.ceil(38 / slotWidth));
   const y = (value: number) => chartHeight - value / max * barScale;
-  let connected = false;
-  const path = points.map((point, index) => {
+  const path = useMemo(() => {
+   let connected = false;
+   return points.map((point, index) => {
     if (point.expected === null) { connected = false; return ''; }
     const segment = `${connected ? 'L' : 'M'} ${slotWidth * (index + 0.5)} ${y(point.expected)}`;
     connected = true;
     return segment;
-  }).join(' ');
+   }).join(' ');
+  }, [points, slotWidth, max]);
   const moveDate = (direction: number) => {
     const current = new Date(`${anchor}T12:00:00Z`);
     current.setUTCDate(1);
@@ -89,6 +94,7 @@ export function HeatingUsageCard({ heat, widget = false, onScrubChange }: { heat
 
   return <View style={widget ? { padding: 8, backgroundColor: colors.white, borderRadius: 16 } : s.card}>
     {!widget ? <Text style={s.title}>Dit varmeforbrug</Text> : null}
+    {!history && !heat.error && (heat.loading || heat.connected === null) ? <LoadingState label="Henter dit varmeforbrug…" variant="chart" compact={widget}/> : null}
     {history ? <>
       <View style={s.tabs}>{modes.map(([mode, name]) => <Pressable key={mode} accessibilityRole="button" accessibilityState={{ selected: period === mode }} onPress={() => { setPeriod(mode); setSelected(''); }} style={[s.tab, period === mode && s.activeTab]}><Text style={[s.tabText, period === mode && s.activeTabText]}>{name}</Text></Pressable>)}</View>
 
@@ -126,20 +132,19 @@ export function HeatingUsageCard({ heat, widget = false, onScrubChange }: { heat
               ? <Rect key={point.date} x={slotWidth * (index + 0.5) - barWidth / 2} y={chartHeight - 3} width={barWidth} height={3} rx={1.5} fill={colors.line} />
               : <Rect key={point.date} x={slotWidth * (index + 0.5) - barWidth / 2} y={point.actual > 0 ? y(point.actual) : chartHeight} width={barWidth} height={point.actual > 0 ? chartHeight - y(point.actual) : 0} rx={5} fill={point.date === selected ? colors.primary : '#B9D9BE'} />)}
             <Path d={path} stroke="#C2410C" strokeWidth={3} strokeLinecap="round" strokeLinejoin="round" fill="none" />
-            {points.map((point, index) => point.expected === null ? null : <Circle key={point.date} cx={slotWidth * (index + 0.5)} cy={y(point.expected)} r={overview ? 2.5 : 3.5} fill="#C2410C" stroke={colors.white} strokeWidth={1} />)}
+            {points.map((point, index) => point.expected === null ? null : <Circle key={point.date} cx={slotWidth * (index + 0.5)} cy={y(point.expected)} r={2.5} fill="#C2410C" stroke={colors.white} strokeWidth={1} />)}
           </Svg>
           <View style={s.slotRow}>{points.map((point, index) => {
             const selectedPoint = point.date === selected;
             const showLabel = selectedPoint || (index % labelEvery === 0 && (selectedIndex < 0 || Math.abs(index - selectedIndex) >= labelEvery));
             return <Pressable key={point.date} accessibilityRole="button" accessibilityLabel={`${point.date}: brugt ${valueText(point.actual)}, forventet ${valueText(point.expected)}`} accessibilityState={{ selected: selectedPoint }}
               accessibilityHint="Hold og træk for at vælge andre søjler"
-              delayLongPress={300} onLongPress={event => barScrub.begin(index, event.nativeEvent.pageX)}
+              delayLongPress={25} onLongPress={event => barScrub.begin(index, event.nativeEvent.pageX)}
               onPress={() => { if (!barScrub.shouldIgnorePress()) { if (selectedPoint) setSelected(''); else selectBar(index); } }}
               style={[s.slot, { width: slotWidth }]}><Text numberOfLines={1} style={[s.tick, selectedPoint && s.selectedTick]}>{showLabel ? period === 'year' ? point.date : period === 'month' ? point.date.slice(5, 7) : point.date.slice(8) : ''}</Text></Pressable>;
           })}</View>
         </View>
       </ScrollView></View>
-      {points.length > 12 ? <Pressable accessibilityRole="button" onPress={() => setOverview(value => !value)} style={[s.detailButton, s.zoom]}><Text style={s.detailButtonText}>{overview ? 'Større søjler' : 'Vis hele perioden'}</Text></Pressable> : null}
 
       <View style={s.actions}><Pressable disabled={heat.loading} onPress={() => void heat.refresh()}><Text style={s.link}>Opdater</Text></Pressable><Pressable disabled={heat.loading} onPress={() => { heat.setPassword(''); setEditing(value => !value); }}><Text style={s.link}>{editing ? 'Annuller' : 'Skift login'}</Text></Pressable></View>
     </> : null}
@@ -155,44 +160,44 @@ export function HeatingUsageCard({ heat, widget = false, onScrubChange }: { heat
       <Pressable accessibilityRole="button" disabled={heat.loading || !heat.username || !heat.password} onPress={() => { void heat.login().then(success => { if (success) { setEditing(false); setSelected(''); } }); }} style={[s.button, (heat.loading || !heat.username || !heat.password) && { opacity: 0.5 }]}><Text style={s.buttonText}>Forbind varme</Text></Pressable>
     </> : null}
     {!history && heat.connected === true ? <Pressable accessibilityRole="button" disabled={heat.loading} onPress={() => void heat.refresh()}><Text style={s.link}>Hent varmedata</Text></Pressable> : null}
-    {heat.loading ? <ActivityIndicator color={colors.primary} style={{ marginTop: 12 }} /> : null}
+    {heat.loading && (!!history || !!heat.error) ? <ActivityIndicator color={colors.primary} style={{ marginTop: 12 }} /> : null}
     {heat.error ? <Text accessibilityRole="alert" style={s.error}>{heat.error}</Text> : null}
   </View>;
 }
 
 const s = StyleSheet.create({
-  card: { padding: 24, marginBottom: 24, borderRadius: 24, backgroundColor: colors.white },
-  title: { fontFamily: 'Nunito_700Bold', fontSize: 17, color: colors.ink, letterSpacing: -0.2 },
+  card: cardStyles.card,
+  title: cardStyles.title,
   total: { fontFamily: 'Nunito_700Bold', fontSize: 31, color: colors.ink, marginTop: 3, letterSpacing: -0.8 },
-  note: { fontFamily: 'Nunito_400Regular', fontSize: 11, color: colors.muted, marginTop: 8, lineHeight: 16 },
+  note: { fontFamily: 'Nunito_400Regular', fontSize:12, color: colors.muted, marginTop: 8, lineHeight:18 },
   costCard: { marginTop: 14, borderRadius: 24, backgroundColor: colors.primarySoft, padding: 13 },
   costHeading: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', gap: 8 },
   costTitle: { flex: 1, fontFamily: 'Nunito_700Bold', fontSize: 12, color: colors.ink },
-  costRate: { fontFamily: 'Nunito_700Bold', fontSize: 11, color: colors.primary },
+  costRate: { fontFamily: 'Nunito_700Bold', fontSize:12, color: colors.primary },
   costRow: { flexDirection: 'row', gap: 10, marginTop: 11 },
   costMetric: { flex: 1 },
-  costLabel: { fontFamily: 'Nunito_500Medium', fontSize: 10, color: colors.muted },
+  costLabel: { fontFamily: 'Nunito_500Medium', fontSize:12, color: colors.muted },
   costValue: { fontFamily: 'Nunito_700Bold', fontSize: 20, color: colors.ink, marginTop: 2, letterSpacing: -0.4 },
-  costNote: { fontFamily: 'Nunito_400Regular', fontSize: 10, color: colors.muted, marginTop: 8 },
+  costNote: { fontFamily: 'Nunito_400Regular', fontSize:12, color: colors.muted, marginTop: 8 },
   connectIntro: { fontFamily: 'Nunito_400Regular', fontSize: 12, lineHeight: 18, color: colors.muted, marginTop: 10 },
-  inputLabel: { fontFamily: 'Nunito_700Bold', fontSize: 11, color: colors.ink, marginTop: 16 },
-  input: { borderWidth: 1, borderColor: colors.line, borderRadius: 12, padding: 12, color: colors.ink, marginTop: 12 },
+  inputLabel: { fontFamily: 'Nunito_700Bold', fontSize:12, color: colors.ink, marginTop: 16 },
+  input: {fontFamily:'Nunito_500Medium',fontSize:16, borderWidth: 1, borderColor: colors.line, borderRadius: 12, padding: 12, color: colors.ink, marginTop: 12 },
   button: { backgroundColor: colors.primary, borderRadius: 22, alignItems: 'center', padding: 13, marginVertical: 12 },
   buttonText: { color: colors.white, fontFamily: 'Nunito_700Bold' },
   tabs: { flexDirection: 'row', padding: 4, backgroundColor: colors.paper, borderRadius: 16, marginTop: 18 },
-  tab: { flex: 1, alignItems: 'center', justifyContent: 'center', minHeight: 42, borderRadius: 12 },
+  tab: { flex: 1, alignItems: 'center', justifyContent: 'center', minHeight:48, borderRadius: 12 },
   activeTab: { backgroundColor: colors.primary },
   tabText: { color: colors.ink, fontFamily: 'Nunito_700Bold', fontSize: 12 },
   activeTabText: { color: colors.white },
   periodRow: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', marginVertical: 14 },
-  arrow: { width: 42, height: 42, borderRadius: 21, backgroundColor: colors.paper, alignItems: 'center', justifyContent: 'center' },
+  arrow: { width:48, height:48, borderRadius: 21, backgroundColor: colors.paper, alignItems: 'center', justifyContent: 'center' },
   disabled: { opacity: 0.3 },
   periodButton: { flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 7, paddingHorizontal: 12, minHeight: 48 },
   periodText: { color: colors.ink, fontFamily: 'Nunito_700Bold', fontSize: 15, textTransform: 'capitalize' },
   summary: { flexDirection: 'row', alignItems: 'flex-end', borderTopWidth: 1, borderTopColor: colors.line, paddingTop: 14 },
   summaryLabel: { fontFamily: 'Nunito_500Medium', fontSize: 12, color: colors.muted },
   detailButton: { backgroundColor: colors.primarySoft, paddingHorizontal: 10, paddingVertical: 7, borderRadius: 12, marginBottom: 4 },
-  detailButtonText: { color: colors.primary, fontFamily: 'Nunito_700Bold', fontSize: 11 },
+  detailButtonText: { color: colors.primary, fontFamily: 'Nunito_700Bold', fontSize:12 },
   chartScale: { fontFamily: 'Nunito_400Regular', fontSize: 11, lineHeight: 17, color: colors.muted, textAlign: 'right', marginTop: 19 },
   chart: { alignItems: 'flex-end', paddingTop: 10, paddingBottom: 2, paddingHorizontal: 8 },
   slotRow: { flexDirection: 'row', position: 'absolute', top: 0, left: 0 },
@@ -201,10 +206,9 @@ const s = StyleSheet.create({
   selectedTick: { color: colors.primary, fontFamily: 'Nunito_700Bold' },
   legend: { flexDirection: 'row', alignItems: 'center', gap: 12, marginTop: 10 },
   legendItem: { flexDirection: 'row', alignItems: 'center', gap: 5 },
-  legendText: { fontFamily: 'Nunito_500Medium', fontSize: 11, color: colors.muted },
+  legendText: { fontFamily: 'Nunito_500Medium', fontSize:12, color: colors.muted },
   actualKey: { width: 12, height: 12, borderRadius: 3, backgroundColor: '#B9D9BE' },
   expectedKey: { width: 16, borderTopWidth: 3, borderColor: '#C2410C', borderRadius: 2 },
-  zoom: { alignSelf: 'flex-end', marginTop: 10 },
   actions: { flexDirection: 'row', gap: 20, marginTop: 14 },
   link: { color: colors.primary, fontFamily: 'Nunito_700Bold', fontSize: 12 },
   error: { color: colors.coral, marginTop: 12, fontSize: 12 },

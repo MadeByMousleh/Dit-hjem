@@ -1,0 +1,2 @@
+export type PriceShare={algorithm:string;from:string;to:string;area:string;expectedDays:number;completeDays:number;missingUsageDays:number;missingPriceDays:number;flatDays:number;firstDay:string|null;lastDay:string|null;totalKwh:number;kwh:Record<'cheap'|'other'|'expensive',number>;shares:Record<'cheap'|'other'|'expensive',number>|null};
+export function electricityPriceShare(records:Record<string,unknown>,prices:Array<{price_area:string;starts_at:string;ends_at:string;price_dkk_mwh:number|string}>,range:{from:string;to:string;area:'DK1'|'DK2'}):PriceShare;

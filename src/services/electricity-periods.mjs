@@ -1,4 +1,4 @@
-import { advance, danishDate, expectedIntervals, midnight } from './consumption-data.mjs';
+import { advance, danishDate, expectedIntervals, midnight,sourceHours } from './consumption-data.mjs';
 
 export function daysBetween(from, to) {
   const days = [];
@@ -20,6 +20,13 @@ export function hourComplete(payload, meterId, day) {
   const values = payload?.meters?.[meterId]?.values;
   return Array.isArray(values) && values.length === expectedIntervals(day, advance(day, 'day'), 'hour').length && values.every(value => typeof value === 'number' && Number.isFinite(value) && value >= 0);
 }
+export function sourceFetched(payload,meterId){return payload?.meters?.[meterId]?.source?.version===1;}
+export function importProgress(state,now=Date.now()){
+ let totalDays=0,processedDays=0;
+ for(const meter of state?.meters??[]){const end=meter.to&&meter.to<eligibleThrough(now)?meter.to:eligibleThrough(now);if(meter.from>=end)continue;const total=daysBetween(meter.from,end).length,pendingHistory=meter.cursor>meter.from?daysBetween(meter.from,meter.cursor<end?meter.cursor:end).length:0,pendingNew=meter.importedTo<end?daysBetween(meter.importedTo>meter.from?meter.importedTo:meter.from,end).length:0;totalDays+=total;processedDays+=Math.max(0,total-pendingHistory-pendingNew);}
+ if(state?.sourceVersion!==1)processedDays=0;
+ return {totalDays,processedDays,percent:totalDays?Math.floor(processedDays/totalDays*100):0,missingDays:Object.keys(state?.gaps??{}).length,lastFrom:state?.lastImportedFrom??null,lastTo:state?.lastImportedTo??null};
+}
 function totalPoint(at, points, expected) {
   const indexed = new Map(points.map(point => [point.at, point]));
   let sum = 0, present = false, incomplete = false;
@@ -35,7 +42,7 @@ function replacePoint(record, point) {
 }
 
 // Compact vectors use the real Danish day's expected UTC intervals (23/24/25).
-export function mergeDayRecords(latest, day, imported, descriptors, checkedIds, now) {
+export function mergeDayRecords(latest, day, imported, descriptors, checkedIds, now, sourceRows=null) {
   const key = `hour/${day}`, intervals = expectedIntervals(day, advance(day, 'day'), 'hour');
   const old = latest[key];
   const hour = { v: 1, day, meters: structuredCloneSafe(old?.meters ?? {}), points: [] };
@@ -45,8 +52,18 @@ export function mergeDayRecords(latest, day, imported, descriptors, checkedIds, 
     const previous = hour.meters[id]?.values ?? [];
     hour.meters[id] = { checkedAt: now, values: intervals.map((interval, index) => {
       const row = rows.get(interval.starts_at);
-      return row?.ends_at === interval.ends_at && row.kwh != null ? row.kwh : previous[index] ?? null;
+      return row?.ends_at === interval.ends_at ? row.kwh : previous[index] ?? null;
     }) };
+    const source=(sourceRows??[]).filter(row=>row.meter_id===id&&row.starts_at>=midnight(day)&&row.starts_at<midnight(advance(day,'day')));
+    if(sourceRows!==null){
+      const previousSource=old?.meters?.[id]?.source,retained=(previousSource?.version===1?previousSource.intervals:[])??[];
+      const tuples=source.map(row=>[row.starts_at,row.ends_at,row.resolution,row.kwh,row.quality,row.reportedKwh,row.rawQuantity]);
+      const combined=[...retained.filter(tuple=>!tuples.some(row=>row[0]<tuple[1]&&row[1]>tuple[0])),...tuples].sort((a,b)=>a[0].localeCompare(b[0]));
+      hour.meters[id].source={version:1,aggregation:'Actual',checkedAt:now,from:day,to:advance(day,'day'),responseIntervals:source.length,columns:['starts_at','ends_at','resolution','kwh','quality','reportedKwh','rawQuantity'],intervals:combined};
+      const derived=new Map(sourceHours(combined.map(row=>({starts_at:row[0],ends_at:row[1],kwh:row[3]}))).map(row=>[row.starts_at,row]));
+      hour.meters[id].values=intervals.map((interval,index)=>derived.has(interval.starts_at)?derived.get(interval.starts_at).kwh:hour.meters[id].values[index]);
+    }
+    else if(old?.meters?.[id]?.source)hour.meters[id].source=old.meters[id].source;
   }
   hour.points = intervals.map((_, index) => {
     let sum = 0, present = false, incomplete = expectedMeters.length === 0;
@@ -104,12 +121,15 @@ export function nextImportBatch(state, now = Date.now()) {
     const end = meter.to && meter.to < through ? meter.to : through;
     if (meter.importedTo < end) {
       const from = meter.importedTo > meter.from ? meter.importedTo : meter.from;
-      const days = daysBetween(from, end).slice(0, 31);
+      const monthEnd=advance(from.slice(0,7)+'-01','month');
+      const days = daysBetween(from, end<monthEnd?end:monthEnd);
       if (days.length) return { meter, from: days[0], to: advance(days.at(-1), 'day'), direction: 'new' };
     }
   }
   for (const meter of [...(state.meters ?? [])].sort((a, b) => b.cursor.localeCompare(a.cursor))) if (meter.cursor > meter.from) {
-    const days = daysBetween(meter.from, meter.cursor).slice(-31);
+    const first=meter.cursor.slice(0,7)+'-01',previous=new Date(first+'T12:00:00Z');previous.setUTCMonth(previous.getUTCMonth()-1);
+    const monthStart=meter.cursor===first?previous.toISOString().slice(0,10):first;
+    const days = daysBetween(meter.from>monthStart?meter.from:monthStart,meter.cursor);
     return { meter, from: days[0], to: meter.cursor, direction: 'history' };
   }
   for (const [day, retryAt] of Object.entries(state.gaps ?? {}).sort()) if (Number(retryAt) <= now && day < through) {

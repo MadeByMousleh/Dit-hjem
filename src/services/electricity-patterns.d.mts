@@ -1,0 +1,6 @@
+export type ElectricityBaseline={version:number;algorithm:string;from:string;to:string;effectiveFrom:string|null;lastDay:string|null;completeDays:number;expectedDays:number;recentDays:number;status:string;watts:number|null;kwhPerDay:number|null;changed:boolean;daily:{day:string;kwhPerHour:number}[]};
+export type PatternBucket={index:number;label?:string;totalKwh:number;samples:number;averageKwh:number|null};
+export type ElectricityPatterns={annual?:{year:number;kwh:number;completeDays:number;expectedDays:number};version:1;algorithm:string;from:string;to:string;firstDay:string|null;lastDay:string|null;completeDays:number;missingDays:number;incompleteDays:number;expectedDays:number;coverage:number;totalKwh:number;hours:PatternBucket[];weekdays:PatternBucket[];status:'ready'|'preliminary'|'insufficient_data';peakHours:number[];peakWeekdays:number[];baseline?:ElectricityBaseline;loadFailed?:boolean};
+export const WEEKDAYS:string[];
+export function electricityPatterns(records:Record<string,unknown>,range:{from:string;to:string}):ElectricityPatterns;
+export function loadElectricityPatterns(vault:{loadElectricityRecords:(keys:string[])=>Promise<Record<string,unknown>>;cachedElectricityRecord:(key:string)=>unknown},range:{from:string;to:string;signal?:AbortSignal;onProgress?:(loaded:number,total:number)=>void}):Promise<ElectricityPatterns>;

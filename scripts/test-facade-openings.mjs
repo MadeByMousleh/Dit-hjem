@@ -1,0 +1,18 @@
+import assert from 'node:assert/strict';
+import {build} from 'esbuild';
+const compile=async entry=>{const b=await build({entryPoints:[entry],bundle:true,format:'esm',platform:'node',write:false});return import(`data:text/javascript;base64,${Buffer.from(b.outputFiles[0].text).toString('base64')}`);};
+const {facadePlacement,openingPlacement,validateFacadePlacement,lidarFacadeAnchor}=await compile('src/utils/facade-placement.ts');
+const {buildFacade,disposeFacade}=await compile('src/web/facade-model.ts');
+const face={id:'front',buildingId:'house',a:[0,0],b:[10,0],length:10,height:3};
+const opening={kind:'window',x:.2,y:.25,width:.3,height:.5,confidence:.9,columns:2,verticalBars:[.5],horizontalBars:[],frameColor:'#ffffff',panelColor:'#334455'};
+const model={id:'photo',face,analysis:{confidence:.9,version:2,coverage:'full',material:'brick',wallColor:'#ff0000',frameColor:'#ffffff',openings:[opening]}};
+const p=facadePlacement(model,3);assert.deepEqual(p,{left:0,bottom:0,width:1,height:1,mirror:false});assert.deepEqual(openingPlacement(opening,p,10,3),{x:2,y:.75,width:3,height:1.5});
+assert.equal(openingPlacement(opening,{...p,mirror:true},10,3).x,5);
+assert.equal(facadePlacement({...model,analysis:{...model.analysis,coverage:'partial',aspect:1}},3).width,.3);
+assert.throws(()=>validateFacadePlacement({...p,left:.8,width:.5}));assert.throws(()=>validateFacadePlacement({...p,height:NaN}));
+const anchor=lidarFacadeAnchor(face,{buildingId:'house',ground:7,walls:[0,0,7,0,0,10,10,0,10,10,0,7,0,0,10,10,0,10,0,8,16]});assert.deepEqual(anchor,{base:7,height:3});assert.equal(lidarFacadeAnchor({...face,buildingId:'other'},{buildingId:'house'}),null);
+const group=buildFacade(model,3);assert.equal(group.userData.openingCount,1);assert.ok(group.children.length>5);
+assert.ok(group.children.every(m=>m.geometry.type==='BoxGeometry'),'No replacement wall/photograph plane');assert.ok(group.children.every(m=>m.material.color.getHexString()!=='ff0000'),'AI wall colour must not repaint existing facade');
+disposeFacade(group);
+assert.equal(buildFacade({...model,analysis:{...model.analysis,openings:[]}},3).children.length,0);
+console.log('Facade openings: bounds, partial/full placement, mirroring, LiDAR eaves, no wall recolouring, model geometry and disposal pass.');

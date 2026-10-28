@@ -1,5 +1,7 @@
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { writeOptionalCache } from './services/local-storage-cache.mjs';
+import {API_URL as BACKEND_URL} from './services/supabase';
+import {ENERGINET_GRID_SUPPLIERS} from './services/energinet-tariff-catalog.mjs';
 
 export type PriceArea = "DK1" | "DK2";
 
@@ -8,16 +10,13 @@ export type GridSupplier = {
   name: string;
   companyName?: string;
   area: PriceArea;
+  gln?:string;
+  meterVerified?:boolean;
+  evidenceSource?:string;
+  resolutionIssue?:string;
 };
 
-export const GRID_SUPPLIERS: GridSupplier[] = [
-  { id: "n1_c", name: "N1", area: "DK1" },
-  { id: "n1_344", name: "N1 344", area: "DK1" },
-  { id: "trefor_el-net_c", name: "TREFOR", area: "DK1" },
-  { id: "radius_c", name: "Radius", area: "DK2" },
-  { id: "cerius_c", name: "Cerius", area: "DK2" },
-  { id: "trefor_el-net_oest_c", name: "TREFOR Øst", area: "DK2" },
-];
+export const GRID_SUPPLIERS:GridSupplier[]=ENERGINET_GRID_SUPPLIERS.map(({id,name,companyName,area,gln})=>({id,name,companyName,area:area as PriceArea,gln}));
 
 type SupplierResponse = {
   id: string;
@@ -32,6 +31,12 @@ export type PricePoint = {
   priceDkkMwh: number;
   totalOrePerKwh: number;
   gridAndTaxOrePerKwh: number;
+  intervalMinutes?:15|60;
+  forecast?:boolean;
+  forecastLowerOrePerKwh?:number;
+  forecastUpperOrePerKwh?:number;
+  forecastIssuedAt?:string;
+  forecastProvisional?:boolean;
 };
 
 type PriceComponent = {
@@ -50,29 +55,51 @@ type CompletePriceResponse = {
   prices?: CompletePrice[];
 };
 
-const API_URL = "https://stromligning.dk/api/prices";
-const SUPPLIERS_API_URL = "https://stromligning.dk/api/suppliers";
+const API_URL = BACKEND_URL+'/api/grid/lookup';
+const SUPPLIERS_API_URL = API_URL+'?operation=suppliers';
 const PRICE_TTL = 15 * 60 * 1000;
 const priceCache = new Map<string, { points: PricePoint[]; fetchedAt: number }>();
 const pendingPrices = new Map<string, Promise<PricePoint[]>>();
 const historicPrices = new Map<string, Promise<PricePoint[]>>();
+// Keep decoded public history across screen remounts. The disk cache remains
+// the source after eviction/restart; no household readings enter this cache.
+const historicCache = new Map<string, {points: PricePoint[]; fetchedAt: number}>();
+const historyTtl = (to: string) => Date.parse(to) > Date.now() - 2 * 86400000 ? PRICE_TTL : 7 * 86400000;
+function rememberHistory(key: string, entry: {points: PricePoint[]; fetchedAt: number}) {
+  historicCache.delete(key);
+  historicCache.set(key, entry);
+  let pointCount = [...historicCache.values()].reduce((sum, item) => sum + item.points.length, 0);
+  while (historicCache.size > 12 || pointCount > 40000) {
+    const oldest = historicCache.keys().next().value!;
+    pointCount -= historicCache.get(oldest)!.points.length;
+    historicCache.delete(oldest);
+  }
+  return entry.points;
+}
 
 export function fetchHistoricalPrices(area: PriceArea, supplierId: string, from: string, to: string): Promise<PricePoint[]> {
+  if(!supplierId)return Promise.resolve([]);
   const key = `${area}:${supplierId}:${from}:${to}`;
+  const memory = historicCache.get(key);
+  if (memory && memory.fetchedAt <= Date.now() && Date.now() - memory.fetchedAt < historyTtl(to)) {
+    return Promise.resolve(rememberHistory(key, memory));
+  }
+  historicCache.delete(key);
   const pending = historicPrices.get(key);
   if (pending) return pending;
   const request = (async () => {
-    const storageKey = `stromblik.public-history.v1.${key}`;
+    const storageKey = `stromblik.public-history.energinet-v1.${key}`;
     try {
       const raw = await AsyncStorage.getItem(storageKey);
       const cached = raw ? JSON.parse(raw) : null;
-      if (cached && Date.now() - cached.fetchedAt < 7 * 86400000 && Array.isArray(cached.points)) {
-        return cached.points.map((point: PricePoint) => ({ ...point, startsAt: new Date(point.startsAt) }));
+      const ttl=historyTtl(to);
+      if (cached && Number.isFinite(cached.fetchedAt)&&cached.fetchedAt<=Date.now()&&Date.now() - cached.fetchedAt < ttl && Array.isArray(cached.points)) {
+        return rememberHistory(key, {fetchedAt: cached.fetchedAt, points: cached.points.map((point: PricePoint) => ({ ...point, startsAt: new Date(point.startsAt) }))});
       }
     } catch { /* Fetch fresh public prices. */ }
     const points = await requestPrices(area, supplierId, from, to, false);
     void writeOptionalCache(AsyncStorage, storageKey, JSON.stringify({ fetchedAt: Date.now(), points }));
-    return points;
+    return rememberHistory(key, {points, fetchedAt: Date.now()});
   })().finally(() => historicPrices.delete(key));
   historicPrices.set(key, request);
   return request;
@@ -83,15 +110,20 @@ export function getCachedPrices(area: PriceArea, supplierId: string): PricePoint
   return cached && Date.now() - cached.fetchedAt < PRICE_TTL ? cached.points : undefined;
 }
 
-export async function fetchGridSuppliers(): Promise<GridSupplier[]> {
+let supplierRequest:Promise<GridSupplier[]>|undefined;
+export function fetchGridSuppliers():Promise<GridSupplier[]> {
+ return supplierRequest??(supplierRequest=requestGridSuppliers().catch(error=>{supplierRequest=undefined;throw error;}));
+}
+async function requestGridSuppliers(): Promise<GridSupplier[]> {
   const response = await fetch(SUPPLIERS_API_URL);
   if (!response.ok) throw new Error(`Netselskaberne svarede med ${response.status}`);
-  const suppliers = (await response.json()) as SupplierResponse[];
+  const payload=await response.json();
+  if(payload.source?.id!=='energinet-v1'||!Array.isArray(payload.suppliers))throw Error('Ugyldig netselskabsliste');
+  const suppliers=payload.suppliers as GridSupplier[];
   const unique = new Map<string, GridSupplier>();
   suppliers
-    .filter((supplier) => supplier.customerGroups?.some((group) => group.id === "c"))
-    .filter((supplier) => !supplier.name.toLowerCase().includes("udgået"))
-    .forEach((supplier) => unique.set(supplier.id, { id: supplier.id, name: supplier.name, companyName: supplier.companyName, area: supplier.priceArea }));
+    .filter(supplier=>['DK1','DK2'].includes(supplier.area)&&typeof supplier.id==='string'&&typeof supplier.name==='string')
+    .forEach((supplier) => unique.set(supplier.id, supplier));
   return [...unique.values()].sort((left, right) => left.name.localeCompare(right.name, "da"));
 }
 
@@ -103,7 +135,7 @@ export function fetchPrices(area: PriceArea, supplierId: string, refresh = false
   if (!refresh && cached) return Promise.resolve(cached);
   const request = (async () => {
     // Public tariff data only. Never store household readings or credentials here.
-    const storageKey = `stromblik.public-prices.v1.${key}`;
+    const storageKey = `stromblik.public-prices.energinet-v1.${key}`;
     if (!refresh) {
       try {
         const raw = await AsyncStorage.getItem(storageKey);
@@ -127,19 +159,16 @@ export function fetchPrices(area: PriceArea, supplierId: string, refresh = false
   return request;
 }
 
-async function requestPrices(area: PriceArea, supplierId: string, from?: string, to?: string, forecast = true): Promise<PricePoint[]> {
-  const windowStart = Math.floor(Date.now() / PRICE_TTL) * PRICE_TTL;
+async function requestPrices(area: PriceArea, supplierId: string, from?: string, to?: string, _forecast = false): Promise<PricePoint[]> {
   const query = new URLSearchParams({
-    from: from ?? new Date(windowStart - 72 * 60 * 60 * 1000).toISOString(),
-    to: to ?? new Date(windowStart + 7 * 24 * 60 * 60 * 1000).toISOString(),
+    operation:'prices',
+    ...(from?{from}:{}),...(to?{to}:{}),
     supplierId,
-    customerGroupId: "c",
     priceArea: area,
-    forecast: String(forecast),
   });
   const url = `${API_URL}?${query.toString()}`;
   const controller = new AbortController();
-  const timeout = setTimeout(() => controller.abort(), 15000);
+  const timeout = setTimeout(() => controller.abort(), 60000);
   try {
   const response = await fetch(url, { signal: controller.signal });
 
@@ -147,20 +176,15 @@ async function requestPrices(area: PriceArea, supplierId: string, from?: string,
     throw new Error(`Prisserveren svarede med ${response.status}`);
   }
 
-  const payload = (await response.json()) as CompletePriceResponse;
-  const prices = (payload.prices ?? [])
-    .filter((record) => Number.isFinite(record.price.total))
-    .map((record) => ({
-      startsAt: new Date(record.date),
-      priceDkkMwh: record.details.electricity.total * 800,
-      totalOrePerKwh: record.price.total * 100,
-      gridAndTaxOrePerKwh: (record.price.total - record.details.electricity.total) * 100,
-    }))
-    .sort((left, right) => left.startsAt.getTime() - right.startsAt.getTime());
+  const payload=await response.json();
+  if(payload.source?.id!=='energinet-v1'||!Array.isArray(payload.points))throw Error('Ugyldig priskilde');
+  const prices:PricePoint[]=payload.points.map((record:PricePoint)=>({...record,startsAt:new Date(record.startsAt)}))
+    .sort((left:PricePoint, right:PricePoint) => left.startsAt.getTime() - right.startsAt.getTime());
 
   if (!prices.length) {
     throw new Error("Ingen priser blev fundet for området");
   }
+  if(prices.some(p=>!Number.isFinite(p.startsAt.getTime())||![p.priceDkkMwh,p.totalOrePerKwh,p.gridAndTaxOrePerKwh].every(Number.isFinite)))throw Error('Ugyldige prisdata');
 
   return prices;
   } finally { clearTimeout(timeout); }

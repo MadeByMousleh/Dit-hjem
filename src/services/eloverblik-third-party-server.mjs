@@ -1,7 +1,7 @@
 import { createHash } from 'node:crypto';
 import { createSupabaseContext } from '@supabase/server';
 import { createAuthorizationAttempt } from './eloverblik-authorization-link.mjs';
-import { activeAuthorizations, meteringPointReadings, meteringPointAccessForAuthorization, meteringPointsForAuthorization, ThirdPartyError } from './eloverblik-third-party.mjs';
+import { activeAuthorizations, meteringPointReadings, meteringPointAccessForAuthorization, meteringPointsForAuthorization, meteringPointGridDetails, ThirdPartyError } from './eloverblik-third-party.mjs';
 import { danishDate } from './consumption-data.mjs';
 
 export class EloverblikConnectionError extends Error { constructor(status, message) { super(message); this.status = status; } }
@@ -109,4 +109,10 @@ export async function thirdPartyImportBounds(request, body, dependencies = {}) {
     return { status: 200, body: { meters } };
   } catch (error) { return errorResponse(error, 'Historikkens tilgængelige periode kunne ikke hentes.'); }
 }
-export async function thirdPartyConnectionResponse(request, body, dependencies = {}) { const handler = { begin: beginEloverblikAuthorization, finish: finishEloverblikAuthorization, status: thirdPartyStatus, meters: thirdPartyMeters, timeseries: thirdPartyTimeseries, history: thirdPartyImportBounds }[body?.action]; return handler ? await handler(request, body, dependencies) : { status: 400, body: { error: 'Ukendt Eloverblik-handling.' } }; }
+export async function thirdPartyGrid(request,body,dependencies={}){
+ try{const ctx=await contextFor(request,dependencies.contextFactory);await requireMembership(ctx,body?.householdId);
+  const meters=await meteringPointGridDetails(await connection(ctx,body.householdId),dependencies.env??process.env,dependencies);
+  return {status:200,body:{meters,checkedAt:new Date(dependencies.now??Date.now()).toISOString()}};
+ }catch(error){return errorResponse(error,'Netselskabet kunne ikke bekræftes via Eloverblik.');}
+}
+export async function thirdPartyConnectionResponse(request, body, dependencies = {}) { const handler = { begin: beginEloverblikAuthorization, finish: finishEloverblikAuthorization, status: thirdPartyStatus, meters: thirdPartyMeters, timeseries: thirdPartyTimeseries, history: thirdPartyImportBounds, grid: thirdPartyGrid }[body?.action]; return handler ? await handler(request, body, dependencies) : { status: 400, body: { error: 'Ukendt Eloverblik-handling.' } }; }

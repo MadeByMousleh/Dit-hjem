@@ -23,13 +23,13 @@ function photoWindow(properties, x, y, width, height) {
   const top = Math.max(0,Math.min(height-cropHeight,Math.round(cy-cropHeight/2)));
   return { window: [left,top,left+cropWidth,top+cropHeight], marker: { x: (cx-left)/cropWidth, y: (cy-top)/cropHeight, approximate: true } };
 }
-export async function getHomePhotos({ x, y, direction }, { token = process.env.DATAFORSYNINGEN_TOKEN || process.env.DATAFORSYNING_API_KEY, fetcher = fetch, sourcesOnly = false } = {}) {
+export async function getHomePhotos({ x, y, direction }, { token = process.env.DATAFORSYNINGEN_TOKEN || process.env.DATAFORSYNING_API_KEY, fetcher = fetch, sourcesOnly = false, facadeViews = false } = {}) {
   if (!x || !y) throw problem('Adressen mangler koordinater.', 400);
   x = Number(x); y = Number(y);
   if (!Number.isFinite(x) || !Number.isFinite(y) || x < 7 || x > 16 || y < 54 || y > 59 || (direction && !directions.includes(direction))) throw problem('Ugyldigt billedopslag.', 400);
   if (!token?.trim()) throw problem('Boligbilleder er ikke konfigureret endnu.', 503);
   token = token.trim();
-  const key = `${x.toFixed(6)}:${y.toFixed(6)}`;
+  const key = `${x.toFixed(6)}:${y.toFixed(6)}:${facadeViews?'facades':'gallery'}`;
   const signal = AbortSignal.timeout(20000);
   let entry = cache.get(key);
   if (!entry || Date.now()-entry.at > 3600000) {
@@ -39,7 +39,7 @@ export async function getHomePhotos({ x, y, direction }, { token = process.env.D
         // This provider ignores STAC sortby. Search recent, non-overlapping
         // date windows instead; never let an arbitrary 2017 result win over 2025.
         const year = new Date().getUTCFullYear();
-        let item;
+        let item, selected=[];
         for (let end = year + 1; end > 2014; end -= 2) {
           const start = Math.max(2014, end - 2);
           const params = new URLSearchParams({ limit: '100', datetime: `${start}-01-01T00:00:00Z/${end}-01-01T00:00:00Z`, intersects: JSON.stringify({ type: 'Point', coordinates: [x, y] }), 'filter-lang': 'cql-json', filter: JSON.stringify({ eq: [{ property: 'direction' }, dir] }) });
@@ -47,10 +47,13 @@ export async function getHomePhotos({ x, y, direction }, { token = process.env.D
           if (!response.ok) throw problem('Skråfoto kunne ikke hentes.');
           const data = await response.json();
           if (!Array.isArray(data.features)) throw problem('Ugyldigt billedsvar.');
-          item = data.features.filter(f => f.properties?.direction === dir && Number.isFinite(Date.parse(f.properties?.datetime))).sort((a, b) => Date.parse(b.properties.datetime) - Date.parse(a.properties.datetime))[0];
+          selected = data.features.filter(f => f.properties?.direction === dir && Number.isFinite(Date.parse(f.properties?.datetime))).sort((a, b) => Date.parse(b.properties.datetime) - Date.parse(a.properties.datetime));
+          if(facadeViews&&dir!=='nadir'&&selected.length){const newest=Date.parse(selected[0].properties.datetime),[east,north]=proj4('EPSG:4326','+proj=utm +zone=32 +ellps=GRS80 +units=m +no_defs',[x,y]);const angle=f=>{const c=f.properties['pers:perspective_center'];return c?.length===3?Math.atan2(c[2]-8,Math.hypot(c[0]-east,c[1]-north)):Infinity;};selected=selected.filter(f=>newest-Date.parse(f.properties.datetime)<30*86400000).sort((a,b)=>angle(a)-angle(b));}
+          item = selected[0];
           if (item) break;
         }
         if (!item) return null;
+        return selected.slice(0,facadeViews&&dir!=='nadir'?2:1).map(item=>{
         if (item.properties?.direction !== dir) throw problem('Billedretningen kunne ikke verificeres.');
         const url = new URL(item.assets?.thumbnail?.href);
         const asset = new URL(url.searchParams.get('url'));
@@ -61,8 +64,9 @@ export async function getHomePhotos({ x, y, direction }, { token = process.env.D
         const dimensions = item.properties['pers:interior_orientation']?.sensor_array_dimensions;
         const crop = photoWindow(item.properties, x, y, dimensions?.[0], dimensions?.[1]);
         return { direction: dir, capturedAt: item.properties.datetime, marker: crop.marker, imageUrl: imageUrl.href, asset: asset.href, properties: item.properties };
+        });
       } catch { failures++; return null; }
-    }))).filter(Boolean);
+    }))).flat().filter(Boolean);
     if (!items.length && failures) throw problem('Skråfoto kunne ikke hentes lige nu. Prøv igen senere.');
     entry = { at: Date.now(), items, partial: failures > 0 };
     if (!failures) {

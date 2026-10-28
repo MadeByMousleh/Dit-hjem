@@ -1,0 +1,11 @@
+import assert from 'node:assert/strict';
+import {build} from 'esbuild';
+globalThis.facadeTestStore=new Map();
+const b=await build({entryPoints:['src/services/house-facade.ts'],bundle:true,format:'esm',platform:'node',write:false,plugins:[{name:'storage',setup(b){b.onResolve({filter:/^@react-native-async-storage\/async-storage$|^\.\/supabase$/},args=>({path:args.path,namespace:'mock'}));b.onLoad({filter:/.*/,namespace:'mock'},args=>({contents:args.path.includes('async-storage')?'export default {async getItem(k){return globalThis.facadeTestStore.get(k)||null},async setItem(k,v){globalThis.facadeTestStore.set(k,v)}};':"export const API_URL='https://synthetic.invalid';export async function getSupabase(){throw Error('No auth/network expected')};"}));}}]});
+const {saveFacades,loadFacades}=await import(`data:text/javascript;base64,${Buffer.from(b.outputFiles[0].text).toString('base64')}`);
+const scope={userId:'one',householdId:'household',addressId:'address'},face={id:'face',buildingId:'house',a:[0,0],b:[10,0],length:10,height:3},analysis={version:1,confidence:.9,material:'brick',wallColor:'#aaaaaa',frameColor:'#ffffff',openings:[{kind:'window',x:.2,y:.2,width:.2,height:.4,confidence:.9,columns:1}]},placement={left:.1,bottom:.05,width:.7,height:.8,mirror:true};
+await saveFacades(scope,[{id:'photo',face,analysis,placement}]);assert.deepEqual((await loadFacades(scope,[face]))[0].placement,placement);
+assert.deepEqual(await loadFacades({...scope,userId:'other'},[face]),[]);assert.deepEqual(await loadFacades(scope,[{...face,id:'new-shape'}]),[]);
+await saveFacades(scope,[{id:'legacy',face,analysis}]);assert.equal((await loadFacades(scope,[face]))[0].placement,undefined);
+await assert.rejects(saveFacades(scope,[{id:'invalid',face,analysis,placement:{...placement,width:2}}]));assert.equal((await loadFacades(scope,[face]))[0].id,'legacy');
+console.log('Facade placement persistence: round-trip, account/face isolation, legacy load and invalid-write preservation pass.');

@@ -4,7 +4,7 @@ import { useHouseholdSession } from './useHouseholdSession';
 import { useDashboardViewState } from './useDashboardViewState';
 import { commandSmartThingsProgram, startSmartThingsProgram, commandSmartThingsSwitch, getSmartThingsAuthorizationUrl, getSmartThingsDevices, getSmartThingsStatus, removeSmartThingsConnection, SmartThingsClientError, type SmartThingsDevice } from '../services/smartthings';
 
-export function useSmartThingsConnection(active: boolean) {
+export function useSmartThingsConnection(active: boolean, enabled = true) {
   const { session } = useHouseholdSession(), user = session?.user.id ?? '';
   const { setActiveTab } = useDashboardViewState();
   const owner = useRef(user); owner.current = user;
@@ -13,7 +13,7 @@ export function useSmartThingsConnection(active: boolean) {
   const [state, setState] = useState({ user, connected: null as boolean | null, devices: [] as SmartThingsDevice[], loading: false, connecting: false, pending: '', error: '', notice: '', truncated: false });
   useEffect(() => { sequence.current++; setState({ user, connected: null, devices: [], loading: false, connecting: false, pending: '', error: '', notice: '', truncated: false }); }, [user]);
   const refresh = useCallback(async () => {
-    if (!user) return;
+    if (!enabled || !user) return;
     const id = ++sequence.current;
     const publish = (changes: Partial<typeof state>) => { if (owner.current === user && id === sequence.current) setState(previous => ({ ...previous, ...changes })); };
     publish({ loading: true, error: '' });
@@ -28,9 +28,10 @@ export function useSmartThingsConnection(active: boolean) {
     } catch (error) {
       publish({ error: error instanceof Error ? error.message : 'SmartThings kunne ikke opdateres.', ...(error instanceof SmartThingsClientError && error.status === 409 ? { connected: false, devices: [] } : {}) });
     } finally { publish({ loading: false }); }
-  }, [user]);
+  }, [user, enabled]);
   useEffect(() => { if (active) void refresh(); }, [active, refresh]);
   useEffect(() => {
+    if (!enabled) return;
     const onReturn = ({ url }: { url: string }) => {
       if (!/^stromblik:\/\/smartthings\/connected(?:[?#]|$)/.test(url)) return;
       setActiveTab('smartthings'); void refresh();
@@ -44,18 +45,18 @@ export function useSmartThingsConnection(active: boolean) {
     const focus = () => { if (active) void refresh(); };
     if (Platform.OS === 'web' && typeof window !== 'undefined') window.addEventListener('focus', focus);
     return () => { live = false; link.remove(); app.remove(); if (Platform.OS === 'web' && typeof window !== 'undefined') window.removeEventListener('focus', focus); };
-  }, [active, refresh, setActiveTab]);
+  }, [active, refresh, setActiveTab, enabled]);
   useEffect(() => {
-    if (Platform.OS !== 'web' || typeof window === 'undefined' || !user) return;
+    if (!enabled || Platform.OS !== 'web' || typeof window === 'undefined' || !user) return;
     const url = new URL(window.location.href);
     if (url.searchParams.get('smartthings') === 'connected') {
       url.searchParams.delete('smartthings'); window.history.replaceState(null, '', url.toString());
       setActiveTab('smartthings'); void refresh();
     }
-  }, [user, refresh, setActiveTab]);
+  }, [user, refresh, setActiveTab, enabled]);
   useEffect(() => () => { sequence.current++; owner.current = ''; }, []);
   const connect = async () => {
-    if (busy.current || !user) return;
+    if (!enabled || busy.current || !user) return;
     busy.current = true; setState(previous => ({ ...previous, connecting: true, error: '', notice: '' }));
     try {
       const url = await getSmartThingsAuthorizationUrl(Platform.OS !== 'web');
@@ -65,7 +66,7 @@ export function useSmartThingsConnection(active: boolean) {
     finally { busy.current = false; if (owner.current === user) setState(previous => ({ ...previous, connecting: false })); }
   };
   const sendCommand = async (deviceId: string, component: string, action: () => Promise<unknown>) => {
-    if (busy.current || owner.current !== user || !user) return;
+    if (!enabled || busy.current || owner.current !== user || !user) return;
     busy.current = true; setState(previous => ({ ...previous, pending: `${deviceId}:${component}`, error: '', notice: '' }));
     try {
       await action();
@@ -80,7 +81,7 @@ export function useSmartThingsConnection(active: boolean) {
   const setProgram = (deviceId: string, component: string, capability: string, program: string) => sendCommand(deviceId, component, () => commandSmartThingsProgram(deviceId, component, capability, program));
   const startProgram = (deviceId: string, component: string, program: string) => sendCommand(deviceId, component, () => startSmartThingsProgram(deviceId, component, program));
   const disconnect = async () => {
-    if (busy.current || !user) return;
+    if (!enabled || busy.current || !user) return;
     busy.current = true; sequence.current++;
     setState(previous => ({ ...previous, connecting: true, error: '' }));
     try {

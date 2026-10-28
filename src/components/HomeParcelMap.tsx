@@ -1,18 +1,21 @@
+import {AppText as Text} from './AppText';
+import {cardStyles} from '../styles/cards';
+import {HapticPressable as Pressable} from './HapticPressable';
 import { useEffect, useState } from 'react';
-import { Image, Pressable, StyleSheet, Text, View } from 'react-native';
+import { Image, StyleSheet, View } from 'react-native';
 import Svg, { Circle, Path, Text as SvgText } from 'react-native-svg';
 import { type HomeGeometry, type XY } from '../services/home-insights';
 import { API_URL } from '../services/supabase';
 import { getCachedPhoto, photoCacheKey } from '../services/home-photo-cache';
 import { colors } from '../styles/theme';
 
-export function useOrthophoto(data:HomeGeometry){
+export function useOrthophoto(data:HomeGeometry,enabled=true){
   const remote=`${API_URL}/api/address/search?${new URLSearchParams({mode:'orthophoto',bbox:data.bbox.join(',')})}`;
   const [uri,setUri]=useState(remote);
-  useEffect(()=>{let active=true;setUri(remote);const key=`ortho-${photoCacheKey(API_URL,data.bbox[0],data.bbox[1])}-${Math.round((data.bbox[2]-data.bbox[0])*100)}`;void getCachedPhoto(key,{direction:'nadir',capturedAt:new Date().toISOString().slice(0,7)},remote).then(value=>{if(active)setUri(value);});return()=>{active=false;};},[remote]);
+  useEffect(()=>{if(!enabled)return;let active=true;setUri(remote);const key=`ortho-${photoCacheKey(API_URL,data.bbox[0],data.bbox[1])}-${Math.round((data.bbox[2]-data.bbox[0])*100)}`;void getCachedPhoto(key,{direction:'nadir',capturedAt:new Date().toISOString().slice(0,7)},remote).then(value=>{if(active)setUri(value);});return()=>{active=false;};},[remote,enabled]);
   return uri;
 }
-export function HomeParcelMap({data}:{data:HomeGeometry}){
+export function HomeParcelMap({data,simple=false}:{data:HomeGeometry;simple?:boolean}){
   const [layer,setLayer]=useState('aerial'),[failed,setFailed]=useState(false);
   const uri=useOrthophoto(data);useEffect(()=>setFailed(false),[uri]);
   const [left,bottom,right,top]=data.bbox;
@@ -31,8 +34,8 @@ export function HomeParcelMap({data}:{data:HomeGeometry}){
     <View style={s.options}>{[['aerial','Luftfoto'],['parcel','Matrikel']].map(([id,label])=><Pressable key={id} accessibilityRole="button" accessibilityState={{selected:layer===id}} onPress={()=>setLayer(id!)} style={[s.chip,layer===id&&s.active]}><Text style={[s.action,layer===id&&{color:colors.white}]}>{label}</Text></Pressable>)}</View>
     {failed&&layer==='aerial'?<Text style={s.note}>Luftfoto kunne ikke indlæses. Registrerede omrids vises stadig.</Text>:null}
     <Text style={s.note}>Rød: boligens bygning · stiplet: matrikelskel</Text>
-    {data.parcels.map(parcel=><View key={parcel.id} style={s.header}><Text style={s.note}>Matrikel {parcel.number} · jordstykke {parcel.id}</Text><Text style={s.action}>{parcel.registeredArea?.toLocaleString('da-DK')??'—'} m²</Text></View>)}
-    <Text style={s.note}>{data.notice}</Text><Text style={s.source}>{data.source}{layer==='aerial'?' · Ortofoto © GeoDanmark/KDS':''}</Text>
+    {data.parcels.map(parcel=><View key={parcel.id} style={s.header}><Text style={s.note}>Matrikel {parcel.number}{simple?'':` · jordstykke ${parcel.id}`}</Text><Text style={s.action}>{parcel.registeredArea?.toLocaleString('da-DK')??'—'} m²</Text></View>)}
+    <Text style={s.note}>{simple?'Arealet gælder de viste jordstykker, som kan være fælles med andre boliger. Kortets skel er vejledende.':data.notice}</Text><Text style={s.source}>{simple?'Matriklen · GeoDanmark / KDS':data.source}{layer==='aerial'?' · Ortofoto © GeoDanmark/KDS':''}</Text>
   </View>;
 }
-const s=StyleSheet.create({card:{backgroundColor:colors.white,borderRadius:24,padding:20,gap:12},header:{flexDirection:'row',alignItems:'center',justifyContent:'space-between',flexWrap:'wrap',gap:8},heading:{fontFamily:'Nunito_700Bold',fontSize:18,color:colors.ink},area:{fontFamily:'Nunito_700Bold',fontSize:22,color:colors.ink},map:{width:'100%',aspectRatio:4/3,overflow:'hidden',borderRadius:18,backgroundColor:'#edf1ed'},options:{flexDirection:'row',gap:8},chip:{minHeight:44,paddingHorizontal:16,borderRadius:14,justifyContent:'center',backgroundColor:colors.paper},active:{backgroundColor:colors.primary},action:{fontFamily:'Nunito_700Bold',fontSize:13,color:colors.primary},note:{fontFamily:'Nunito_400Regular',fontSize:12,lineHeight:18,color:colors.muted},source:{fontFamily:'Nunito_400Regular',fontSize:10,lineHeight:15,color:colors.muted}});
+const s=StyleSheet.create({card:{backgroundColor:colors.white,borderRadius:24,padding:20,gap:12},header:{flexDirection:'row',alignItems:'center',justifyContent:'space-between',flexWrap:'wrap',gap:8},heading:{fontFamily:'Nunito_700Bold',fontSize:18,color:colors.ink},area:{fontFamily:'Nunito_700Bold',fontSize:22,color:colors.ink},map:{width:'100%',aspectRatio:4/3,overflow:'hidden',borderRadius:18,backgroundColor:'#edf1ed'},options:{flexDirection:'row',gap:8},chip:{minHeight:48,paddingHorizontal:16,borderRadius:14,justifyContent:'center',backgroundColor:colors.paper},active:{backgroundColor:colors.primary},action:{fontFamily:'Nunito_700Bold',fontSize:13,color:colors.primary},note:{fontFamily:'Nunito_400Regular',fontSize:12,lineHeight:18,color:colors.muted},source:{fontFamily:'Nunito_400Regular',fontSize:12,lineHeight:18,color:colors.muted}});

@@ -2,11 +2,12 @@ import {fromArrayBuffer} from 'geotiff';
 import {getHomeGeometry} from './home-geometry-server.mjs';
 const cache=new Map();
 const unavailable=()=>Object.assign(new Error('Højdedata kunne ikke hentes.'),{status:502});
-export async function getHomeHeights({id},{apiKey=process.env.DATAFORDELER_API_KEY,fetcher=fetch}={}){
+export async function getHomeHeights({id,surroundings},{apiKey=process.env.DATAFORDELER_API_KEY,fetcher=fetch}={}){
   if(typeof id!=='string'||! /^[0-9a-f-]{36}$/i.test(id))throw Object.assign(new Error('Ugyldig adresse.'),{status:400});
+  if(surroundings!==undefined&&surroundings!=='1')throw Object.assign(new Error('Ugyldigt udsnit.'),{status:400});
   if(!apiKey?.trim())throw Object.assign(new Error('Højdedata er ikke konfigureret.'),{status:503});
-  const cached=cache.get(id);if(cached&&Date.now()-cached.at<86400000)return cached.value;
-  const geometry=await getHomeGeometry({id},{apiKey,fetcher});
+  const key=`${id}:${surroundings??'home'}`,cached=cache.get(key);if(cached&&Date.now()-cached.at<86400000)return cached.value;
+  const geometry=await getHomeGeometry({id,surroundings},{apiKey,fetcher});
   const bbox=geometry.bbox;
   const width=Math.min(256,Math.max(32,Math.ceil((bbox[2]-bbox[0])/0.4)));
   const height=Math.min(256,Math.max(32,Math.ceil((bbox[3]-bbox[1])/0.4)));
@@ -27,5 +28,5 @@ export async function getHomeHeights({id},{apiKey=process.env.DATAFORDELER_API_K
   }
   const [terrain,surface]=await Promise.all([raster('dhm_terraen'),raster('dhm_overflade')]);
   const value={addressId:id,bbox,width,height,terrain,surface,resolution:[(bbox[2]-bbox[0])/width,(bbox[3]-bbox[1])/height],source:'Danmarks Højdemodel · DHM/Terræn og DHM/Overflade · KDS · CC BY 4.0',notice:'Rasterhøjder, ikke en arkitektmodel. Træer og andre objekter kan påvirke tagformen. Optagelsesår er ikke oplyst i dette opslag.',fetchedAt:new Date().toISOString()};
-  if(cache.size>=32)cache.delete(cache.keys().next().value);cache.set(id,{at:Date.now(),value});return value;
+  if(cache.size>=32)cache.delete(cache.keys().next().value);cache.set(key,{at:Date.now(),value});return value;
 }

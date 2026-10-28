@@ -1,6 +1,6 @@
 # Strømblik design system
 
-Updated: 2026-10-03. Applies to Expo web, Android and iOS.
+Updated: 2026-10-24. Applies to Expo web, Android and iOS.
 
 This is Strømblik's design specification, inspired by MobilePay's restrained blue identity. It is not an official MobilePay specification. Runtime tokens live in `src/styles/theme.ts`. The shared palette and primary card surfaces now implement this guide; some older compact controls still need individual refinement.
 
@@ -45,10 +45,10 @@ Keep most of the screen neutral. Use blue to identify interaction and selection.
 
 ## Layout, cards and navigation
 
-- Spacing scale: 4, 8, 12, 16, 24, 32 and 48.
+- Spacing scale: 4, 8, 12, 16, 20, 24, 32 and 48.
 - Mobile page padding: 20; card padding: 20; gap between cards: 16.
-- Cards use white surfaces, a subtle border and a 24 px radius, with 24 px internal padding where the layout allows. Use spacing to establish hierarchy.
-- The UI is completely flat: no shadows, elevation, gradients or decorative glow layers. Separate content with neutral surfaces and whitespace.
+- Cards use white surfaces, a subtle border and a 24 px radius, with 20 px internal padding. Use spacing to establish hierarchy.
+- The UI is completely flat: no shadows, elevation or decorative glow layers; a restrained chart-area fill and gold negative-price markers are deliberate exceptions. Separate content with neutral surfaces and whitespace.
 - Inputs use a 12 px radius and a persistent visible label. Place errors below the relevant field.
 - Category cards live under **Mit hjem**: El, Varme, Bil, Apparater and Affald. Use one consistent icon treatment.
 - Affald opens a dedicated collection page. Notification preferences belong under **Profil → Notifikationer**, using the same row, switch and modal editor as other alerts.
@@ -78,10 +78,10 @@ If the project later chooses licensed Paytype instead:
 | --- | --- | --- |
 | Page title | 30 / 36 | Semibold |
 | Section title | 22 / 28 | Semibold |
-| Card title | 18 / 24 | Semibold |
-| Body | 16 / 24 | Regular |
+| Card title | 18 / 24 | Bold |
+| Body | 14 / 20 | Regular |
 | Button | 16 / 20 | Semibold |
-| Supporting text | 14 / 20 | Regular |
+| Supporting text | 12 / 18 | Regular |
 | Eyebrow | 11 / 16 | Bold, restrained letter spacing |
 
 The scale is our specification, not a measurement of MobilePay's app. Use available font weights rather than assuming a custom font includes every weight.

@@ -1,13 +1,15 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { createSamplePrices, fetchGridSuppliers, fetchPrices, getCachedPrices, GridSupplier, GRID_SUPPLIERS, PricePoint } from "../prices";
+import {useResolvedGridSupplier} from './useResolvedGridSupplier';
 
-const DEFAULT_GRID_SUPPLIER: GridSupplier = { id: "n1_c", name: "N1", area: "DK1" };
 
 export function useEnergyPrices() {
   const [gridSuppliers, setGridSuppliers] = useState<GridSupplier[]>(GRID_SUPPLIERS);
   const [selectedSupplierId, setSelectedSupplierId] = useState("n1_c");
   const [now, setNow] = useState(() => Date.now());
-  const selectedSupplier = gridSuppliers.find((supplier) => supplier.id === selectedSupplierId) ?? DEFAULT_GRID_SUPPLIER;
+  const resolved=useResolvedGridSupplier(gridSuppliers,selectedSupplierId);
+  const selectedSupplier = resolved??{id:'',name:'Afklarer netselskab',area:'DK1' as const,resolutionIssue:'Afklarer netselskabet for din bolig…'};
+  const [seriesKey,setSeriesKey]=useState('');
   const [prices, setPrices] = useState<PricePoint[]>(() => getCachedPrices(selectedSupplier.area, selectedSupplier.id) ?? createSamplePrices(selectedSupplier.area));
   const [loading, setLoading] = useState(() => !getCachedPrices(selectedSupplier.area, selectedSupplier.id));
   const [refreshing, setRefreshing] = useState(false);
@@ -16,8 +18,10 @@ export function useEnergyPrices() {
 
   const load = useCallback(async (refresh = false) => {
     const request = ++sequence.current;
+    if(!selectedSupplier.id){setPrices([]);setIsSample(true);setLoading(false);setRefreshing(false);return;}
     const cached = getCachedPrices(selectedSupplier.area, selectedSupplier.id);
     setPrices(cached ?? createSamplePrices(selectedSupplier.area));
+    setSeriesKey(selectedSupplier.id);
     setIsSample(!cached);
     setRefreshing(refresh);
     setLoading(!cached);
@@ -52,5 +56,6 @@ export function useEnergyPrices() {
     fetchGridSuppliers().then(setGridSuppliers).catch(() => undefined);
   }, []);
 
-  return { gridSuppliers, selectedSupplier, selectedSupplierId, setSelectedSupplierId, now, prices, loading, refreshing, isSample, load };
+  const ready=!!selectedSupplier.id&&seriesKey===selectedSupplier.id;
+  return { gridSuppliers, selectedSupplier, selectedSupplierId, setSelectedSupplierId, now, prices:ready?prices:[], loading: loading || !resolved, refreshing, isSample:isSample||!ready, load };
 }

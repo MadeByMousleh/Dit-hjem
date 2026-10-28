@@ -1,3 +1,6 @@
+import {familyResponse} from './src/services/family-server.mjs';
+import gridLookupEndpoint from './api/grid/lookup.mjs';
+import {getNeighborhoodModelPhotos} from './src/services/home-neighborhood-photos-server.mjs';
 import { createCipheriv, createDecipheriv, createHash, createHmac, randomBytes, randomUUID } from "node:crypto";
 import { createServer } from "node:http";
 import { findAddressSuggestionById, findAddressSuggestions } from './src/services/address-search.mjs';
@@ -18,6 +21,12 @@ import { vaultWriteResponse } from "./src/services/vault-write-server.mjs";
 import { electricityRecordWriteResponse } from "./src/services/electricity-record-server.mjs";
 import { managedVaultKeyResponse } from "./src/services/managed-vault-key-server.mjs";
 import { facadeAnalysisResponse } from './src/services/facade-analysis-server.mjs';
+import { wallColorsResponse } from './src/services/wall-colors-server.mjs';
+import { propertyModelResponse } from './src/services/property-model-server.mjs';
+import { propertyDocumentsResponse } from './src/services/property-documents-server.mjs';
+import {spotPriceCronResponse} from './src/services/spot-price-archive-server.mjs';
+import { multiviewOpeningsResponse } from './src/services/facade-multiview-server.mjs';
+import { analyzeAerialOpenings } from './src/services/aerial-openings-server.mjs';
 import { MAX_WRITE_BYTES } from "./src/services/vault-signing.mjs";
 import { beginTeslaAuthorization, finishTeslaAuthorization, teslaStatus, teslaVehicles, TeslaError } from "./src/services/tesla-server.mjs";
 import smartThingsHandler from './api/smartthings/[action].mjs';
@@ -601,6 +610,12 @@ export async function handler(request, response) {
     }
     return;
   }
+  if(request.url?.startsWith('/api/energy/vault?')){
+    const jobUrl=new URL(request.url,'http://localhost');
+    if(jobUrl.pathname==='/api/energy/vault'&&jobUrl.searchParams.get('job')==='spot-history'){
+      response.setHeader('Cache-Control','no-store');const result=await spotPriceCronResponse(new Request(jobUrl,{method:request.method,headers:{authorization:request.headers.authorization??''}}));response.writeHead(result.status,{'Content-Type':'application/json'});response.end(JSON.stringify(result.body));return;
+    }
+  }
   if (request.url === "/api/energy/vault") {
     response.setHeader("Cache-Control", "no-store");
     if (request.method !== "POST") { response.writeHead(405, { Allow: "POST" }); response.end(); return; }
@@ -613,7 +628,11 @@ export async function handler(request, response) {
       }
       const body = JSON.parse(Buffer.concat(chunks).toString('utf8'));
       const req = new Request('http://localhost/api/energy/vault', { method: 'POST', headers: { authorization: request.headers.authorization ?? '' } });
-      const result = body?.operation === 'facade-analysis' ? await facadeAnalysisResponse(req,body) : body?.action === 'managed-key'
+      if(body?.operation==='family'){const result=await familyResponse(req,body);response.writeHead(result.status,{'Content-Type':'application/json','Cache-Control':'no-store'});response.end(JSON.stringify(result.body));return;}
+      if(body?.operation==='property-model'){const result=await propertyModelResponse(req,body);response.writeHead(result.status,{'Content-Type':'application/json'});response.end(JSON.stringify(result.body));return;}
+      if(body?.operation==='property-documents'){const result=await propertyDocumentsResponse(req,body);response.writeHead(result.status,{'Content-Type':'application/json'});response.end(JSON.stringify(result.body));return;}
+      if(body?.operation==='aerial-openings-multiview'){const result=await multiviewOpeningsResponse(req,body);response.writeHead(result.status,{'Content-Type':'application/json'});response.end(JSON.stringify(result.body));return;}
+      const result = body?.operation === 'aerial-openings' ? await wallColorsResponse(req,body,undefined,analyzeAerialOpenings) : body?.operation === 'wall-colors' ? await wallColorsResponse(req,body) : body?.operation === 'facade-analysis' ? await facadeAnalysisResponse(req,body) : body?.action === 'managed-key'
         ? await managedVaultKeyResponse(req, body)
         : body?.operation === 'heating'
           ? await heatingConnectionResponse(req, body)
@@ -647,7 +666,7 @@ export async function handler(request, response) {
     if (['model-photos','height','geometry','orthophoto','air','energy-label'].includes(params.get('mode'))) {
       try {
         const mode=params.get('mode');
-        const data=mode==='model-photos'?await getHomeModelPhotos({id}):mode==='height'?await getHomeHeights({id}):mode==='geometry'?await getHomeGeometry({id}):mode==='orthophoto'?await getHomeOrthophoto({bbox:params.get('bbox')}):mode==='air'?await getHomeAirQuality({id,x:params.get('x'),y:params.get('y')}):await getHomeEnergyLabel({buildingId:params.get('buildingId')});
+        const data=mode==='model-photos'?await (params.get('neighbors')==='1'?getNeighborhoodModelPhotos({id,tile:params.get('tile')??undefined}):getHomeModelPhotos({id})):mode==='height'?await getHomeHeights({id,surroundings:params.get('surroundings')??undefined}):mode==='geometry'?await getHomeGeometry({id,surroundings:params.get('surroundings')??undefined}):mode==='orthophoto'?await getHomeOrthophoto({bbox:params.get('bbox')}):mode==='air'?await getHomeAirQuality({id,x:params.get('x'),y:params.get('y')}):await getHomeEnergyLabel({buildingId:params.get('buildingId')});
         response.writeHead(200,{'Content-Type':Buffer.isBuffer(data)?'image/jpeg':'application/json','Cache-Control':'no-store','X-Content-Type-Options':'nosniff'});response.end(Buffer.isBuffer(data)?data:JSON.stringify(data));
       }catch(error){response.writeHead(error.status??502,{'Content-Type':'application/json','Cache-Control':'no-store'});response.end(JSON.stringify({error:'Boligens supplerende oplysninger kunne ikke hentes lige nu.',code:'HOME_DETAILS_UNAVAILABLE'}));}return;
     }
@@ -678,18 +697,9 @@ export async function handler(request, response) {
     return;
   }
   if (request.method === "GET" && request.url?.startsWith("/api/grid/lookup")) {
-    try {
-      const url = new URL(request.url, `http://${request.headers.host}`);
-      const x = Number(url.searchParams.get("x"));
-      const y = Number(url.searchParams.get("y"));
-      if (!Number.isFinite(x) || !Number.isFinite(y)) throw new Error("Ugyldige adressekoordinater");
-      const result = await findGridSupplier(x, y);
-      response.writeHead(200, { "Content-Type": "application/json" });
-      response.end(JSON.stringify(result));
-    } catch (error) {
-      response.writeHead(404, { "Content-Type": "application/json" });
-      response.end(JSON.stringify({ error: error instanceof Error ? error.message : "Netselskabet kunne ikke findes" }));
-    }
+    request.query=Object.fromEntries(new URL(request.url,`http://${request.headers.host}`).searchParams);
+    const adapter={status(code){response.statusCode=code;return adapter;},setHeader:(key,value)=>response.setHeader(key,value),json(body){response.setHeader('Content-Type','application/json');response.end(JSON.stringify(body));return adapter;}};
+    await gridLookupEndpoint(request,adapter);
     return;
   }
   if (request.method === "GET" && request.url === "/api/ev/models") {

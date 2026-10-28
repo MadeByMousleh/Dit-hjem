@@ -1,0 +1,40 @@
+begin;
+do $$
+declare departing uuid:=gen_random_uuid(); remaining uuid:=gen_random_uuid(); stranger uuid:=gen_random_uuid();
+ shared uuid:=gen_random_uuid(); solo uuid:=gen_random_uuid(); rejected boolean:=false;
+begin
+ insert into auth.users(id,email,email_confirmed_at) values
+ (departing,departing::text||'@example.invalid',now()),(remaining,remaining::text||'@example.invalid',now()),(stranger,stranger::text||'@example.invalid',now());
+ insert into public.households(id,name) values(shared,'Synthetic shared'),(solo,'Synthetic solo');
+ insert into public.household_members(household_id,user_id,family_role) values(shared,departing,'owner'),(shared,remaining,'member'),(solo,departing,'owner');
+ insert into public.energy_vault_managed_keys(household_id,envelope,created_by) values(shared,'{"version":1,"iv":"synthetic","tag":"synthetic","ciphertext":"synthetic"}',departing);
+ insert into public.household_invitations(household_id,email,created_by) values(shared,stranger::text||'@example.invalid',departing);
+ begin delete from auth.users where id=departing;exception when insufficient_privilege then rejected:=true;end;
+ assert rejected,'Unprepared deletion allowed';
+ insert into public.account_deletion_choices(user_id,successors) values(departing,'{}');
+ rejected:=false;
+ begin delete from auth.users where id=departing;exception when invalid_parameter_value then rejected:=true;end;
+ assert rejected,'Owner deleted without successor';
+ assert not exists(select 1 from public.account_erasure_ledger where user_hash=encode(sha256(convert_to(departing::text,'UTF8')),'hex')),'Failed deletion left a false erasure record';
+ assert exists(select 1 from public.households where id=solo),'Failed deletion did not roll back';
+ assert exists(select 1 from public.household_members where household_id=shared and user_id=departing),'Failed deletion removed membership';
+ update public.account_deletion_choices set successors=jsonb_build_object(shared::text,stranger::text) where user_id=departing;
+ rejected:=false;
+ begin delete from auth.users where id=departing;exception when invalid_parameter_value then rejected:=true;end;
+ assert rejected,'Outsider promoted';
+ update public.account_deletion_choices set successors=jsonb_build_object(shared::text,remaining::text,stranger::text,stranger::text) where user_id=departing;
+ delete from auth.users where id=departing;
+ assert not exists(select 1 from auth.users where id=departing),'Auth user remains';
+ assert not exists(select 1 from public.households where id=solo),'Last-member household remains';
+ assert exists(select 1 from public.households where id=shared),'Shared archive removed';
+ assert exists(select 1 from public.household_members where household_id=shared and user_id=remaining and family_role='owner'),'Successor not promoted';
+ assert exists(select 1 from public.energy_vault_managed_keys where household_id=shared and created_by is null),'Remaining household lost key';
+ assert not exists(select 1 from public.household_invitations where created_by=departing or (household_id=shared and email=stranger::text||'@example.invalid')),'Authored invitation became legacy autoaccept';
+ assert not exists(select 1 from public.account_deletion_choices where user_id=departing),'Deletion choice remains';
+ assert exists(select 1 from public.account_erasure_ledger where user_hash=encode(sha256(convert_to(departing::text,'UTF8')),'hex') and deleted_households=array[solo] and successors->>shared::text=remaining::text),'Missing restore-suppression metadata';
+ assert (select successors=jsonb_build_object(shared::text,remaining::text) from public.account_erasure_ledger where user_hash=encode(sha256(convert_to(departing::text,'UTF8')),'hex')),'Unused/unvalidated choices retained';
+ assert not has_table_privilege('authenticated','public.account_erasure_ledger','select'),'Client can read erasure evidence';
+ assert not has_table_privilege('service_role','public.account_erasure_ledger','delete'),'Service can silently prune erasure evidence';
+ assert not has_table_privilege('authenticated','public.account_deletion_choices','insert'),'Client can impersonate deletion plan';
+end $$;
+rollback;

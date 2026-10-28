@@ -1,12 +1,15 @@
+import {AppText as Text} from './AppText';
+import {cardStyles} from '../styles/cards';
+import {HapticPressable as Pressable} from './HapticPressable';
 import { AppIcon } from './AppIcon';
-import { Pressable, Text, View, StyleSheet } from "react-native";
+import { View, StyleSheet } from "react-native";
 
 
 import { WasteEvent, WasteHealth, WASTE_LABELS } from "../waste";
 import { colors } from "../styles/theme";
 import { styles } from "../styles/appStyles";
 
-export function WasteCollectionCard({ events, error, wasteHealth, onOpenProfile }: { events: WasteEvent[]; error: string; wasteHealth: WasteHealth | null; onOpenProfile?: () => void }) {
+export function WasteCollectionCard({ events, error, wasteHealth, onOpenProfile, hasAddress=true }: { events: WasteEvent[]; error: string; wasteHealth: WasteHealth | null; onOpenProfile?: () => void;hasAddress?:boolean }) {
   return (
     <View style={styles.wastePanel}>
       <View style={styles.sectionHeadingRow}>
@@ -20,8 +23,8 @@ export function WasteCollectionCard({ events, error, wasteHealth, onOpenProfile 
           <Text style={s.weekday}>{new Date(`${event.date}T12:00:00`).toLocaleDateString('da-DK', { weekday: 'short' })}</Text>
         </View>
       )) : <>
-        <Text style={styles.wasteEmpty}>{error || "Tilføj din adresse i Profil for at se affaldsafhentninger."}</Text>
-        {onOpenProfile ? <Pressable accessibilityRole="button" onPress={onOpenProfile} style={styles.wasteAction}><Text style={styles.wasteActionText}>Åbn Profil</Text><AppIcon name="arrow-right" size={14} color={colors.white} /></Pressable> : null}
+        <Text style={styles.wasteEmpty}>{error || (hasAddress?"Ingen kommende afhentninger i den tilgængelige kalender.":"Tilføj din adresse i Profil for at se affaldsafhentninger.")}</Text>
+        {onOpenProfile && (!hasAddress||!!error) ? <Pressable accessibilityRole="button" onPress={onOpenProfile} style={styles.wasteAction}><Text style={styles.wasteActionText}>Åbn Profil</Text><AppIcon name="arrow-right" size={14} color={colors.white} /></Pressable> : null}
       </>}
 
     </View>

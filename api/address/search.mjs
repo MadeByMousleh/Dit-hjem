@@ -1,3 +1,4 @@
+import {getNeighborhoodModelPhotos} from '../../src/services/home-neighborhood-photos-server.mjs';
 import { findAddressSuggestionById, findAddressSuggestions } from '../../src/services/address-search.mjs';
 import { getBbrProperty } from '../../src/services/bbr-property-server.mjs';
 import { getHomePhotos } from '../../src/services/home-photos-server.mjs';
@@ -14,7 +15,7 @@ export default async function search(request, response) {
     response.setHeader('Cache-Control','no-store');response.setHeader('X-Content-Type-Options','nosniff');
     try {
       const mode=request.query.mode;
-      const result=mode==='model-photos'?await getHomeModelPhotos({id:request.query.id}):mode==='height'?await getHomeHeights({id:request.query.id}):mode==='geometry'?await getHomeGeometry({id:request.query.id}):mode==='orthophoto'?await getHomeOrthophoto({bbox:request.query.bbox}):mode==='air'?await getHomeAirQuality({id:request.query.id,x:request.query.x,y:request.query.y}):await getHomeEnergyLabel({buildingId:request.query.buildingId});
+      const result=mode==='model-photos'?await (request.query.neighbors==='1'?getNeighborhoodModelPhotos({id:request.query.id,tile:request.query.tile}):getHomeModelPhotos({id:request.query.id})):mode==='height'?await getHomeHeights({id:request.query.id,surroundings:request.query.surroundings}):mode==='geometry'?await getHomeGeometry({id:request.query.id,surroundings:request.query.surroundings}):mode==='orthophoto'?await getHomeOrthophoto({bbox:request.query.bbox}):mode==='air'?await getHomeAirQuality({id:request.query.id,x:request.query.x,y:request.query.y}):await getHomeEnergyLabel({buildingId:request.query.buildingId});
       if(Buffer.isBuffer(result)){response.setHeader('Content-Type','image/jpeg');return response.status(200).send(result);}return response.status(200).json(result);
     } catch(error){return response.status(error.status??502).json({error:'Boligens supplerende oplysninger kunne ikke hentes lige nu.',code:'HOME_DETAILS_UNAVAILABLE'});}
   }

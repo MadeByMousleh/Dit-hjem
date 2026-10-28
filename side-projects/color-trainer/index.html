@@ -1,0 +1,35 @@
+<!doctype html>
+<html lang="da">
+<head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>BoligDNA · Farvetræner</title><link rel="stylesheet" href="/style.css"></head>
+<body>
+<header><div><small>BOLIGDNA / LOKALT LABORATORIUM</small><h1>Lær modellen husets farve</h1></div><div id="progress">Indlæser …</div></header>
+<nav class="training-nav" aria-label="Træningssider"><a href="/facade" aria-current="page">Facadefarve</a><a href="/hus">Det oprindelige hus</a><a href="http://127.0.0.1:8792/" target="_blank" rel="noopener noreferrer">Automatisk l?ring ?</a></nav>
+<main>
+<div class="toolbar"><button id="next">Find et tilfældigt hus</button><button id="train">Træn på godkendelser</button><a href="/api/export">Eksportér datasæt</a><select id="history" aria-label="Genåbn et hus"><option value="">Genåbn tidligere hus</option></select></div>
+<p id="status" role="status" aria-live="polite">Vælg et hus for at begynde.</p>
+<h2 id="address">Din første godkendelse starter her</h2>
+<p><a id="googleMaps" target="_blank" rel="noopener noreferrer" hidden>Se huset i Google Maps ↗ (ny fane)</a></p>
+<div class="layout">
+<section class="viewer"><iframe id="scene" title="Husets 3D-model"></iframe><div class="caption">Træk for at dreje · rul for at zoome</div><p>Geometri fra projektets bygnings- og højdedata. Skråfotos kobles til synlige facadeflader; dette er ikke en fuld fotogrammetrisk rekonstruktion.</p></section>
+<aside><h2>Hele husets farve</h2><p>Vælg én facadefarve for hele huset.</p>
+<div id="swatches"></div>
+<div class="color-presets" role="group" aria-label="Faste facadefarver">
+<button type="button" class="color-preset" data-color="#f7f7f4" style="--preset-color:#f7f7f4" aria-pressed="false" disabled><span aria-hidden="true"></span>Hvid</button>
+<button type="button" class="color-preset" data-color="#96533a" style="--preset-color:#96533a" aria-pressed="false" disabled><span aria-hidden="true"></span>Rød</button>
+<button type="button" class="color-preset" data-color="#fbe9a2" style="--preset-color:#fbe9a2" aria-pressed="false" disabled><span aria-hidden="true"></span>Gul</button>
+<button type="button" class="color-preset" data-color="#98938f" style="--preset-color:#98938f" aria-pressed="false" disabled><span aria-hidden="true"></span>Grå</button>
+<button type="button" class="color-preset" data-color="#796456" style="--preset-color:#796456" aria-pressed="false" disabled><span aria-hidden="true"></span>Brun</button>
+</div>
+<label>Vælg farve<input id="color" type="color" value="#c8b699" disabled></label>
+<label>Bekræftet HEX<input id="hex" type="text" pattern="#[0-9a-fA-F]{6}" value="#c8b699" maxlength="7" disabled></label>
+<div class="actions"><button id="confirm" disabled>Anvend på hele huset</button><button id="unknown" disabled>Kan ikke vurderes</button><button id="reset" disabled>Gendan forslag</button></div>
+<p id="faceInfo"></p><div id="patches"></div>
+<p>Facadefarven vises uden lys og skygge, så forhåndsvisningen matcher din valgte HEX-farve.</p>
+<p id="analysisInfo" role="status"></p>
+<div class="actions"><button id="draft" disabled>Gem kladde</button><button id="approve" class="primary" disabled>Godkend og næste hus</button><button id="skip" disabled>Spring huset over</button></div>
+</aside>
+</div>
+<section><h2>Originale skråfotos</h2><p>Brug billederne til at vælge husets facadefarve. Vælg “Kan ikke vurderes”, hvis farven ikke kan bestemmes.</p><label class="sampling-toggle"><input id="showSampling" type="checkbox" checked> Vis facadeområder på billederne</label><p id="samplingInfo" role="status"></p><div class="actions"><button id="aiSampling" type="button" disabled>Find facade med AI</button><button id="applyAiSampling" type="button" hidden>Brug AI-områder</button></div><button id="automaticSampling" type="button" disabled>Gendan automatiske områder</button><div id="photos"></div><p>© Klimadatastyrelsen · Skråfoto · <a href="https://creativecommons.org/licenses/by/4.0/" target="_blank" rel="noreferrer">CC BY 4.0</a>. Originale fotos er beskåret til huset. Optagedato vises under hvert foto.</p></section>
+<section id="metrics"></section>
+</main><script type="module" src="/app.js"></script>
+</body></html>

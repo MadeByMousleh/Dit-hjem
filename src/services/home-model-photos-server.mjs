@@ -10,7 +10,7 @@ export async function getHomeModelPhotos({id},{apiKey=process.env.DATAFORDELER_A
  if(!token?.trim()||!apiKey?.trim())throw Object.assign(new Error('Billedadgang er ikke konfigureret.'),{status:503});
  const existing=cache.get(id);if(existing&&Date.now()-existing.at<3600000)return existing.value;
  const g=await getHomeGeometry({id},{apiKey,fetcher});
- const [heightResult,sources]=await Promise.all([getHomeHeights({id},{apiKey,fetcher}).catch(()=>null),getHomePhotos({x:g.longitude,y:g.latitude},{token,fetcher,sourcesOnly:true})]);
+ const [heightResult,sources]=await Promise.all([getHomeHeights({id},{apiKey,fetcher}).catch(()=>null),getHomePhotos({x:g.longitude,y:g.latitude},{token,fetcher,sourcesOnly:true,facadeViews:true})]);
  const main=g.buildings.filter(b=>b.main);if(!main.length)return {addressId:id,photos:[],status:'no_building',source:'KDS · Skråfoto · CC BY 4.0'};
  if(!heightResult||!heightResult.terrain.some(v=>v!==null))return {addressId:id,photos:[],status:'height_unavailable',source:'KDS · Skråfoto · CC BY 4.0'};
  const vertices=main.flatMap(b=>b.rings.flat());
@@ -36,6 +36,9 @@ export async function getHomeModelPhotos({id},{apiKey=process.env.DATAFORDELER_A
    return {direction:item.direction,capturedAt:item.capturedAt,camera:{...camera,crop},width,height,image:`data:image/jpeg;base64,${bytes.toString('base64')}`};
   }catch{return null;}
  }))).filter(Boolean);
- const value={addressId:id,photos,status:photos.length?'available':'unavailable',source:'Skråfoto © KDS · Dataforsyningen · CC BY 4.0',notice:'Fotografier projiceret med kamerakalibrering. Træer og forskelle i optagelsesdato eller modelgeometri kan give fejl. Skjulte flader forbliver forenklede.'};
- if(photos.length===5){if(cache.size>=8)cache.delete(cache.keys().next().value);cache.set(id,{at:Date.now(),value});}return value;
+ // Older clients have a five-photo shader; extra references are an opt-in field.
+ const usedDirections=new Set(),renderPhotos=[],analysisPhotos=[];
+ for(const photo of photos){if(usedDirections.has(photo.direction))analysisPhotos.push(photo);else{usedDirections.add(photo.direction);renderPhotos.push(photo);}}
+ const value={addressId:id,photos:renderPhotos,analysisPhotos,status:photos.length?'available':'unavailable',source:'Skråfoto © KDS · Dataforsyningen · CC BY 4.0',notice:'Fotografier projiceret med kamerakalibrering. Træer og forskelle i optagelsesdato eller modelgeometri kan give fejl. Skjulte flader forbliver forenklede.'};
+ if(photos.length>=5){if(cache.size>=8)cache.delete(cache.keys().next().value);cache.set(id,{at:Date.now(),value});}return value;
 }

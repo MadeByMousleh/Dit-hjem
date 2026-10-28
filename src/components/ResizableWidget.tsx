@@ -4,7 +4,7 @@ import { AppIcon } from './AppIcon';
 import { resizeWidgetSpan, widgetGridColumns, widgetGridGap, type WidgetSpan } from '../utils/widgetDrag';
 import { widgetHaptic } from '../utils/widgetHaptics';
 
-type Props = { children: ReactNode; enabled: boolean; disabled: boolean; label: string; span: WidgetSpan; minimum: WidgetSpan; maximumRows?: number; width: number; rowHeight: number; onPreview: (span: WidgetSpan | null) => void; onCommit: (span: WidgetSpan) => Promise<boolean>; onRemove?: () => Promise<void> };
+type Props = { resizable?: boolean; children: ReactNode; enabled: boolean; disabled: boolean; label: string; span: WidgetSpan; minimum: WidgetSpan; maximumRows?: number; width: number; rowHeight: number; onPreview: (span: WidgetSpan | null) => void; onCommit: (span: WidgetSpan) => Promise<boolean>; onRemove?: () => Promise<void> };
 export function ResizableWidget(props: Props) {
   const latest = useRef(props); latest.current = props;
   const active = useRef<{ start: WidgetSpan; next: WidgetSpan } | null>(null);
@@ -37,7 +37,7 @@ export function ResizableWidget(props: Props) {
   return <View collapsable={false} style={{ position: 'relative', width: '100%', height: props.span.rows * (props.rowHeight + widgetGridGap) - widgetGridGap }}>{props.children}
     <View pointerEvents="box-none" style={{ position: 'absolute', top: 0, left: 0, right: 0, bottom: 0, zIndex: 100, elevation: 8 }}>
     {props.enabled && props.onRemove ? <Pressable accessibilityRole="button" accessibilityLabel="Fjern widget fra dashboard" disabled={props.disabled} onPress={event => { event.stopPropagation(); widgetHaptic('drop'); void props.onRemove?.(); }} style={{ position: 'absolute', top: 0, left: 0, width: 44, height: 44, zIndex: 5, alignItems: 'center', justifyContent: 'center' }}><View style={{ width: 26, height: 26, borderRadius: 13, backgroundColor: '#E8EAEE', alignItems: 'center', justifyContent: 'center' }}><AppIcon name="minus" size={17} color="#414955" /></View></Pressable> : null}
-    {props.enabled ? <Animated.View testID={`resize-both-${props.label}`} accessible accessibilityRole="adjustable" accessibilityLabel={`Tilpas størrelse: ${props.label}`} accessibilityState={{ disabled: props.disabled }} accessibilityValue={{ text: `${props.span.columns} kolonner, ${props.span.rows} rækker` }} accessibilityActions={[{ name: 'increment', label: 'Større' }, { name: 'decrement', label: 'Mindre' }]} onAccessibilityAction={event => {
+    {props.enabled && props.resizable !== false ? <Animated.View testID={`resize-both-${props.label}`} accessible accessibilityRole="adjustable" accessibilityLabel={`Tilpas størrelse: ${props.label}`} accessibilityState={{ disabled: props.disabled }} accessibilityValue={{ text: `${props.span.columns} kolonner, ${props.span.rows} rækker` }} accessibilityActions={[{ name: 'increment', label: 'Større' }, { name: 'decrement', label: 'Mindre' }]} onAccessibilityAction={event => {
     if (latest.current.disabled) return;
     const direction = event.nativeEvent.actionName === 'increment' ? 1 : event.nativeEvent.actionName === 'decrement' ? -1 : 0;
     const next = resizeWidgetSpan(latest.current.span, direction * (latest.current.width + widgetGridGap) / widgetGridColumns(latest.current.width), direction * (latest.current.rowHeight + widgetGridGap), latest.current.width, latest.current.minimum, latest.current.rowHeight);

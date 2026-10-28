@@ -1,31 +1,63 @@
+import {chartPalette} from '../styles/chartPalette';
+import {AppText as Text} from './AppText';
+import {MotionView,AnimatedMetric} from './Motion';
+import {cardStyles} from '../styles/cards';
+import {PriceModeFields,priceModeNote,type PriceDisplayMode} from './PriceModeFields';
+import {NegativePriceBar,NegativePriceSpark,negativePriceGold,GoldMotionProvider} from './NegativePriceBar';
+import{ForecastPriceBar}from'./ForecastPriceBar';
+import {HapticPressable as Pressable} from './HapticPressable';
+import {defaultPriceLimits,type PriceLimits} from '../utils/priceLimits';
 import { AppIcon } from './AppIcon';
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { PanResponder, Pressable, ScrollView, Text, View } from "react-native";
-import { PricePoint } from "../prices";
+import { Linking, PanResponder, ScrollView, View } from "react-native";
+import { PricePoint, type GridSupplier } from "../prices";
+import{fetchPriceForecast,mergePriceForecast}from'../services/price-forecast';
 import { dayKey, formatPrice } from "../utils/formatting";
 import { colors, dkDay, dkTime } from "../styles/theme";
 import { styles } from "../styles/appStyles";
 import { useBarScrub } from '../hooks/useBarScrub';
 import { tickSelection } from '../utils/barScrub';
 
-export function PriceChart({ points, now, onScrubChange, compact = false, minimal = false }: { points: PricePoint[]; now: number; onScrubChange?: (isScrubbing: boolean) => void; compact?: boolean; minimal?: boolean }) {
+export const spotPriceCardStyle = {...cardStyles.card,gap:0};
+export const spotPriceTitleStyle = {...cardStyles.title,marginBottom:16};
+
+export function PriceChart({ points, now, onScrubChange, compact = false, minimal = false, priceLimits = defaultPriceLimits, priceMode="total", onPriceModeChange, gridSupplier }: { points: PricePoint[]; now: number; gridSupplier?: GridSupplier; onScrubChange?: (isScrubbing: boolean) => void; compact?: boolean; minimal?: boolean; priceLimits?: PriceLimits;priceMode?:PriceDisplayMode;onPriceModeChange?:(mode:PriceDisplayMode)=>Promise<boolean>|void }) {
+  const [settingsOpen,setSettingsOpen]=useState(false),[modeError,setModeError]=useState('');
+  const [forecastInfoOpen,setForecastInfoOpen]=useState(false);
+  const forecastKey=gridSupplier?.id?gridSupplier.area+':'+gridSupplier.id:'';
+  const [forecast,setForecast]=useState<{key:string;points:PricePoint[];failed:boolean;loading:boolean}>({key:'',points:[],failed:false,loading:false});
+  useEffect(()=>{
+    let alive=true;
+    if(!gridSupplier?.id)return;
+    const supplier={id:gridSupplier.id,area:gridSupplier.area};
+    setForecast(old=>({key:forecastKey,points:old.key===forecastKey?old.points:[],failed:false,loading:true}));
+    void fetchPriceForecast(supplier).then(value=>{if(alive)setForecast({key:forecastKey,points:value.points,failed:false,loading:false});}).catch(()=>{if(alive)setForecast({key:forecastKey,points:[],failed:true,loading:false});});
+    return()=>{alive=false;};
+  },[forecastKey,Math.floor(now/(15*60000))]);
+  const displayPoints=useMemo(()=>mergePriceForecast(points,forecast.key===forecastKey?forecast.points:[]),[points,forecast.points,forecast.key,forecastKey]);
   const allHours = useMemo(() => {
   const groups = new Map<string, PricePoint[]>();
-  points.forEach((point) => {
-    const key = `${dayKey(point.startsAt)}-${point.startsAt.getHours()}`;
+  displayPoints.forEach((point) => {
+    const key = `${dayKey(point.startsAt)}-${Math.floor(point.startsAt.getTime()/3600000)}`;
     groups.set(key, [...(groups.get(key) ?? []), point]);
   });
   return [...groups.values()].map((group) => ({
     startsAt: group[0]!.startsAt,
-    endsAt: new Date(group[group.length - 1]!.startsAt.getTime() + 15 * 60 * 1000),
-    price: group.reduce((sum, point) => sum + point.totalOrePerKwh, 0) / group.length / 100,
+    endsAt: new Date(group[group.length - 1]!.startsAt.getTime() + (group[group.length-1]!.intervalMinutes??15) * 60 * 1000),
+    forecast:group.some(p=>p.forecast===true),
+    provisional:group.some(p=>p.forecastProvisional===true),
+    lower:group.every(p=>Number.isFinite(p.forecastLowerOrePerKwh))?group.reduce((sum,p)=>sum+(priceMode==='spot'?(p.forecastLowerOrePerKwh!-p.gridAndTaxOrePerKwh)/1.25:p.forecastLowerOrePerKwh!),0)/group.length/100:null,
+    upper:group.every(p=>Number.isFinite(p.forecastUpperOrePerKwh))?group.reduce((sum,p)=>sum+(priceMode==='spot'?(p.forecastUpperOrePerKwh!-p.gridAndTaxOrePerKwh)/1.25:p.forecastUpperOrePerKwh!),0)/group.length/100:null,
+    totalPrice: group.reduce((sum,point)=>sum+point.totalOrePerKwh,0)/group.length/100,
+    price: group.reduce((sum, point) => sum + (priceMode==='spot'?point.priceDkkMwh/10:point.totalOrePerKwh), 0) / group.length / 100,
   }));
-  }, [points]);
+  }, [displayPoints,priceMode]);
   const todayKey = dayKey(new Date(now));
   const availableDays = useMemo(() => [...new Set(allHours.map((item) => dayKey(item.startsAt)))]
     .filter((key) => key >= todayKey)
     .slice(0, 7), [allHours, todayKey]);
   const [selectedDayIndex, setSelectedDayIndex] = useState(0);
+  useEffect(()=>{setSelectedDayIndex(index=>Math.max(0,Math.min(index,Math.max(0,availableDays.length-1))));},[availableDays.length]);
   const selectedDay = availableDays[Math.min(selectedDayIndex, availableDays.length - 1)];
   const hourly = useMemo(() => allHours.filter((item) => dayKey(item.startsAt) === selectedDay), [allHours, selectedDay]);
   const currentBarIndex = hourly.findIndex((item) => item.startsAt.getTime() <= now && item.endsAt.getTime() > now);
@@ -35,7 +67,7 @@ export function PriceChart({ points, now, onScrubChange, compact = false, minima
   const selectedIndexRef = useRef(selectedIndex);
   selectedIndexRef.current = selectedIndex;
 
-  const [showFullDay, setShowFullDay] = useState(false);
+  const showFullDay = true;
   const [chartViewportWidth, setChartViewportWidth] = useState(0);
   const [sliderWidth, setSliderWidth] = useState(0);
   const [isSliding, setIsSliding] = useState(false);
@@ -54,9 +86,12 @@ export function PriceChart({ points, now, onScrubChange, compact = false, minima
   const stride = barWidth + gap;
 
   const selected = hourly[Math.min(selectedIndex, hourly.length - 1)];
-  const maxPrice = Math.max(0.001, ...hourly.map((item) => Math.max(0, item.price)));
+  const plotPrices=hourly.map(item=>item.price);
+  const maxPrice = Math.max(0, ...plotPrices);
+  const minPrice = Math.min(0, ...plotPrices);
+  const priceRange = Math.max(.001,maxPrice-minPrice), plotHeight=compact?48:94, zeroY=30+maxPrice/priceRange*plotHeight;
   const selectedDayDate = selected?.startsAt ?? new Date(`${selectedDay}T12:00:00`);
-  const isForecastDay = selectedDayIndex > 1;
+  const isForecastDay = hourly.some(item=>item.forecast);
 
   const changeDay = (nextIndex: number) => {
     const safeIndex = Math.max(0, Math.min(nextIndex, availableDays.length - 1));
@@ -181,17 +216,21 @@ export function PriceChart({ points, now, onScrubChange, compact = false, minima
   }, [updateFromPageX, onScrubChange]);
 
   const barColor = (price: number, selectedBar: boolean) => {
-    if (price >= 2) return selectedBar ? "#B94F46" : "#E2B8B4";
-    if (price >= 1.5) return selectedBar ? "#D9A62E" : "#F0DDA4";
-    return selectedBar ? "#4E9B59" : "#B9D9BE";
+    if (price >= priceLimits.expensiveFrom) return selectedBar ? chartPalette.selectedExpensive : chartPalette.expensive;
+    if (price >= priceLimits.cheapBelow) return selectedBar ? chartPalette.selectedNormal : chartPalette.normal;
+    return selectedBar ? chartPalette.selectedCheap : chartPalette.cheap;
   };
 
+  if(!hourly.length)return <View style={{paddingVertical:16}}><Text style={{color:colors.muted}}>Ingen aktuelle priser. Prøv igen senere.</Text></View>;
   const dotSize = 10;
   const dotLeft = padding + Math.min(selectedIndex, hourly.length - 1) * stride + barWidth / 2 - (showFullDay ? 0 : scrollX) - dotSize / 2;
 
   return (
-    <View style={styles.chartWrap}>
-      <View style={styles.dayNavigator}>
+    <GoldMotionProvider><MotionView key={selectedDay+priceMode} style={[styles.chartWrap, { flex: 0, justifyContent: "flex-start", marginTop: 0 }]}>
+      {onPriceModeChange?<View style={{alignItems:"flex-end",position:"absolute",right:0,top:-64,zIndex:2}}><Pressable accessibilityRole="button" accessibilityLabel="Indstillinger for elpriser" onPress={()=>setSettingsOpen(v=>!v)} style={{width:48,height:48,alignItems:"center",justifyContent:"center"}}><AppIcon name="sliders" size={17} color={colors.primary}/></Pressable></View>:null}
+      {settingsOpen&&onPriceModeChange?<PriceModeFields value={priceMode} onChange={mode=>{setModeError('');Promise.resolve(onPriceModeChange(mode)).then(ok=>{if(ok===false)setModeError('Kunne ikke gemmes. Pr\u00f8v igen.');}).catch(()=>setModeError('Kunne ikke gemmes. Prøv igen.'));}}/>:null}
+      {modeError?<Text accessibilityRole="alert">{modeError}</Text>:null}
+      <View style={[styles.dayNavigator, { minHeight: 48, marginBottom: 8, borderBottomWidth: 0 }]}>
         <Pressable
           accessibilityLabel="Forrige dag"
           disabled={selectedDayIndex === 0}
@@ -202,7 +241,7 @@ export function PriceChart({ points, now, onScrubChange, compact = false, minima
         </Pressable>
         <View style={styles.dayNavigatorTitle}>
           <Text style={styles.dayNavigatorDate}>{dkDay.format(selectedDayDate)}</Text>
-          <Text style={styles.dayNavigatorMeta}>{isForecastDay ? "Prognose" : selectedDayIndex === 0 ? "I dag" : "Offentliggjort"} · {selectedDayIndex + 1} af {availableDays.length}</Text>
+          <Text style={styles.dayNavigatorMeta}>{isForecastDay ? (hourly.some(item=>item.provisional)?"Prognose · under indkøring":"Prognose") : selectedDayIndex === 0 ? "I dag" : "Offentliggjort"} · {selectedDayIndex + 1} af {availableDays.length}</Text>
         </View>
         <Pressable
           accessibilityLabel="Næste dag"
@@ -224,8 +263,9 @@ export function PriceChart({ points, now, onScrubChange, compact = false, minima
           ) : null}
         </View>
         <View style={styles.chartSelectionValue}>
-          <Text style={styles.chartSelectionPrice}>{selected ? formatPrice(selected.price, 2) : ""}</Text>
-          <Text style={styles.chartSelectionUnit}>kr/kWh</Text>
+          {selected?.forecast?<Text style={cardStyles.note}>Ca.</Text>:null}
+          <AnimatedMetric fast={isSliding||barScrub.isScrubbing} style={styles.chartSelectionPrice} value={selected ? formatPrice(selected.price, 2) : "—"}/>
+          <Text style={styles.chartSelectionUnit}>kr/kWh</Text>{selected&&selected.price<0?<Text style={{color:negativePriceGold,fontSize:11,fontWeight:"700"}}>Negativ pris ↓</Text>:null}
         </View>
       </View>
       <View
@@ -251,19 +291,21 @@ export function PriceChart({ points, now, onScrubChange, compact = false, minima
             setScrollX(event.nativeEvent.contentOffset.x);
           }}
           scrollEventThrottle={16}
-          contentContainerStyle={[styles.barChart, compact && { height: 106 }, { gap, paddingHorizontal: padding, width: hourly.length * stride - gap + padding * 2 }]}
+          contentContainerStyle={[styles.barChart, compact && { height: 106 }, { paddingTop:0,paddingBottom:0,gap, paddingHorizontal: padding, width: hourly.length * stride - gap + padding * 2 }]}
         >
           {hourly.map((item, index) => {
             const selectedBar = index === selectedIndex;
             const currentBar = index === currentBarIndex;
             const cheapestBar = currentBarIndex < 0 && index === cheapestBarIndex;
-            const height = Math.max(0, item.price) / maxPrice * (compact ? 54 : 94);
+            const negative=item.price<0;
+            const height=Math.abs(item.price)/priceRange*plotHeight;
+            const barStyle=[styles.bar,{position:"absolute" as const,top:negative?zeroY:zeroY-height,width:barWidth,height,backgroundColor:negative?negativePriceGold:barColor(item.totalPrice,currentBar||cheapestBar)},currentBar&&styles.currentBar,cheapestBar&&!negative&&styles.cheapestBar,selectedBar&&styles.selectedBar,negative&&{borderRadius:3}];
             return (
               <Pressable
                 key={item.startsAt.toISOString()}
-                accessibilityLabel={`${dkTime.format(item.startsAt)}, ${formatPrice(item.price, 2)} kroner per kilowatttime`}
+                accessibilityLabel={`${item.forecast?'Prognose, cirka ':''}${dkTime.format(item.startsAt)}, ${formatPrice(item.price, 2)} kroner per kilowatttime`}
                 accessibilityHint="Hold og træk for at vælge andre timer"
-                delayLongPress={300}
+                delayLongPress={25}
                 onLongPress={event => barScrub.begin(index, event.nativeEvent.pageX)}
                 onPress={() => { if (!barScrub.shouldIgnorePress()) selectHour(index, true, true); }}
                 style={[
@@ -272,29 +314,19 @@ export function PriceChart({ points, now, onScrubChange, compact = false, minima
                 ]}
               >
                 {currentBar ? (
-                  <View style={[styles.currentMarker, { bottom: height + 24, width: 28, left: (barWidth - 28) / 2, alignItems: 'center' }]}>
+                  <View style={[styles.currentMarker, { top: 0, width: 28, left: (barWidth - 28) / 2, alignItems: 'center' }]}>
                     <Text numberOfLines={1} style={styles.currentMarkerText}>NU</Text>
                   </View>
                 ) : null}
-                <View
-                  style={[
-                    styles.bar,
-                    { width: barWidth },
-                    { height, backgroundColor: barColor(item.price, currentBar || cheapestBar) },
-                    currentBar && styles.currentBar,
-                    cheapestBar && styles.cheapestBar,
-                    selectedBar && styles.selectedBar,
-                  ]}
-                />
-                <View style={{ height: 18, width: barWidth, overflow: 'visible' }}>
-                  {index % Math.max(1, Math.ceil(44 / stride)) === 0 ? <Text numberOfLines={1} style={[styles.barHour, { position: 'absolute', width: 44, left: index === 0 ? 0 : (barWidth - 44) / 2, textAlign: index === 0 ? 'left' : 'center' }, currentBar && styles.barHourCurrent]}>
-                    {dkTime.format(item.startsAt).replace('.', ':')}
-                  </Text> : null}
-                </View>
+                <View testID="price-zero-line" pointerEvents="none" style={{position:"absolute",top:zeroY,left:-gap/2,width:barWidth+gap,height:1,backgroundColor:"#B6AFBF"}}/>
+                {item.forecast?<ForecastPriceBar valueY={zeroY-item.price/priceRange*plotHeight} zeroY={zeroY} width={barWidth} color={negative?negativePriceGold:barColor(item.totalPrice,selectedBar||cheapestBar)} selected={selectedBar}/>:negative?<NegativePriceBar height={height} style={barStyle}/>:<View style={barStyle}/>}
+                {negative?<><NegativePriceSpark top={zeroY-27} width={barWidth} index={index}/><Text accessibilityElementsHidden importantForAccessibility="no" style={{position:"absolute",top:zeroY-16,width:barWidth,textAlign:"center",fontSize:12,lineHeight:14,fontWeight:"700",color:negativePriceGold}}>−</Text></>:null}
+
               </Pressable>
             );
           })}
         </ScrollView>
+        <View pointerEvents="none" style={{position:"absolute",bottom:0,left:0,right:0,height:22}}>{hourly.map((item,index)=>index % Math.max(1,Math.ceil(56/stride))===0?<Text key={index} style={[cardStyles.note,{position:"absolute",left:Math.max(0,Math.min(chartViewportWidth-48,padding+index*stride-16)),width:48,fontSize:11,lineHeight:18,textAlign:index===0?"left":"center"}]}>{dkTime.format(item.startsAt).replace('.',':')}</Text>:null)}</View>
       </View>
 
       {/* Draggable dot beneath the graph */}
@@ -321,20 +353,15 @@ export function PriceChart({ points, now, onScrubChange, compact = false, minima
           />
         </View>
       </View>
-
-      <View style={styles.chartToolbar}>
-        {!minimal ? <View style={styles.swipeHint}>
-          <AppIcon name="sliders" size={12} color={isSliding ? colors.primary : colors.muted} />
-          <Text style={[styles.chartLabel, isSliding && styles.chartLabelActive]}>
-            {isSliding || barScrub.isScrubbing ? "Vælger time" : "Hold en søjle eller skub prikken"}
-          </Text>
-        </View> : null}
-        <Pressable accessibilityLabel={showFullDay ? "Vis større søjler" : "Vis hele dagen"} onPress={() => setShowFullDay((value) => !value)} style={styles.overviewButton}>
-          <AppIcon name={showFullDay ? "minimize-2" : "maximize-2"} size={13} color={colors.ink} />
-          <Text style={styles.overviewButtonText}>{showFullDay ? "Større søjler" : "Vis hele dagen"}</Text>
-        </Pressable>
+      <View style={{gap:4,paddingTop:12}}>
+        <Text style={cardStyles.note}>Kilde: Energinet / Energi Data Service · CC BY 4.0</Text>
+        {forecast.key===forecastKey&&forecast.points.length>0?<Pressable accessibilityRole="button" accessibilityLabel="Om prisprognosen og dens kilder" onPress={()=>setForecastInfoOpen(v=>!v)}><Text style={cardStyles.note}>Prognose: Elpriser.dk · ECMWF · CC BY 4.0 · Om</Text></Pressable>:null}
+        {forecast.key===forecastKey&&forecast.failed?<Text style={cardStyles.note}>Prognosen er midlertidigt utilgængelig.</Text>:null}
+        {forecastInfoOpen?<Text style={cardStyles.note}>Stribede søjler viser den forventede pris. Grøn, orange og rød følger dine prisgrænser. Prognosen kan ændre sig og erstattes af offentliggjorte priser. Spotprognose fra <Text accessibilityRole="link" onPress={()=>void Linking.openURL('https://elpriser.dk/data/').catch(()=>undefined)}>Elpriser.dk</Text>, tilpasset dit netselskabs tariffer. Baseret på ECMWF-data; ECMWF påtager sig intet ansvar for data, tilgængelighed eller brug. Licens: <Text accessibilityRole="link" onPress={()=>void Linking.openURL('https://creativecommons.org/licenses/by/4.0/').catch(()=>undefined)}>CC BY 4.0</Text>.</Text>:null}
+        <Text style={cardStyles.note}>{priceMode==='spot'?'Spotpris · uden moms, afgifter og net':'Inkl. moms, net og afgifter · uden tillæg/abonnement'}</Text>
+        {gridSupplier ? <Text style={cardStyles.note}>Netselskab: {gridSupplier.id ? (gridSupplier.companyName || gridSupplier.name) : 'Ikke afklaret'}{gridSupplier.id ? ' · '+gridSupplier.area : ''}{gridSupplier.evidenceSource==='Selvvalgt netselskab'?' \u00b7 Selvvalgt':''}</Text> : null}
       </View>
-    </View>
+    </MotionView></GoldMotionProvider>
   );
 }
 

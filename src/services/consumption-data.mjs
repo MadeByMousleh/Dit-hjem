@@ -46,11 +46,12 @@ export function meterReadings(payload, meterPointId, resolution) {
   for (const result of payload.result) for (const series of result.MyEnergyData_MarketDocument?.TimeSeries ?? []) {
     if (series.businessType !== 'A04' || (series['measurement_Unit.name'] && series['measurement_Unit.name'] !== 'KWH')) continue;
     const identity = series['MarketEvaluationPoint.mRID']?.name ?? series['MarketEvaluationPoint.mRID'];
+    if(resolution==='actual'&&identity!==meterPointId)throw new Error('Kildemålingerne mangler det forventede målepunkt.');
     if (typeof identity === 'string' && identity !== meterPointId) throw new Error('Uventet målepunkt i svaret.');
     for (const period of series.Period ?? []) {
       const actual = resolutions[period.resolution?.replace(/^PT1([DMY])$/, 'P1$1')];
       const rank = { quarter: 0, hour: 1, day: 2, month: 3, year: 4 };
-      if (actual === undefined || rank[actual] > rank[resolution]) throw new Error('Uventet opløsning i målerdata.');
+      if (actual === undefined || resolution!=='actual'&&rank[actual] > rank[resolution]) throw new Error('Uventet opløsning i målerdata.');
       hasFinerIntervals ||= rank[actual] < rank[resolution];
       const start = new Date(period.timeInterval?.start);
       if (!Number.isFinite(+start)) throw new Error('Ugyldigt tidspunkt i målerdata.');
@@ -80,7 +81,8 @@ export function meterReadings(payload, meterPointId, resolution) {
         const raw = point['out_Quantity.quantity'];
         const value = raw == null || String(raw).trim() === '' ? NaN : Number(String(raw).replace(',', '.'));
         const quality = point['out_Quantity.quality'] ?? null;
-        const row = { starts_at: at, ends_at: end, kwh: quality !== 'A02' && Number.isFinite(value) && value >= 0 ? value : null, quality };
+        const row = { starts_at: at, ends_at: end, kwh: quality !== 'A02' && Number.isFinite(value) && value >= 0 ? value : null, quality,
+          ...(resolution==='actual'?{resolution:actual,reportedKwh:Number.isFinite(value)?value:null,rawQuantity:raw??null}: {}) };
         const previous = rows.get(at);
         if (previous && JSON.stringify(previous) !== JSON.stringify(row)) throw new Error('Modstridende målinger for samme tidspunkt.');
         rows.set(at, row);
@@ -89,6 +91,7 @@ export function meterReadings(payload, meterPointId, resolution) {
   }
   const sorted = [...rows.values()].sort((a,b) => a.starts_at.localeCompare(b.starts_at));
   if (sorted.some((row,index)=>index>0 && sorted[index-1].ends_at>row.starts_at)) throw new Error('Overlappende målinger.');
+  if(resolution==='actual')return sorted;
   const coarser = resolution === 'hour' ? 3600000 : resolution === 'quarter' ? 900000 : null;
   // Preserve the real coverage of a partial calendar year/month/day. Only
   // finer-resolution replies need rebucketing; a partial period is not zero.
@@ -115,6 +118,22 @@ export function meterReadings(payload, meterPointId, resolution) {
     }
     return { starts_at: start, ends_at: end, kwh: complete && covered === end ? sum : null, quality: null };
   });
+}
+
+// Derive chart hours without rounding or discarding the stored source intervals.
+export function sourceHours(rows){
+ const buckets=new Map();
+ for(const row of rows){
+  const duration=Date.parse(row.ends_at)-Date.parse(row.starts_at);
+  if(duration<=0||duration>3600000)continue;
+  const start=new Date(Math.floor(Date.parse(row.starts_at)/3600000)*3600000).toISOString();
+  const parts=buckets.get(start)??[];parts.push(row);buckets.set(start,parts);
+ }
+ return [...buckets].map(([start,parts])=>{
+  const end=new Date(Date.parse(start)+3600000).toISOString();let at=start,sum=0,complete=true;
+  for(const part of parts.sort((a,b)=>a.starts_at.localeCompare(b.starts_at))){if(part.starts_at!==at||part.kwh===null||part.ends_at>end)complete=false;if(part.kwh!==null)sum+=part.kwh;at=part.ends_at;}
+  return {starts_at:start,ends_at:end,kwh:complete&&at===end?sum:null,quality:null};
+ });
 }
 
 export function aggregateReadings(rows, meters, from, to, resolution, today) {

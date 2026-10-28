@@ -1,5 +1,7 @@
 # Electricity widgets
 
+2026-10-24 price display follow-up: the price-chart widget and standalone El chart share the persisted `priceChart.priceMode` preference (`total` default or `spot`). The current-price widget has its own matching preference. Spot uses the original DKK/MWh divided by 1,000, excluding VAT/tax/tariffs; total uses the provider's total øre/kWh divided by 100. Axis, selected amount, cheapest hour and negative bars all use the selected series. Brief bottom notes state inclusions/exclusions; total chart prices do not include the household's electricity agreement markup/subscription. The usage chart remains on its existing total-cost estimate, including agreement terms, with no toggle; the old Year-only energy-trade estimate is no longer shown as a total bill price. Existing synthetic browser checks cover preference save/reload and retained fixed-size/no-color settings. App TypeScript passes.
+
 ## Consistent editing, heat chart and overlay controls, 2026-10-16
 
 Version 1.0.27 / code 28 removes page navigation from all pinned widget taps, including mini price charts. Each dashboard widget has a visible edit selector as well as hold-to-select; the selected widget exposes appearance, size and removal controls. Chart holds are still header-only so bar scrubbing remains usable. The selected header reserves room for the overlaid remove/appearance buttons.

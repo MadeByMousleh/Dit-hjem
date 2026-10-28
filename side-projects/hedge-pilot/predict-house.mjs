@@ -1,0 +1,22 @@
+// Apply the frozen two-class model to a genuinely unseen cached garden.
+import {readFile,writeFile,rename} from 'node:fs/promises';
+import {dirname} from 'node:path';
+import {fileURLToPath} from 'node:url';
+import {createHash} from 'node:crypto';
+import {connectedSuggestions} from './connected-points.mjs';
+import {houseFeatures} from './photo-point-features.mjs';
+const data=dirname(fileURLToPath(import.meta.url))+'/data';
+const houseId=process.argv.find(a=>a.startsWith('--house='))?.slice(8);
+if(!/^[a-f0-9-]{36}$/i.test(houseId??''))throw Error('Expected a house ID');
+const modelBytes=await readFile(data+'/candidate-model.json'),model=JSON.parse(modelBytes);
+if(model.method!=='brush-point-logistic-v1'||!Array.isArray(model.trainingHouseIds)||model.trainingHouseIds.includes(houseId))throw Error('The house must be excluded from this classifier training');
+const labelBytes=await readFile(data+'/point-selections.json');
+const response=await fetch('http://127.0.0.1:8794/api/data?house='+houseId);if(!response.ok)throw Error('House data not ready');const house=await response.json();
+if(house.addressId!==houseId||house.pointSelections?.length)throw Error('Expected an unseen garden with no manual labels');
+const features=await houseFeatures(house,{fusion:model.featurePipeline==='lidar-photo-v1'}),indices=connectedSuggestions(house.points,features,model);
+const saved=JSON.parse(await readFile(data+'/proposals.json','utf8'));
+if(saved.snapshotHash!==model.snapshotHash)throw Error('Model and proposal snapshot mismatch');
+saved.houses[houseId]={sourceHash:house.sourceHash,indices,count:indices.length,seenInTraining:false,predictedAt:new Date().toISOString(),modelSha256:createHash('sha256').update(modelBytes).digest('hex')};
+await writeFile(data+'/proposals.tmp',JSON.stringify(saved));await rename(data+'/proposals.tmp',data+'/proposals.json');
+if(!modelBytes.equals(await readFile(data+'/candidate-model.json'))||!labelBytes.equals(await readFile(data+'/point-selections.json')))throw Error('Model or labels changed during prediction');
+console.log(JSON.stringify({house:house.label,houseId,sourcePoints:house.points.length,eligibleVegetationPoints:features.size,suggestedHedgePoints:indices.length,seenInTraining:false,modelChanged:false,labelsChanged:false}));

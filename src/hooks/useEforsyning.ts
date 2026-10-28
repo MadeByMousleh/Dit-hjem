@@ -13,7 +13,7 @@ export function useEforsyning() {
   const [connected, setConnected] = useState<boolean | null>(null);
   const generation = useRef(0);
   const running = useRef<number | null>(null);
-  async function run(connect: boolean, force = false) {
+  async function run(connect: boolean, force = false, connectionKnown = false) {
     const id = generation.current;
     if (running.current === id) return false;
     running.current = id;
@@ -21,6 +21,7 @@ export function useEforsyning() {
     setLoading(true); setError('');
     try {
       const result = await syncHeating(vault, connect ? { username, password } : undefined, force);
+      if (result?.connected) connectionKnown = true;
       if (id === generation.current) { setHistories(vault.data.heating ?? []); if (result?.connected) setConnected(true); setError(result?.warning ?? ''); }
       return true;
     } catch (cause) {
@@ -31,7 +32,7 @@ export function useEforsyning() {
       }
       return false;
     } finally {
-      try {
+      if (id === generation.current && !rejected && !connectionKnown) try {
         const connection = await hasPrivateHeatingConnection(vault);
         if (id === generation.current && !rejected) setConnected(connection);
       } catch { /* A failed status check does not mean saved credentials are gone. */ }
@@ -43,7 +44,7 @@ export function useEforsyning() {
     const id = generation.current;
     try {
       const value = await hasPrivateHeatingConnection(vault);
-      if (id === generation.current) { setConnected(value); if (value && running.current !== id) void run(false); }
+      if (id === generation.current) { setConnected(value); if (value && running.current !== id) void run(false, false, true); }
     } catch { if (id === generation.current) setError('Varmeforbindelsen kunne ikke kontrolleres. Prøv igen.'); }
   }, [vault]);
   useEffect(() => {

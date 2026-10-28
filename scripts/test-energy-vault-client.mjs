@@ -278,6 +278,26 @@ const offlineCharts = new EnergyVault(concurrentHome,user);
 await offlineCharts.unlock(crypto.recoveryKey(crypto.parseRecoveryKey(managedKeys.get(concurrentHome))));
 assert.deepEqual(offlineCharts.data, chartSnapshot);
 offline = false;
+// Export must include every current encrypted period, not just a cached page.
+const originalFrom=db.from,originalSession=db.auth.getSession;
+let exportFailure=false, switchDuringExport=false, exportQueries=0;
+const exportKey=crypto.parseRecoveryKey(managedKeys.get(concurrentHome));
+const exportRows=Array.from({length:45},(_,i)=>{
+ const day=new Date(Date.UTC(2026,8,i+1)).toISOString().slice(0,10),record_key='hour/'+day;
+ return {household_id:concurrentHome,record_key,revision:1,envelope:crypto.sealVault({recordKey:record_key,payload:{day,kwh:i}},exportKey,new Uint8Array(randomBytes(24)),concurrentHome,1)};
+});
+db.from=table=>{
+ if(table!=='electricity_period_records')return originalFrom(table);
+ let cursor='',limit=40;const q={select:()=>q,eq:(field,value)=>{assert.equal(field,'household_id');assert.equal(value,concurrentHome);return q;},order:()=>q,limit:n=>{limit=n;return q;},gt:(field,value)=>{assert.equal(field,'record_key');cursor=value;return q;},then:resolve=>{
+  exportQueries++;if(switchDuringExport)db.auth.getSession=async()=>({data:{session:{user:{id:'other-user'}}}});
+  return Promise.resolve({error:exportFailure?{}:null,data:exportRows.filter(row=>row.record_key>cursor).slice(0,limit)}).then(resolve);
+ }};return q;
+};
+const copy=await offlineCharts.exportCurrentData();assert.equal(Object.keys(copy.records).length,45);assert.equal(exportQueries,2);assert.equal(copy.records[exportRows[44].record_key].data.kwh,44);assert(!JSON.stringify(copy).includes(crypto.recoveryKey(exportKey)));
+exportFailure=true;await assert.rejects(offlineCharts.exportCurrentData(),/historikken/);exportFailure=false;
+switchDuringExport=true;await assert.rejects(offlineCharts.exportCurrentData(),/kontoen/);switchDuringExport=false;
+db.auth.getSession=originalSession;db.from=originalFrom;exportKey.fill(0);
+console.log('PASS: complete paginated readable export, no recovery key, query failure rejection and account-switch cancellation.');
 console.log('PASS: managed-key repeat login, corrupt-cache recovery, retryable legacy migration and simultaneous enrollment.');
 console.log('PASS: actual vault service, cross-device recovery, secure-store isolation, concurrent saves, encrypted-only cache/uploads, offline reads, replay rejection, lock.');
 console.log('PASS: corrupt-head recovery, wrong-key/corrupt-version rejection before writes, immutable old versions, fresh-device restore, stale confirmation and save conflicts, history pagination.');

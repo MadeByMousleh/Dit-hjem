@@ -18,6 +18,8 @@ export const useEnergyVault = () => vault;
 export const privateMeterStatus = async () => { f.statusCalls++; return { connected: f.approved, pending: f.pending }; };
 export const beginThirdPartyMeterConnection = async () => { f.beginCalls++; f.pending = true; return f.approved ? {connected:true} : { authorizationUrl: 'https://eloverblik.dk/synthetic-test' }; };
 export const finishThirdPartyMeterConnection = async () => ({ connected: f.approved, pending: !f.approved });
+export const privateImportStatus=()=>({running:true,error:'',initialComplete:false,totalDays:365,processedDays:31,percent:8,missingDays:0,lastFrom:'2026-10-01',lastTo:'2026-10-14'});
+export const subscribePrivateElectricity=()=>()=>{};
 export const hasPrivateHeatingConnection = async () => { f.heatStatusCalls++; return false; };
 export const syncHeating = async (_, credentials) => { if (!credentials.username || !credentials.password) throw Error('Missing credentials'); f.heat = true; };
 export const getSupabase = async () => ({ auth: { getSession: async () => ({ data: { session } }), updateUser: async ({data}) => { Object.assign(f.metadata, data); return {error:null}; } } });

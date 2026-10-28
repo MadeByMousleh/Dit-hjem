@@ -1,14 +1,14 @@
 {
   "expo": {
-    "name": "Strømblik",
+    "name": "Huslyg",
     "slug": "stromblik",
     "scheme": "stromblik",
-    "version": "1.0.48",
+    "version": "1.0.136",
     "orientation": "default",
     "userInterfaceStyle": "light",
-    "icon": "./assets/brand/stromblik-app-icon.png",
+    "icon": "./assets/brand/huslyg-app-icon.png",
     "splash": {
-      "image": "./assets/brand/stromblik-mark.png",
+      "image": "./assets/brand/huslyg-mark.png",
       "resizeMode": "contain",
       "backgroundColor": "#F5F5F2"
     },
@@ -17,31 +17,73 @@
       "bundleIdentifier": "dk.dithjem.stromblik"
     },
     "android": {
-      "versionCode": 49,
+      "versionCode": 137,
       "package": "dk.dithjem.stromblik",
       "softwareKeyboardLayoutMode": "resize",
-      "intentFilters": [{
-        "action": "VIEW",
-        "autoVerify": true,
-        "data": [
-          { "scheme": "https", "host": "huslyg.dk", "pathPrefix": "/eloverblik/return.html" },
-          { "scheme": "https", "host": "dit-hjem-five.vercel.app", "pathPrefix": "/eloverblik/return.html" }
-        ],
-        "category": ["BROWSABLE", "DEFAULT"]
-      }],
+      "intentFilters": [
+        {
+          "action": "VIEW",
+          "autoVerify": true,
+          "data": [
+            {
+              "scheme": "https",
+              "host": "huslyg.dk",
+              "pathPrefix": "/eloverblik/return.html"
+            },
+            {
+              "scheme": "https",
+              "host": "dit-hjem-five.vercel.app",
+              "pathPrefix": "/eloverblik/return.html"
+            },
+            {
+              "scheme": "https",
+              "host": "huslyg.dk",
+              "pathPrefix": "/family.html"
+            },
+            {
+              "scheme": "https",
+              "host": "dit-hjem-five.vercel.app",
+              "pathPrefix": "/family.html"
+            }
+          ],
+          "category": [
+            "BROWSABLE",
+            "DEFAULT"
+          ]
+        }
+      ],
       "adaptiveIcon": {
-        "foregroundImage": "./assets/brand/stromblik-adaptive-foreground.png",
-        "backgroundColor": "#F5F5F2"
-      }
+        "foregroundImage": "./assets/brand/huslyg-adaptive-foreground.png",
+        "backgroundColor": "#4158D8"
+      },
+      "blockedPermissions": [
+        "android.permission.READ_EXTERNAL_STORAGE",
+        "android.permission.WRITE_EXTERNAL_STORAGE",
+        "android.permission.SYSTEM_ALERT_WINDOW",
+        "android.permission.RECORD_AUDIO"
+      ]
     },
     "web": {
       "bundler": "metro",
-      "favicon": "./assets/brand/stromblik-app-icon.png"
+      "favicon": "./assets/brand/huslyg-app-icon.png"
     },
     "plugins": [
       "expo-notifications",
-      ["expo-image-picker", { "photosPermission": "Vælg billeder af dit hus til billedguiden.", "cameraPermission": "Tag billeder af de markerede facader på dit hus.", "microphonePermission": false }],
-      ["expo-secure-store", { "configureAndroidBackup": true, "faceIDPermission": "Brug Face ID til at låse dine krypterede eldata op." }]
+      [
+        "expo-image-picker",
+        {
+          "photosPermission": "Vælg billeder af dit hus til billedguiden.",
+          "cameraPermission": "Tag billeder af de markerede facader på dit hus.",
+          "microphonePermission": false
+        }
+      ],
+      [
+        "expo-secure-store",
+        {
+          "configureAndroidBackup": true,
+          "faceIDPermission": "Brug Face ID til at låse dine krypterede eldata op."
+        }
+      ]
     ]
   }
 }

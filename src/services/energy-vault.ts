@@ -50,6 +50,39 @@ export class EnergyVault {
   private electricityLoads = new Map<string, Promise<Record<string, any>>>();
   constructor(readonly householdId: string, readonly userId: string) {}
   get data() { if (!this.key) throw new Error('Lås dine eldata op først.'); return this.state; }
+  async exportCurrentData() {
+    const startedAt = new Date().toISOString();
+    const db = await getSupabase();
+    const check = async () => {
+      const {data, error} = await db.auth.getSession();
+      if (error || data.session?.user.id !== this.userId || !this.key || this.closed) throw new Error('Eksporten blev stoppet, fordi kontoen blev ændret eller låst.');
+    };
+    await check();
+    await this.refresh();
+    const snapshot = JSON.parse(JSON.stringify(this.data)) as VaultData;
+    const records: Record<string, {revision: number; data: unknown}> = {};
+    let after = '', bytes = JSON.stringify(snapshot).length;
+    for (;;) {
+      await check();
+      let query = db.from('electricity_period_records').select('household_id,record_key,revision,envelope').eq('household_id', this.householdId).order('record_key').limit(40);
+      if (after) query = query.gt('record_key', after);
+      const result = await query;
+      if (result.error) throw new Error('Hele historikken kunne ikke eksporteres. Prøv igen; der er ikke lavet en delvis fil.');
+      await check();
+      const rows = result.data as ElectricityPeriodRow[];
+      for (const row of rows) {
+        this.acceptElectricityRecord(row);
+        const data = this.electricityRecords.get(row.record_key)!.payload;
+        bytes += JSON.stringify(data).length;
+        if (bytes > 64 * 1024 * 1024) throw new Error('Eksporten er for stor til denne enhed. Kontakt info@huslyg.dk for en samlet kopi.');
+        records[row.record_key] = {revision: row.revision, data};
+        after = row.record_key;
+      }
+      if (rows.length < 40) break;
+    }
+    await check();
+    return {format: 'huslyg-energy-export-v1', householdId: this.householdId, startedAt, completedAt: new Date().toISOString(), snapshot, records};
+  }
   private get keyName() { return `stromblik.vault.${this.userId}.${this.householdId}`; }
   private get cacheName() { return this.keyName + '.encrypted'; }
   private async remote(): Promise<VaultRow | null> {

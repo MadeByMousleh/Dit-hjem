@@ -1,8 +1,32 @@
 {
-  "buildCommand": "npx expo export --platform web",
-  "outputDirectory": "dist",
+  "buildCommand": "node scripts/build-public-site.mjs",
+  "outputDirectory": "web-build/huslyg-public",
   "framework": null,
-  "regions": ["fra1"],
+  "regions": [
+    "fra1"
+  ],
+  "crons": [
+    {
+      "path": "/api/energy/vault?job=spot-history&mode=forecast-capture",
+      "schedule": "0 8 * * *"
+    },
+    {
+      "path": "/api/energy/vault?job=spot-history&mode=forecast-retry",
+      "schedule": "0 9 * * *"
+    },
+    {
+      "path": "/api/energy/vault?job=spot-history&mode=recent",
+      "schedule": "0 15 * * *"
+    },
+    {
+      "path": "/api/energy/vault?job=spot-history&mode=recent&retry=1",
+      "schedule": "0 19 * * *"
+    },
+    {
+      "path": "/api/energy/vault?job=spot-history&mode=history",
+      "schedule": "0 3 * * *"
+    }
+  ],
   "headers": [
     {
       "source": "/.well-known/appspecific/com.tesla.3p.public-key.pem",
@@ -14,6 +38,13 @@
       ]
     }
   ],
+  "redirects": [
+    { "source": "/login", "destination": "/", "permanent": false },
+    { "source": "/dashboard", "destination": "/", "permanent": false },
+    { "source": "/profile", "destination": "/", "permanent": false },
+    { "source": "/app", "destination": "/", "permanent": false },
+    { "source": "/onboarding", "destination": "/", "permanent": false }
+  ],
   "rewrites": [
     {
       "source": "/callback",
@@ -21,6 +52,9 @@
     }
   ],
   "functions": {
+    "api/grid/lookup.mjs": {
+      "maxDuration": 60
+    },
     "api/address/search.mjs": {
       "maxDuration": 60
     },

@@ -1,0 +1,22 @@
+import assert from'node:assert/strict';import{readFile}from'node:fs/promises';import vm from'node:vm';import ts from'typescript';
+import{forecastSpotHours,calculatePriceForecast}from'../src/services/price-forecast-core.mjs';
+const now=Date.parse('2026-10-27T18:00:00Z'),day={day:'2026-10-29',kind:'forecast',issuedAt:'2026-10-27T17:00:00Z',horizonDay:2,partsOreExVat:{vatFactor:1.25},hours:Array.from({length:24},(_,hour)=>({start:'2026-10-29T'+String(hour).padStart(2,'0')+':00:00+01:00',hour,spotOreExVat:20,allInOreInclVat:100,p10OreInclVat:80,p90OreInclVat:120}))};
+const body={license:'CC BY 4.0',generatedAt:'2026-10-27T17:30:00Z',regions:[{region:'DK1',stale:false,modelId:'synthetic',horizons:[{horizon:2,enabled:true,gatePassed:null}],days:[day]}]};
+const tariff=(code,Price1)=>({GLN_Number:code==='CD'?'5790001089030':'5790000432752',ChargeType:'D03',ChargeTypeCode:code,ValidFrom:'2026-01-01T00:00:00',ValidTo:null,ResolutionDuration:'P1D',Price1}),tariffRows=[tariff('CD',.1),tariff('40000',.043),tariff('41000',.072),tariff('EA-001',.008)];
+assert.equal(forecastSpotHours(body,'DK1',{now}).length,24);
+const result=calculatePriceForecast({body,area:'DK1',supplierId:'n1_c',tariffRows,now}),first=result.points[0];
+assert.equal(first.intervalMinutes,60);assert.equal(first.forecast,true);assert.equal(first.forecastProvisional,true);
+assert.ok(Math.abs(first.totalOrePerKwh-52.875)<1e-8,'Use own grid tariff rather than provider representative total of 100');
+assert.equal(first.forecastLowerOrePerKwh,first.totalOrePerKwh-20);assert.equal(first.forecastUpperOrePerKwh,first.totalOrePerKwh+20);
+assert.throws(()=>forecastSpotHours(body,'DK1',{now:now+7*3600000}),/gammel/);
+const typical=structuredClone(body);typical.regions[0].days[0].kind='typical';assert.equal(forecastSpotHours(typical,'DK1',{now}).length,0);
+const incomplete=structuredClone(body);incomplete.regions[0].days[0].hours.pop();assert.throws(()=>forecastSpotHours(incomplete,'DK1',{now}),/timer/);
+const duplicate=structuredClone(body);duplicate.regions[0].days[0].hours[1]=duplicate.regions[0].days[0].hours[0];assert.throws(()=>forecastSpotHours(duplicate,'DK1',{now}),/dubleret/);
+const missing=calculatePriceForecast({body,area:'DK1',supplierId:'n1_c',tariffRows:[],now});assert.equal(missing.points.length,0);assert.equal(missing.unavailableDays.length,1);
+const negative=structuredClone(body);for(const h of negative.regions[0].days[0].hours)h.spotOreExVat=-100;assert.ok(calculatePriceForecast({body:negative,area:'DK1',supplierId:'n1_c',tariffRows,now}).points[0].totalOrePerKwh<0);
+// Exercise the actual client merge: publication replaces the whole forecast hour.
+const source=await readFile('src/services/price-forecast.ts','utf8'),js=ts.transpileModule(source,{compilerOptions:{module:ts.ModuleKind.CommonJS,target:ts.ScriptTarget.ES2022}}).outputText,exports={};
+vm.runInNewContext(js,{exports,require:()=>({}),Map,Set,Date,Number,Promise,AbortController,setTimeout,clearTimeout});
+const published={startsAt:new Date(first.startsAt),priceDkkMwh:1,totalOrePerKwh:1,gridAndTaxOrePerKwh:0};
+const merged=exports.mergePriceForecast([published],result.points.map(p=>({...p,startsAt:new Date(p.startsAt)})));assert.equal(merged.length,24);assert.equal(merged[0],published);assert.equal(merged.filter(p=>p.forecast).length,23);
+console.log('PASS forecast: own tariff/VAT, bands, negative values, stale/partial/duplicate rejection, typical excluded, missing-tariff days omitted and published-hour priority.');
