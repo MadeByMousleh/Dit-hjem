@@ -73,3 +73,20 @@ html[data-motion=running][data-page-visible=true] .hero-art[data-in-view=true] :
 @keyframes panel-light{0%,100%{opacity:.1}50%{opacity:.3}}
 @keyframes charge-breathe{0%,100%{opacity:.45}50%{opacity:1}}
 @media(prefers-reduced-motion:reduce){.turbine-rotor,.energy-flow,.solar-glint,.charge-light{animation:none!important}.energy-flow{display:none}}
+
+/* Readable marketing copy at actual device size; decorative phone art is scaled separately. */
+.eyebrow,.hero .eyebrow,.download-section .eyebrow{font-size:13px;letter-spacing:1.3px;line-height:1.6}
+.header nav{font-size:14px}.button,.button-small,.hero-actions .button,.hero-actions .text-link,.text-link,.faq-grid .text-link{font-size:15px}
+.hero-description,.section-copy>p:not(.eyebrow),.home-copy>p:not(.eyebrow),.section-heading>p:last-child,.download-section .download-grid>div>p:last-child{font-size:17px;line-height:1.75}
+.feature-list h3{font-size:18px}.feature-list p,.home-features p,.steps p,.faq-grid>div>p:not(.eyebrow),.faq-list details p{font-size:16px;line-height:1.8}
+.feature-list p,.home-features p{max-width:36rem}.hero-note,.home-signature>span,.feature-number{font-size:14px;line-height:1.6}
+.topics{gap:24px;flex-wrap:wrap}.topics>p{font-size:13px;color:var(--muted)}.topics>div{flex-wrap:wrap;gap:18px 24px}.topics>div>span{font-size:15px;color:var(--muted)}
+.steps h3,.home-features h3{font-size:20px}.step-icon small{font-size:12px;color:var(--muted)}.faq-list summary{font-size:17px;line-height:1.6}
+.demo-disclaimer{font-size:14px;color:var(--muted);line-height:1.6}.download-card{max-width:420px}.download-card>div>p{font-size:15px;line-height:1.6}
+.download-note,.download-card .installation-note{font-size:14px!important;color:var(--muted)!important;line-height:1.75}.store-badge small{font-size:13px}.store-badge.is-pending{color:#526078}.store-badge.is-pending small{color:#526078}
+.footer-top{grid-template-columns:.8fr .9fr 1.5fr}.footer-top>p,.footer-top nav,.footer-bottom,.footer-bottom>span:last-child{font-size:14px;color:var(--muted);line-height:1.7}.footer-top nav{flex-wrap:wrap;gap:14px 22px}.footer-bottom{flex-wrap:wrap}.footer-bottom a{color:var(--blue)}
+.motion-toggle{font-size:13px;min-height:44px}.hero-actions{row-gap:18px}
+@media(max-width:1100px) and (min-width:781px){.header nav{gap:16px}.header .button-small{padding-inline:14px;font-size:14px}}
+@media(max-width:780px){.footer-top{grid-template-columns:1fr 1fr}.footer-top nav{grid-column:1/-1;font-size:14px}.hero .eyebrow{font-size:13px}.hero-description,.section-copy>p:not(.eyebrow),.home-copy>p:not(.eyebrow){font-size:16px}.topics>div{justify-content:flex-start}.topics>div>span{font-size:14px}.steps{gap:24px}.steps p{font-size:16px}.hero-actions .text-link{font-size:15px}.footer-bottom{font-size:14px;gap:14px}.footer-top>p{font-size:14px}}
+@media(max-width:580px){.steps{grid-template-columns:1fr;gap:38px}.steps:before{display:none}.steps p{max-width:30rem;margin:auto}.header .brand{font-size:26px}.footer-top{grid-template-columns:1fr}.footer-top>p{text-align:left}.footer-top nav{gap:14px 20px}.hero-description{max-width:100%}.hero-actions{gap:16px 22px}.hero .eyebrow{letter-spacing:1px}}
+

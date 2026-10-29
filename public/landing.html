@@ -4,9 +4,9 @@
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <meta name="theme-color" content="#E0E8FB">
-  <meta name="description" content="Huslyg samler elpriser, historisk forbrug og boligens oplysninger. Få et bedre overblik over dit hjem. Find appen til din telefon her.">
+  <meta name="description" content="Følg elpriser og historisk elforbrug fra Eloverblik med Huslyg. Saml forbrug og boligens oplysninger i én app til danske hjem.">
   <meta name="referrer" content="strict-origin-when-cross-origin">
-  <meta property="og:title" content="Huslyg — Dit hjem. Lidt mere overblik.">
+  <meta property="og:title" content="Huslyg – App til elpriser, forbrug og dit hjem">
   <meta property="og:description" content="El, varme og hverdag. Samlet i én app, bygget til danske hjem.">
   <meta property="og:type" content="website">
   <meta property="og:url" content="https://huslyg.dk/">
@@ -14,8 +14,66 @@
   <link rel="icon" href="/landing/icon.svg" type="image/svg+xml">
   <link rel="preload" href="/landing/dm-sans-bold.ttf" as="font" type="font/ttf" crossorigin>
   <link rel="stylesheet" href="/landing/site.css">
+  <link rel="stylesheet" href="/landing/guides.css">
   <script src="/landing/site.js" defer></script>
-  <title>Huslyg — Dit hjem. Lidt mere overblik.</title>
+  <title>Huslyg – App til elpriser, forbrug og dit hjem</title>
+  <meta property="og:locale" content="da_DK">
+  <meta property="og:site_name" content="Huslyg">
+  <script type="application/ld+json">
+{
+  "@context": "https://schema.org",
+  "@graph": [
+    {
+      "@type": "Organization",
+      "@id": "https://huslyg.dk/#publisher",
+      "name": "BluePeach",
+      "url": "https://huslyg.dk/",
+      "email": "info@huslyg.dk",
+      "identifier": {
+        "@type": "PropertyValue",
+        "propertyID": "CVR",
+        "value": "40876375"
+      }
+    },
+    {
+      "@type": "WebSite",
+      "@id": "https://huslyg.dk/#website",
+      "url": "https://huslyg.dk/",
+      "name": "Huslyg",
+      "inLanguage": "da-DK",
+      "publisher": {
+        "@id": "https://huslyg.dk/#publisher"
+      }
+    },
+    {
+      "@type": "SoftwareApplication",
+      "@id": "https://huslyg.dk/#app",
+      "name": "Huslyg",
+      "url": "https://huslyg.dk/",
+      "applicationCategory": "LifestyleApplication",
+      "operatingSystem": "Android, iOS",
+      "inLanguage": "da-DK",
+      "description": "Huslyg samler elpriser, historisk elforbrug fra Eloverblik og boligens oplysninger i én app til danske hjem.",
+      "publisher": {
+        "@id": "https://huslyg.dk/#publisher"
+      }
+    },
+    {
+      "@type": "WebPage",
+      "@id": "https://huslyg.dk/#webpage",
+      "url": "https://huslyg.dk/",
+      "name": "Huslyg – App til elpriser, forbrug og dit hjem",
+      "inLanguage": "da-DK",
+      "isPartOf": {
+        "@id": "https://huslyg.dk/#website"
+      },
+      "about": {
+        "@id": "https://huslyg.dk/#app"
+      }
+    }
+  ]
+}
+  </script>
 </head>
 <body>
   <a class="skip" href="#indhold">Spring til indhold</a>
@@ -47,7 +105,7 @@
         <div class="hero-copy">
           <p class="eyebrow"><span class="tiny-house">⌂</span> BYGGET TIL DANSKE HJEM</p>
           <h1 id="hero-title">Dit hjem.<br>Lidt mere<br><span>overblik.</span></h1>
-          <p class="hero-description">Elpriser, forbrug og alt det, der hører hjemmet til. Samlet i én app, der gør hverdagen lidt enklere.</p>
+          <p class="hero-description">Elpriser, historisk elforbrug og boligens oplysninger. Samlet i én app til danske hjem, der gør hverdagen lidt enklere.</p>
           <div class="hero-actions"><a class="button" href="#download">Download Huslyg <svg class="icon"><use href="#i-arrow"/></svg></a><a class="text-link" href="#appen">Se hvad du kan <span aria-hidden="true">↘</span></a></div>
           <p class="hero-note"><svg class="icon"><use href="#i-check"/></svg> Ét hjem. Ét samlet overblik.</p>
         </div>
@@ -72,7 +130,7 @@
           <p>Du behøver ikke holde alle hjemmets små detaljer i hovedet. Åbn Huslyg, og få overblikket over det, der betyder noget for dig.</p>
           <ul class="feature-list">
             <li><span class="feature-icon"><svg class="icon"><use href="#i-bolt"/></svg></span><div><h3>Følg dine elpriser</h3><p>Se dagens priser og find de timer, der passer til din hverdag.</p></div></li>
-            <li><span class="feature-icon peach"><svg class="icon"><use href="#i-grid"/></svg></span><div><h3>Forstå dit forbrug</h3><p>Gør historiske målinger til et overskueligt billede af dit hjem.</p></div></li>
+            <li><span class="feature-icon peach"><svg class="icon"><use href="#i-grid"/></svg></span><div><h3>Forstå dit forbrug</h3><p>Se dit historiske elforbrug fra Eloverblik, og få et bedre overblik over dit hjem.</p></div></li>
             <li><span class="feature-icon green"><svg class="icon"><use href="#i-home"/></svg></span><div><h3>Gør overblikket til dit eget</h3><p>Vælg de widgets, du gerne vil møde, når du åbner appen.</p></div></li>
           </ul>
           <a class="text-link" href="#download">Det hele starter i appen <svg class="icon"><use href="#i-arrow"/></svg></a>
@@ -113,8 +171,10 @@
         <details><summary>Hvilke telefoner kan jeg hente appen til?<span aria-hidden="true">+</span></summary><p>Google Play er til Android, og App Store er til iPhone. Du finder de aktuelle muligheder under Hent appen. Tilgængeligheden fremgår ved hver butik. Har du spørgsmål, så kontakt os på <a href="mailto:info@huslyg.dk">info@huslyg.dk</a>.</p></details>
       </div></div></section>
 
+<section id="guides" class="section guide-related" aria-labelledby="guide-title"><div class="container"><div class="section-heading"><p class="eyebrow"><span class="eyebrow-dot"></span>FORSTÅ DIT HJEM</p><h2 id="guide-title">Lidt mere viden.<br>Et bedre overblik.</h2><p>Elpriser, historiske målinger og hjælp til at komme i gang.</p></div><div class="guide-cards"><a class="guide-card" href="/elpriser.html"><span class="eyebrow">ELPRISER · DK1 & DK2</span><h3>Elpriser</h3><p>Se offentliggjorte elpriser for dit prisområde og netselskab. Priserne inkluderer moms, elafgift og relevante nettariffer – uden dit elselskabs tillæg og abonnement.</p><span class="text-link">Læs mere <span aria-hidden="true">↗</span></span></a><a class="guide-card" href="/app-elpriser-forbrug.html"><span class="eyebrow">HUSLYG I LOMMEN</span><h3>App til elpriser og forbrug</h3><p>Huslyg samler elpriser, historisk elforbrug og boligens oplysninger. Her kan du se, hvad du skal kigge efter i en elpris-app, og hvordan Huslyg passer ind.</p><span class="text-link">Læs mere <span aria-hidden="true">↗</span></span></a><a class="guide-card" href="/elforbrug-eloverblik.html"><span class="eyebrow">ELFORBRUG · ELOVERBLIK</span><h3>Historisk elforbrug</h3><p>Med Eloverblik kan du få indsigt i dit målte elforbrug. Læs, hvordan historiske målinger adskiller sig fra elpriser, og hvad en forbindelse til Huslyg kræver.</p><span class="text-link">Læs mere <span aria-hidden="true">↗</span></span></a></div><p style="margin:28px 0 0;text-align:center"><a class="text-link" href="/varmeforbrug.html">Læs også: Forstå dit varmeforbrug <span aria-hidden="true">↗</span></a></p></div></section>
       <section id="download" class="download-section" aria-labelledby="download-title"><div class="container download-grid"><div><p class="eyebrow">DIT HJEM ER KLAR TIL DIG</p><h2 id="download-title">Gør plads til<br>overblikket.</h2><p>Tag Huslyg med hjem. Resten starter i appen.</p></div><div class="download-card"><img src="/landing/icon.svg" alt="Huslyg appikon" width="64" height="64"><div><h3>Hent Huslyg</h3><p>Til dit hjem. På din telefon.</p></div><div class="store-buttons"><!-- HUSLYG_STORE_BUTTONS --><span class="store-badge is-pending" aria-label="App Store — kommer snart"><svg viewBox="0 0 24 28" aria-hidden="true"><path d="M18.4 14.8c0-2.4 1.9-3.6 2-3.7-1.1-1.6-2.8-1.8-3.4-1.8-1.4-.2-2.8.9-3.5.9-.7 0-1.8-.9-3-.9-1.6 0-3.2.9-4 2.3-1.7 2.9-.5 7.1 1.1 9.5.8 1.1 1.7 2.3 2.9 2.3s1.6-.7 3.1-.7c1.4 0 1.8.7 3.1.7s2.1-1.1 2.9-2.2c.9-1.3 1.3-2.6 1.3-2.7-.1 0-2.6-1-2.6-3.7ZM16.1 7.8c.6-.8 1.1-1.8 1-2.9-1 .1-2.2.7-2.9 1.5-.6.7-1.1 1.8-1 2.8 1.1.1 2.2-.5 2.9-1.4Z" fill="currentColor"/></svg><span><small>Kommer snart på</small><strong>App Store</strong></span></span><span class="store-badge is-pending" aria-label="Google Play — kommer snart"><svg viewBox="0 0 24 28" aria-hidden="true"><path d="M2 1v26l14-13L2 1Z" fill="#7DC3BB"/><path d="m2 1 16 9-2 4L2 1Z" fill="#A4CDE8"/><path d="m2 27 16-9-2-4L2 27Z" fill="#E8A9A4"/><path d="m16 14 2-4 5 4-5 4-2-4Z" fill="#EFD994"/></svg><span><small>Kommer snart på</small><strong>Google Play</strong></span></span><!-- /HUSLYG_STORE_BUTTONS --></div><p class="download-note">Android via Google Play · iPhone via App Store</p><p class="installation-note">Dit personlige overblik findes i appen. Her på hjemmesiden kan du lære Huslyg at kende.</p></div></div><span class="download-doodle" aria-hidden="true">✳</span></section>
     </main>
   <footer class="footer"><div class="container"><div class="footer-top"><a class="brand" href="/" aria-label="Huslyg, forsiden"><img src="/landing/icon.svg" alt="" width="34" height="34"><span>huslyg.</span></a><p>Et lille overblik.<br>En rarere hverdag.</p><nav aria-label="Links i sidefod"><a href="/kontakt.html">Kontakt &amp; udgiver</a><a href="/slet-konto.html">Slet din konto</a><a href="/open-source.txt">Open source</a></nav></div><div class="footer-bottom"><span>© 2026 Huslyg · BluePeach · CVR 40876375</span><a href="mailto:info@huslyg.dk">info@huslyg.dk <span aria-hidden="true">↗</span></a><span>Bygget til danske hjem <span aria-hidden="true">⌂</span></span></div></div></footer>
 </body>
 </html>
+

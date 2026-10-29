@@ -11,6 +11,9 @@ if(!output.startsWith(resolve(root,'web-build')+sep))throw Error('Unsafe public-
 await rm(output,{recursive:true,force:true});
 await mkdir(output,{recursive:true});
 await cp(resolve(root,'public'),output,{recursive:true});
+// The canonical price URL is server-rendered by the existing grid function.
+// Do not let a static file shadow its Vercel rewrite. The source template stays bundled.
+await rm(resolve(output,'elpriser.html'),{force:true});
 const downloads=JSON.parse(await readFile(resolve(root,'public','landing','downloads.json'),'utf8'));
 const illustration=await readFile(resolve(root,'public','landing','house.svg'),'utf8');
 const html=(await readFile(resolve(root,'public','landing.html'),'utf8'))
@@ -37,4 +40,5 @@ const hash=createHash('sha256').update(apk).digest('hex');
 if(hash!==expected)throw Error('Public APK differs from the verified existing release; review the download before building');
 await mkdir(dirname(destination),{recursive:true});
 await writeFile(destination,apk);
-console.log(JSON.stringify({output:'web-build/huslyg-public',website:'static landing page; no Expo app bundle',download:{path:'/downloads/Stromblik.apk',version:'1.0.119',bytes:apk.length,sha256:hash},preserved:['public pages','native callback pages','Tesla public key','existing public assets']},null,2));
+console.log(JSON.stringify({output:'web-build/huslyg-public',website:'static marketing pages and server-rendered public prices; no Expo app bundle',download:{path:'/downloads/Stromblik.apk',version:'1.0.119',bytes:apk.length,sha256:hash},preserved:['public pages','native callback pages','Tesla public key','existing public assets']},null,2));
+
